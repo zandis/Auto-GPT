@@ -19,8 +19,9 @@ import json
 import logging
 import os
 import re
-from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor
+from collections import deque
+from collections.abc import Iterable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -63,16 +64,26 @@ def _bundle(resources: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def post_batches(base_url: str, resources: Iterable[dict[str, Any]], workers: int = 4, timeout: float = 600) -> int:
-    batches: list[list[dict[str, Any]]] = []
+def _batches(resources: Iterable[dict[str, Any]]) -> Iterator[list[dict[str, Any]]]:
+    """The resources in batches of :data:`BATCH`, in their order, read as they are asked for."""
     cur: list[dict[str, Any]] = []
     for r in resources:
         cur.append(r)
         if len(cur) == BATCH:
-            batches.append(cur)
+            yield cur
             cur = []
     if cur:
-        batches.append(cur)
+        yield cur
+
+
+def post_batches(base_url: str, resources: Iterable[dict[str, Any]], workers: int = 4, timeout: float = 600) -> int:
+    """POST the resources as transactions of :data:`BATCH`, ``workers`` at a time, and return how many were sent.
+
+    F-44: the resources are read a batch at a time as the posts go, never a whole type at once (one type's file of a
+    50,000-patient night was 504 MB, and the adapter was killed at its memory limit): at most ``workers`` batches are
+    posted at once and one more is read, so ``(workers + 1) * BATCH`` resources are held at most. The batches, their
+    order and their requests are as before. A failed batch fails the load as before (``pool.map``): the first failure
+    in the batches' order is raised, and a batch not yet started is not sent."""
     headers = {"Content-Type": "application/fhir+json"}
 
     def send(batch: list[dict[str, Any]]) -> int:
@@ -82,8 +93,21 @@ def post_batches(base_url: str, resources: Iterable[dict[str, Any]], workers: in
                 raise RuntimeError(f"fhir-store transaction failed ({resp.status_code})")
         return len(batch)
 
+    total = 0
+    posting: deque[Future[int]] = deque()  # in the batches' order; a batch is let go once it is posted
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return sum(pool.map(send, batches))
+        try:
+            for batch in _batches(resources):
+                while len(posting) >= workers:  # the batch just read waits for the oldest post to end
+                    total += posting.popleft().result()
+                posting.append(pool.submit(send, batch))
+            while posting:
+                total += posting.popleft().result()
+        except BaseException:
+            for waiting in posting:  # as ``pool.map`` on a failure: what has not started is not sent
+                waiting.cancel()
+            raise
+    return total
 
 
 def load_snapshot(base_url: str, directory: Path, workers: int = 4, only: dict[str, set[str]] | None = None) -> int:

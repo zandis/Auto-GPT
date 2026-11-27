@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import signal
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -36,6 +37,43 @@ class StepFailed(RuntimeError):
         self.step = step
         self.message = message
         self.detail = detail
+
+
+class KeyedStepFailed(StepFailed):
+    """A step failure said by a catalogue key of ``orchestrator.i18n`` with its values (F-44): the message is the
+    English text, and the job's record and mail say it in the job's language (``core``)."""
+
+    def __init__(self, step: str, key: str, detail: str, **values: str) -> None:
+        from orchestrator import i18n
+
+        super().__init__(step, i18n.t("en", key, **values), detail)
+        self.key = key
+        self.values = values
+
+
+def _ingest_signalled(st: dict[str, Any], rid: str) -> KeyedStepFailed | None:
+    """F-44: an ingest whose process a signal ended, by the number the adapter recorded from the return code
+    (``exit_signal``); None for any other end. SIGKILL (9) adds what usually sends it, the memory limit. The texts
+    are the catalogue's and the values a number and the platform's name for it (the D-557 scan's listed names)."""
+    recorded = st.get("exit_signal")
+    if st.get("state") != "failed" or not isinstance(recorded, int) or isinstance(recorded, bool) or recorded <= 0:
+        return None
+    name = {int(s): s.name for s in signal.Signals}.get(recorded, "unknown")
+    if recorded == signal.SIGKILL:
+        return KeyedStepFailed(
+            "ingest",
+            "ingest.signal_kill",
+            f"adapter run {rid}, signal {recorded} ({name})",
+            number=f"{recorded}",
+            name=f"{name}",
+        )
+    return KeyedStepFailed(
+        "ingest",
+        "ingest.signal",
+        f"adapter run {rid}, signal {recorded} ({name})",
+        number=f"{recorded}",
+        name=f"{name}",
+    )
 
 
 class ParserAPI(Protocol):
@@ -221,6 +259,9 @@ class AdapterHttp:
             raise _step_error(exc, "ingest") from exc
         if st.get("state") == "done":
             return IngestReport.model_validate(st.get("report") or {})
+        signalled = _ingest_signalled(st, rid)  # F-44: by the recorded number, never by the record's words
+        if signalled is not None:
+            raise signalled
         # D-557: the adapter's "failed" detail is an error's type and up to 500 characters of its text (a cast
         # error quotes the value it could not cast); the job's record keeps the type, the adapter's log the rest
         raise StepFailed("ingest", _ingest_ended(st), f"adapter run {rid}")
