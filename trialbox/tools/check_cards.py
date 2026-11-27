@@ -69,8 +69,7 @@ def lake(facts: list[dict[str, Any]]) -> duckdb.DuckDBPyConnection:
         known = {c for c, _ in SCHEMAS[table]} - set(PROVENANCE_COLS)
         if set(row) - known:
             raise FixtureError(f"fact {n}: {table} has no column {', '.join(sorted(set(row) - known))}")
-        names = ", ".join(f'"{c}"' for c in row)
-        con.execute(f"INSERT INTO {table} ({names}) VALUES ({', '.join('?' * len(row))})", list(row.values()))
+        con.table(table).insert([row.get(c) for c, _ in SCHEMAS[table]])  # the row in the table's column order
         if table == "observation" and ("ref_high" in fact or "ref_low" in fact):
             con.execute("INSERT INTO tb_record VALUES ('measurement', ?, ?, 0, 'coded')", [n, row.get("oid")])
             con.execute(
