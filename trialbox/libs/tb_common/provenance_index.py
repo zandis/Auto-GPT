@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -197,27 +196,42 @@ def add(con: Any, rec: dict[str, Any], erased: Callable[[str], bool] = lambda _p
     return len(calls) + len(uses)
 
 
-def catch_up(con: Any, directory: Path, after: datetime) -> int:
-    """P-19: write the rows of the chain's lines that came from journal rows newer than ``after`` (a line written
-    twice is a no-op); the rows the lines give. The drain runs it when it finds the database put back to an older
-    point (an update's downgrade or rollback, a restore): ``after`` is then the newest journal row the database
-    still holds, and the lines drained after it are exactly the ones whose index rows went back with the tables.
+#: the console's record of an opt-out: the pseudonym under ``detail`` (``services/console/team.py``). The chain keeps
+#: it when a downgrade puts the register back to a point before it (P19-04)
+OPT_OUT = "console.opt_out"
+#: the drain's record that it found the database put back to an older point (``audit_writer.Drain.open``)
+RESYNC = "audit.journal_resync"
 
-    Lines from older journal rows are never written here: their rows are in the index, or were taken out at an
-    opt-out, and only ``trialbox provenance --rebuild`` reads the register that says which. The whole chain is read
-    (a day file is named by its events' own time, not the journal's); it runs only after such a put-back."""
-    n = 0
+
+def catch_up(con: Any, directory: Path) -> int:
+    """P-19: write the rows of the chain's lines that the database lost when it was put back to an older point (an
+    update's downgrade or rollback, a restore); the rows the lines give. A line written twice is a no-op.
+
+    The lost lines are the ones after the newest line the index still holds and before the chain's last
+    ``audit.journal_resync``: the index is written in chain order, and lines after the resync are written as they
+    are drained. So neither the journal's times nor a row journaled before the dump and drained after it can move
+    the point (review P19-R2, R3, R5), and a catch-up cut part way is done again from where it stopped (R4).
+
+    A patient's use rows are not written when the chain holds an opt-out of the patient (R1): the register went back
+    with the database and the drain's role cannot read it anyway. Lines older than that point are never written
+    here: their rows are in the index, or were taken out at an opt-out, and only ``trialbox provenance --rebuild``
+    reads the register that says which."""
+    have = {str(r[0]) for t in TABLES for r in con.execute(_KEYS[t]).fetchall()}  # ponytail: in memory, as check()
+    todo: list[dict[str, Any]] = []
+    lost: list[dict[str, Any]] = []
+    gone: set[str] = set()
     for rec in chain_records(directory):
-        j = rec.get("journal")
-        if not isinstance(j, dict):
-            continue
-        try:
-            at = datetime.fromisoformat(str(j.get("at") or ""))
-        except ValueError:
-            continue
-        if at.tzinfo is not None and at > after:
-            n += add(con, rec)
-    return n
+        event, detail = rec.get("event"), rec.get("detail")
+        if event == OPT_OUT and isinstance(detail, dict) and detail.get("action") == "opt_out" and detail.get("pid"):
+            # ponytail: a later lift is not read; the row stays out and the check names it until a rebuild
+            gone.add(str(detail["pid"]))
+        if event == RESYNC:
+            lost = list(todo)
+        elif str(rec.get("hash") or "") in have:
+            todo = []
+        elif any(rows_of(rec)):
+            todo.append(rec)
+    return sum(add(con, rec, gone.__contains__) for rec in lost)
 
 
 def rebuild(con: Any, directory: Path, erased: Iterable[str] = ()) -> tuple[int, int]:

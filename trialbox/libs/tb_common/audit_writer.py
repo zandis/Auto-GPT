@@ -418,6 +418,7 @@ class Drain:
     """Copies the journal into the chain in ``directory``, in ``seq`` order; the only writer of the chain on a box."""
 
     BATCH = 500
+    RETRY = 60.0  # P-19: seconds before a catch-up that failed is tried again (it reads the whole chain)
 
     def __init__(self, url: str, directory: Path, tz: str, *, connect: Callable[[], Any] | None = None):
         self.chain = AuditLog(directory, tz)
@@ -428,11 +429,15 @@ class Drain:
         self.cursor: Cursor | None = None
         self._after: str | None = None  # after a resync: the next batch is the rows inserted after this time
         self.index = False  # D-989 step 2c: write the provenance index as the chain is written (when installed)
+        self._recover = False  # P-19: the index lines the database lost at a resync are still to be written
+        self._retry = 0.0  # P-19: the monotonic time from which a failed catch-up is tried again
 
     def open(self) -> None:
         self.con = self._connect()
         self.con.execute(f"LISTEN {NOTIFY}")
         self.index = self._index_installed()
+        if not self.index:  # said once: the drain asks again before each batch (P-19)
+            log.info("provenance index not installed: the chain is written without it")
         self.cursor = last_drained(self.directory)
         if self.cursor is None:
             return
@@ -451,9 +456,8 @@ class Drain:
                                   "problem": problem})  # fmt: skip
         self._after = self.cursor.at
         if self.index:  # P-19: the index went back with the database; the chain kept the lines drained since
-            last = self.con.execute("SELECT max(at) FROM audit.journal").fetchone()[0]
-            if isinstance(last, datetime):
-                self._catch_up(last)
+            self._recover = True
+            self._catch_up()
 
     def _index_installed(self) -> bool:
         """Whether the provenance index's tables are there (the role script creates them, D-989 step 2c). Without
@@ -464,22 +468,22 @@ class Drain:
             ok = provenance_index.installed(self.con)
         except Exception:  # an index that cannot be read never stops the drain
             ok = False
-        if not ok:
-            log.info("provenance index not installed: the chain is written without it")
         return ok
 
-    def _catch_up(self, after: datetime) -> None:
-        """P-19: the index's rows of the chain's lines drained from journal rows newer than ``after``, the newest
-        row a database put back to an older point still holds (``provenance_index.catch_up``). Logged, never
-        raised: the doctor's check names a gap."""
+    def _catch_up(self) -> None:
+        """P-19: the index's rows of the chain's lines the database lost when it was put back to an older point
+        (``provenance_index.catch_up``). Never raised: a failure is logged and stays pending, and ``step`` tries it
+        again after :attr:`RETRY` seconds until it is done (review P19-R4)."""
         from tb_common import provenance_index
 
         try:
-            n = provenance_index.catch_up(self.con, self.directory, after)
+            n = provenance_index.catch_up(self.con, self.directory)
         except Exception as exc:
-            log.error("provenance index: the chain's newer lines were not written (%s); run trialbox provenance "
-                      "--rebuild", type(exc).__name__)  # fmt: skip
+            self._retry = time.monotonic() + self.RETRY
+            log.error("provenance index: the lines the database lost were not all written (%s); tried again in "
+                      "%.0f s", type(exc).__name__, self.RETRY)  # fmt: skip
             return
+        self._recover = False
         if n:
             log.info("provenance index: %d row(s) of the chain's newer lines written", n)
 
@@ -512,6 +516,8 @@ class Drain:
         rows = self._rows()
         if rows and not self.index:  # P-19: tables made after the drain started are written from the next line on
             self.index = self._index_installed()
+        if self._recover and time.monotonic() >= self._retry:
+            self._catch_up()
         for seq, at, role, event, ts, fields in rows:
             f, stamp, problem = _readable(at, ts, fields)
             journal: dict[str, Any] = {"seq": int(seq), "role": role, "at": _iso(at)}
