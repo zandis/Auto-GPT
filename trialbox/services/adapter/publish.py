@@ -23,13 +23,16 @@ back too); if that fails, the publish says so and its ``fhir`` step stays ``fail
 (dual write, where it is on) is the one store that can be a night ahead until the publish is resumed: it never moves
 back (D-339).
 
-**The FHIR store's state is one box-level file** (E2E P-03): ``<lake>/FHIR_STATE`` (``clean``, ``loading``,
-``rollback-required``, ``restoring``), moved only under ``<lake>/fhir.lock`` (an exclusive ``flock`` the kernel drops
-with its process: a held lock is a live owner, a ``loading`` or ``restoring`` found under it was abandoned). A process
-killed inside the FHIR load (an out-of-memory kill, a power cut: no handler runs) leaves it ``loading``; the next
-publish or ingest puts the store back to the served night before it touches any store (:func:`restore_fhir`), and it
-becomes ``clean`` only after a put-back whose check against the store passed (:func:`verify_fhir`). While it cannot
-be, nothing is published (:class:`FhirRestoreOutstanding`).
+**The FHIR store's intent is one box-level file** (E2E P-03): ``<lake>/FHIR_STATE`` holds what the store was last
+told to become (a night and its NDJSON's fingerprint, or nothing) and whether it was checked to be that since
+(``verified``); it is written only under ``<lake>/fhir.lock`` (an exclusive ``flock`` the kernel drops with its
+process: a held lock is a live owner). "Clean" is never stored: it is derived at every read (:func:`derive`) from the
+intent and what the lake serves (``CURRENT`` and the served folder's fingerprint), so anything that moves ``CURRENT``
+or the served folder (a killed load, a lake build that outlived its publisher, a backup restore) leaves the store
+owed by arithmetic. An owed store is put back to the served night before any store is touched (:func:`restore`), and
+is clean again only once a put-back was checked against the store (:func:`settle`). While it cannot be, nothing is
+published (:class:`FhirRestoreOutstanding`). The FHIR store and the lake are published together or not at all
+(:func:`refuse_split`).
 
 **What the lake serves is read, not remembered.** ``Published.promoted`` is ``CURRENT == night`` on every way out,
 so a publish that failed after the promotion (the pid map's step, an answer of the lake that was lost) never says
@@ -69,11 +72,11 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn
 
 from tb_contracts import RebuildResult
 
-from adapter.load_fhir import finish_load, sync_snapshot
+from adapter.load_fhir import LedgerError, finish_load, snapshot_ids, sync_snapshot
 from adapter.ndjson import snapshot_dir
 
 if TYPE_CHECKING:
@@ -88,10 +91,8 @@ LOADING = "loading"  # the FHIR load began and its end is not recorded yet: a ki
 STALE = "stale"  # a newer night is served: this one is not published (the box never moves back in time)
 ENDED = (DONE, SKIPPED)
 BUSY_ERROR = "lake busy: the night is run again once the lake is free (nothing was written)"
-FHIR_STATE = "FHIR_STATE"  # beside CURRENT: the FHIR store's state (P-03); never in a night's folder
-FHIR_LOCK = "fhir.lock"  # beside CURRENT: held across every FHIR write and every move of FHIR_STATE
-FHIR_OWED = "FHIR_OWED"  # beside FHIR_STATE: every id a put-back owes a DELETE of, kept until one verified (D4)
-CLEAN, ROLLBACK, RESTORING = "clean", "rollback-required", "restoring"
+FHIR_STATE = "FHIR_STATE"  # beside CURRENT: the FHIR store's intent (P-03); never in a night's folder
+FHIR_LOCK = "fhir.lock"  # beside CURRENT: held across every FHIR write and every write of FHIR_STATE
 FHIR_BUSY_ERROR = "fhir store busy: another publish or recovery holds it (nothing was written)"
 _PROCESS_START = datetime.now(UTC).isoformat(timespec="seconds")  # diagnostic only (FHIR_STATE ``by``)
 
@@ -110,6 +111,10 @@ class FhirRestoreOutstanding(RuntimeError):
 
 class FhirMismatch(RuntimeError):
     """The FHIR store does not hold the night it was checked against (or did not answer the check)."""
+
+
+class NightRefused(RuntimeError):
+    """The night is refused before any step (:func:`refuse_split`): nothing is read, loaded or promoted."""
 
 
 @dataclass
@@ -212,8 +217,11 @@ def _fhir_put_back(cfg: AdapterConfig, folder: Path) -> tuple[int, int]:
     broken load changed (second review, H3): every resource is loaded."""
     assert cfg.fhir_base_url is not None
     # ``back``: the generation ledger (D-491) holds the broken load's night as "building"; going back to the served
-    # night over it is a put-back, not an older build (found when T-723 and T-725 met on train 4)
-    return sync_snapshot(cfg.fhir_base_url, folder, cfg.lake_dir / "fhir_ledger", None, full=True, back=True)
+    # night over it is a put-back, not an older build (found when T-723 and T-725 met on train 4). ``finish`` False:
+    # the ledgers move in :func:`settle`, once the store was checked
+    return sync_snapshot(
+        cfg.fhir_base_url, folder, cfg.lake_dir / "fhir_ledger", None, full=True, back=True, finish=False
+    )
 
 
 def recover(cfg: AdapterConfig, snap: str) -> str:
@@ -226,8 +234,7 @@ def recover(cfg: AdapterConfig, snap: str) -> str:
       is served, so the folder stays and only the leftover goes;
     * ``"back"``: the served folder is put back, the re-run goes back beside it (unless a later re-run is already
       there: then the killed one is dropped). The FHIR store, which the killed run had loaded with the re-run, is
-      put back after this by :func:`restore_fhir` (review N3: the swap first, so it goes back to the served
-      folder)."""
+      put back after this by :func:`restore` (review N3: the swap first, so it goes back to the served folder)."""
     from lake.store import building
 
     from adapter.pipeline import RERUN_DIR
@@ -263,21 +270,18 @@ def _recover(cfg: AdapterConfig, snap: str, aside: Path) -> str:
             shutil.rmtree(final_dir)
         else:
             final_dir.rename(rerun_dir)
+        _checkpoint("served folder renamed aside")  # review F5: a kill here leaves no served folder on disk
     aside.rename(final_dir)
     _checkpoint("served folder put back")
     log.warning("publish of %s was interrupted in its lake step: the served folder is put back", snap)
-    if steps.get("fhir") == DONE and cfg.fhir_base_url and rerun_dir.is_dir() and read_record(rerun_dir):
-        again = read_record(rerun_dir)
-        again["steps"] = {**again.get("steps", {}), "fhir": PENDING}
-        _write_record(rerun_dir, again)
     return "back"
 
 
 def recover_all(cfg: AdapterConfig) -> list[str]:
-    """:func:`recover` for every night a killed re-run left swapped, then (with a FHIR endpoint) :func:`restore_fhir`,
+    """:func:`recover` for every night a killed re-run left swapped, then (with a FHIR endpoint) :func:`restore`,
     under ``fhir.lock`` (another live holder: :class:`RecoveryBusy`). Called before a publish and before an ingest
-    touches any store. A put-back that is owed and fails raises :class:`FhirRestoreOutstanding`. Returns the nights
-    swapped back; the FHIR store's state is in ``FHIR_STATE``."""
+    touches any store. A put-back that is owed and fails raises :class:`FhirRestoreOutstanding`; a lake build of the
+    night the store was loaded with that still runs, ``SnapshotBuilding``. Returns the nights swapped back."""
     with fhir_lock(cfg, wait=False):
         return _recover_all(cfg)
 
@@ -290,39 +294,85 @@ def _recover_all(cfg: AdapterConfig) -> list[str]:
     swapped = sorted(home.glob("*.replaced")) if home.is_dir() else []
     done = [p.name[: -len(".replaced")] for p in swapped if recover(cfg, p.name[:-9])]
     if cfg.fhir_base_url:
-        _first_verify(cfg)
-        restore_fhir(cfg)
+        restore(cfg)
     return done
 
 
-# ------------------------------------------------------------------------------- the FHIR store's state (P-03)
-def read_state(cfg: AdapterConfig) -> dict[str, Any]:
-    """``FHIR_STATE``. No file and a loader that never sent this box a resource (it widens its ledger before it
-    sends: no ledger, none sent): ``clean`` with the served night and ``counts`` None. No file beside a ledger (a box
-    from before the file, never checked: :func:`_first_verify` puts it back once), a file that cannot be read or one
-    without its state or night: ``rollback-required`` (review D3: what is not known is never clean)."""
-    path = cfg.lake_dir / FHIR_STATE
-    served = _current(cfg.lake_dir) or ""
-    reason = f"{FHIR_STATE} cannot be read"
+# ------------------------------------------------------------------------------- the FHIR store's intent (P-03)
+class Derived(NamedTuple):
+    """:func:`derive`'s answer. ``reason``: why the store is owed ("" when clean)."""
+
+    clean: bool
+    intent: dict[str, Any]
+    served: str | None
+    served_fp: str
+    reason: str
+
+
+def read_intent(cfg: AdapterConfig) -> dict[str, Any] | None:
+    """``FHIR_STATE``: ``want`` (the night the store was told to hold, "" for nothing), ``fingerprint`` (that night's
+    NDJSON as loaded), ``verified`` (the store was checked to be that after its last write), ``reason`` and
+    ``attempts`` (why and how often it is still not), ``undoing`` (the night whose load a put-back undoes) and
+    ``by``/``updated_at`` (diagnostic only; ``undoing`` only words a refusal). None: no file. A file that cannot be
+    read, or one of an earlier version (a box from before this record, any shape): never checked, so owed."""
     try:
-        st = json.loads(path.read_text(encoding="utf-8"))
+        st = json.loads((cfg.lake_dir / FHIR_STATE).read_text(encoding="utf-8"))
     except FileNotFoundError:
-        if not _ledger_types(cfg):
-            return {"version": 1, "state": CLEAN, "night": served, "counts": None}
-        st, reason = None, f"no {FHIR_STATE} yet: the store was never checked on this box"
+        return None
     except (OSError, ValueError):
         st = None
-    known = (CLEAN, LOADING, ROLLBACK, RESTORING)
-    if not isinstance(st, dict) or st.get("state") not in known or not isinstance(st.get("night"), str):
-        return {"version": 1, "state": ROLLBACK, "night": served, "target": served, "attempts": 0,
-                "reason": reason, "since": _now(), "last_error_at": _now()}  # fmt: skip
+    if (
+        not isinstance(st, dict)
+        or st.get("version") != 2
+        or not isinstance(st.get("want"), str)
+        or not isinstance(st.get("fingerprint"), str)
+        or not isinstance(st.get("verified"), bool)
+    ):
+        return {"version": 2, "want": "", "fingerprint": "", "verified": False, "attempts": 0,
+                "reason": f"{FHIR_STATE} is not this version's: the store was never checked on this box"}  # fmt: skip
     return st
 
 
-def _write_state(cfg: AdapterConfig, st: dict[str, Any]) -> dict[str, Any]:
+def _served_fp(cfg: AdapterConfig, served: str | None) -> str:
+    """The served folder's fingerprint, from its record (the publish writes it); a folder without one is hashed."""
+    folder = snapshot_dir(cfg.lake_dir, served) if served else None
+    if folder is None or not folder.is_dir():
+        return ""
+    return str(read_record(folder).get("fingerprint") or "") or fingerprint(folder)
+
+
+def derive(cfg: AdapterConfig) -> Derived:
+    """Whether the FHIR store is clean, derived at every read (never stored): the intent was checked, names the night
+    ``CURRENT`` serves (or nothing when none is) and, for a night, the served folder's fingerprint. No file and no
+    id ledger: nothing was ever sent (the loader widens its ledger before it sends), so the store held nothing,
+    checked. No file beside a ledger (a box from before the file): owed, put back once (reviews D2, D3)."""
+    served = _current(cfg.lake_dir)
+    fp = _served_fp(cfg, served)
+    intent = read_intent(cfg)
+    if intent is None:
+        intent = {"want": "", "fingerprint": "", "verified": True} if not _ledger_types(cfg) else {
+            "want": "", "fingerprint": "", "verified": False, "attempts": 0,
+            "reason": f"never checked on this box (no {FHIR_STATE} beside the loader's ledger)"}  # fmt: skip
+    want = intent["want"]
+    if not intent["verified"]:
+        why = str(intent.get("reason") or "not checked")
+    elif want != (served or ""):
+        why = f"CURRENT moved: the store was checked for {want or 'nothing'}, the lake serves {served or 'nothing'}"
+    elif want and intent["fingerprint"] != fp:
+        why = f"the served folder of {want} is not the NDJSON the store was checked for"
+    else:
+        why = ""
+    return Derived(not why, intent, served, fp, why)
+
+
+def _write_intent(cfg: AdapterConfig, intent: dict[str, Any]) -> dict[str, Any]:
     """Write ``FHIR_STATE`` atomically and durably (the file, then the folder, are synced). The caller holds
-    ``fhir.lock``."""
-    st = {**st, "version": 1, "updated_at": _now()}
+    ``fhir.lock``. Its writes: the publish's FHIR step begins (W1), a put-back begins (W2), a check passed (W3, the
+    only ``verified`` True), and a W1 or W2 that is still owed says why (``reason``, ``attempts``)."""
+    st = {"version": 2, "want": str(intent["want"]), "fingerprint": str(intent["fingerprint"]),
+          "verified": bool(intent.get("verified")), "reason": str(intent.get("reason") or ""),
+          "attempts": int(intent.get("attempts") or 0), "undoing": str(intent.get("undoing") or ""),
+          "by": _me(), "updated_at": _now()}  # fmt: skip
     _durable(cfg.lake_dir / FHIR_STATE, json.dumps(st, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
     return st
 
@@ -331,28 +381,12 @@ def _me() -> dict[str, Any]:
     return {"pid": os.getpid(), "start": _PROCESS_START, "host": socket.gethostname()}
 
 
-def _rollback(cfg: AdapterConfig, st: dict[str, Any], reason: str, *, failed: bool = False,
-              night: str | None = None, target: str | None = None) -> dict[str, Any]:  # fmt: skip
-    """``rollback-required``: the store is not known to equal ``target``. ``failed``: a put-back failed
-    (``attempts`` + 1)."""
-    owed = st.get("state") in (ROLLBACK, RESTORING)
-    return _write_state(cfg, {
-        "state": ROLLBACK,
-        "night": st.get("night", "") if night is None else night,
-        "target": st.get("target", _current(cfg.lake_dir) or "") if target is None else target,
-        "reason": reason,
-        "attempts": int(st.get("attempts") or 0) + (1 if failed else 0),
-        "since": st.get("since") if owed and st.get("since") else _now(),
-        "last_error_at": _now(),
-    })  # fmt: skip
-
-
-def outstanding(st: dict[str, Any]) -> str:
+def outstanding(intent: dict[str, Any]) -> str:
     """The words of an owed put-back (``fhir_restore_outstanding: ...``)."""
-    target = st.get("target") or "nothing (no night served)"
+    target = intent.get("want") or "nothing (no night served)"
     return (f"fhir_restore_outstanding: the FHIR store is not back to {target} after the load of "
-            f"{st.get('night') or 'an earlier night'} ({st.get('reason')}; attempt {int(st.get('attempts') or 0)}); "
-            "nothing is published until it is")  # fmt: skip
+            f"{intent.get('undoing') or 'an earlier night'} ({intent.get('reason')}; attempt "
+            f"{int(intent.get('attempts') or 0)}); nothing is published until it is")  # fmt: skip
 
 
 @contextlib.contextmanager
@@ -383,7 +417,7 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     """Check that the FHIR store holds ``folder``: per resourceType, the store's count (``_summary=count``) is the
     number of resources in the folder's NDJSON (0 for every type the folder lacks: an empty folder is "the store
     holds none of this box's resources"); with ``ids``, the store's ids (paged ``_elements=id``) hash to the
-    folder's. The types: the folder's, the ledger's and ``also`` (the ledger's before a put-back rewrote it). The
+    folder's. The types: the folder's, the ledger's (which keeps every id until a check passed) and ``also``. The
     loader is the only writer of these types (the terminology tools write terminology resources), so the store's
     count of a type is this box's. Returns the counts; :class:`FhirMismatch` names what differs (types and counts,
     no resource's content). A store that does not answer raises the transport's error: not checked is not a
@@ -392,7 +426,7 @@ def verify_fhir(cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: It
     search's results for a while, so a count asked right after a put-back could be the one from before it)."""
     import httpx
 
-    from adapter.load_fhir import delete_refs, snapshot_ids
+    from adapter.load_fhir import delete_refs
 
     assert cfg.fhir_base_url is not None
     base = cfg.fhir_base_url.rstrip("/")
@@ -432,106 +466,102 @@ def _ids_hash(ids: Iterable[str]) -> str:
     return hashlib.sha256("\n".join(sorted(ids)).encode("utf-8")).hexdigest()
 
 
-def _first_verify(cfg: AdapterConfig) -> None:
-    """A box from before ``FHIR_STATE`` (no file): the store is checked once against the served night, ids
-    included, and then put back to it (``rollback-required``; :func:`restore_fhir` follows), whatever the check
-    said: ids that match are not values that match (review D2: a load of the earlier version that was interrupted
-    may have changed a resource under an id the night has; a put-back of every resource is cheaper than reading each
-    back), and a check without an answer is no check (review D3). Only a check that passed on a box whose loader
-    never sent it a resource (no ledger: it widens the ledger before it sends) is ``clean`` at once. The check's
-    words are the reason. The caller holds ``fhir.lock``."""
-    if (cfg.lake_dir / FHIR_STATE).exists():
-        return
-    served = _current(cfg.lake_dir) or ""
-    if not served and not _ledger_types(cfg):  # nothing served, nothing ever sent: the empty baseline, by construction
-        _write_state(cfg, {"state": CLEAN, "night": "", "verified_at": _now(), "counts": {}})
-        return
-    st: dict[str, Any] = {"night": served, "target": served}
-    folder = snapshot_dir(cfg.lake_dir, served) if served else _empty_night(cfg)
-    if served and not folder.is_dir():
-        _rollback(cfg, st, "served night folder missing")
-        return
-    try:
-        counts = verify_fhir(cfg, folder, ids=True)
-    except FhirMismatch as exc:
-        why = f"first check of the store: {exc}"
-    except Exception as exc:
-        why = f"first check of the store got no answer ({type(exc).__name__})"
-    else:
-        if not _ledger_types(cfg):
-            _write_state(cfg, {"state": CLEAN, "night": served, "verified_at": _now(), "counts": counts})
-            return
-        why = "first check of the store: its ids are the served night's, its values are not compared: put back once"
-    _rollback(cfg, st, why)
+def _still_owed(cfg: AdapterConfig, intent: dict[str, Any], why: str, cause: BaseException | None) -> NoReturn:
+    """A put-back or a check that did not end well: the intent says why (``attempts`` + 1) and stays unverified;
+    :class:`FhirRestoreOutstanding`. A write that fails here leaves the file unverified as it was: owed either way."""
+    intent = {**intent, "verified": False, "reason": why, "attempts": int(intent.get("attempts") or 0) + 1}
+    with contextlib.suppress(OSError):
+        intent = _write_intent(cfg, intent)
+    log.error("%s", outstanding(intent))
+    raise FhirRestoreOutstanding(outstanding(intent)) from cause
 
 
-def restore_fhir(cfg: AdapterConfig) -> None:
-    """Put the FHIR store back to the night the lake serves (with none served, to nothing) when ``FHIR_STATE`` is
-    not ``clean``: every resource of the night again and every other id the ledger knows deleted
-    (:func:`_fhir_put_back`), then :func:`verify_fhir` with ids; only then ``clean``, and the records of the nights
-    whose load was undone say ``fhir: pending``. A put-back that fails or does not verify: ``rollback-required``
-    (``attempts`` + 1) and :class:`FhirRestoreOutstanding`. The caller holds ``fhir.lock``: a ``loading`` or
-    ``restoring`` found here was abandoned (its owner would hold the lock)."""
+def _words(exc: BaseException) -> str:
+    """A mismatch's or the generation ledger's words are types, counts and nights; any other error's text is not
+    kept (D-668)."""
     from adapter import failure
-    from adapter.pipeline import RERUN_DIR
 
-    st = read_state(cfg)
-    if st["state"] == CLEAN:
-        return
-    if st["state"] == LOADING:
-        st = _rollback(cfg, st, "the load did not end (its process is gone)")
-    served = _current(cfg.lake_dir)  # read under the lock, not before (review R1)
-    target = snapshot_dir(cfg.lake_dir, served) if served else _empty_night(cfg)
-    if served and not target.is_dir():
-        st = _rollback(cfg, st, "served night folder missing", target=served)
-        raise FhirRestoreOutstanding(outstanding(st))
-    st = _write_state(cfg, {**st, "state": RESTORING, "target": served or "", "by": _me()})
+    return str(exc) if isinstance(exc, (FhirMismatch, LedgerError)) else failure.words(exc)
+
+
+def settle(cfg: AdapterConfig, intent: dict[str, Any], folder: Path, *, ids: bool) -> None:
+    """The store was just made to hold ``folder`` (the intent's ``want``; W1 or W2 is on disk): check it
+    (:func:`verify_fhir`, with ``ids`` after a put-back), shrink the id ledger to it and finish its load in the
+    generation ledger (:func:`load_fhir.finish_load`), then write ``verified`` (W3). The one way to clean, for the
+    publish and the put-back alike (reviews F3, E2). Anything that fails or does not answer: still owed
+    (:class:`FhirRestoreOutstanding`). The caller holds ``fhir.lock``."""
     try:
-        also = _owe(cfg)  # review D4: what the put-back owes a DELETE of is on disk before the first DELETE
-        _fhir_put_back(cfg, target)
-        _checkpoint("FHIR store put back")
-        counts = verify_fhir(cfg, target, ids=True, also=also)
-    except Exception as exc:  # a mismatch's words are types and counts; any other error's text is not kept
-        st = _rollback(cfg, st, str(exc) if isinstance(exc, FhirMismatch) else failure.words(exc), failed=True)
-        log.error("%s", outstanding(st))
-        raise FhirRestoreOutstanding(outstanding(st)) from exc
-    # review D1: the records of the nights whose load was undone first, the marker last, so a kill between leaves
-    # it owed. Every night not served whose FHIR step was loaded (review D1 of the second reviewer: a night whose
-    # lake step was skipped too, it is not served)
-    home = snapshot_dir(cfg.lake_dir, "-").parent
-    for f in sorted(f for f in [*home.glob("*"), *(cfg.lake_dir / RERUN_DIR).glob("*")] if f.is_dir()):
-        rec = read_record(f)
-        steps = rec.get("steps") or {}
-        if steps.get("fhir") in (LOADING, DONE, FAILED) and steps.get("lake") != DONE:
-            rec["steps"] = {**steps, "fhir": PENDING}
-            _write_record(f, rec)
-    _write_state(cfg, {"state": CLEAN, "night": served or "", "verified_at": _now(), "counts": counts})
-    (cfg.lake_dir / FHIR_OWED).unlink(missing_ok=True)
-    _checkpoint(f"{FHIR_OWED} removed")
+        verify_fhir(cfg, folder, ids=ids)
+        finish_load(str(intent["want"]), cfg.lake_dir / "fhir_ledger", snapshot_ids(folder))
+        _checkpoint("generation ledger finished")
+        _write_intent(cfg, {**intent, "verified": True, "reason": "", "attempts": 0})
+    except Exception as exc:
+        _still_owed(cfg, intent, _words(exc), exc)
+
+
+def restore(cfg: AdapterConfig, reason: str = "") -> None:
+    """Put the FHIR store back to the night the lake serves (with none served, to nothing) when it is owed
+    (:func:`derive`): every resource of the served folder again and every other id the ledger knows deleted
+    (:func:`_fhir_put_back`), then :func:`settle` with ids. The target is always read from ``CURRENT``, never from
+    the intent. While a lake build of the night the store was loaded with still runs (a killed publisher's build:
+    review E1), ``SnapshotBuilding``, the intent untouched: the build's lock is held for the put-back, so it never
+    promotes under it. ``reason``: the caller's words (the publish's). The caller holds ``fhir.lock``."""
+    from lake.store import building
+
+    d = derive(cfg)
+    if d.clean:
+        return
+    with contextlib.ExitStack() as held:
+        if d.intent["want"] and d.intent["want"] != (d.served or ""):
+            held.enter_context(building(cfg.lake_dir, d.intent["want"]))
+            d = derive(cfg)  # CURRENT read again under the build's lock: the build may have promoted before it
+        prior, served = d.intent, d.served
+        moved = (prior["want"], prior["fingerprint"]) != (served or "", d.served_fp)
+        intent = {"want": served or "", "fingerprint": d.served_fp, "verified": False, "reason": reason or d.reason,
+                  "attempts": int(prior.get("attempts") or 0),
+                  "undoing": prior["want"] if moved and prior["want"] else prior.get("undoing", "")}  # fmt: skip
+        try:
+            intent = _write_intent(cfg, intent)  # W2, before the put-back's first store write
+            target = snapshot_dir(cfg.lake_dir, served) if served else _empty_night(cfg)
+            if served and not target.is_dir():
+                _still_owed(cfg, intent, "served night folder missing", None)
+            _fhir_put_back(cfg, target)
+            _checkpoint("FHIR store put back")
+        except FhirRestoreOutstanding:
+            raise
+        except Exception as exc:
+            _still_owed(cfg, intent, _words(exc), exc)
+        settle(cfg, intent, target, ids=True)
     log.warning("the FHIR store is back to %s (after the load of %s)",
                 f"the served night {served}" if served else "nothing (no night is served yet)",
-                st.get("night") or "an earlier night")  # fmt: skip
+                intent.get("undoing") or "an earlier night")  # fmt: skip
 
 
-def _owe(cfg: AdapterConfig) -> set[str]:
-    """``FHIR_OWED``: every id the ledger knows now, with those an earlier put-back owed and did not verify, synced
-    to disk; the ledger is widened with them, so the put-back deletes each one the served night lacks. A put-back
-    rewrites the ledger to the night it loaded, so without this a DELETE the store answered and did not do is
-    never sent again, and a type the night lacks is not even checked (review D4). Returns the owed types (the
-    check covers them all). Removed once a put-back verified."""
-    from adapter.load_fhir import _read_ledger, _write_ledger
+def _fhir_on(cfg: AdapterConfig, load_fhir: bool) -> bool:
+    return bool(load_fhir and cfg.fhir_base_url)
 
-    ledger = cfg.lake_dir / "fhir_ledger"
-    known = _read_ledger(ledger)
-    path = cfg.lake_dir / FHIR_OWED
-    owed: dict[str, list[str]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    for t, ids in owed.items():
-        rows = known.setdefault(t, {})
-        for i in ids:
-            rows.setdefault(i, "")
-    _durable(path, json.dumps({t: sorted(r) for t, r in sorted(known.items())}) + "\n")
-    _write_ledger(ledger, known)
-    return set(known)
+
+def _lake_on(cfg: AdapterConfig, rebuild_lake: bool) -> bool:
+    return bool(rebuild_lake and (cfg.rebuild is not None or (cfg.build is not None and cfg.promote is not None)))
+
+
+def refuse_split(cfg: AdapterConfig, *, load_fhir: bool, rebuild_lake: bool) -> None:
+    """The FHIR store and the lake are published together or not at all (review F1): a night that would move one
+    and not the other is refused before any step (:class:`NightRefused`). Only a box that never had a FHIR store
+    (no endpoint, no ``FHIR_STATE``, no id ledger) publishes its lake alone. So no FHIR endpoint, or ``load_fhir``
+    off, on a box whose store holds a night refuses until the endpoint is back; a FHIR store without a lake step is
+    refused too (a FHIR-only box is not supported)."""
+    fhir_on, lake_on = _fhir_on(cfg, load_fhir), _lake_on(cfg, rebuild_lake)
+    if fhir_on == lake_on:
+        return
+    intent = read_intent(cfg)
+    if not cfg.fhir_base_url and intent is None and not _ledger_types(cfg):
+        return
+    holds = (intent or {}).get("want") or ("nothing" if intent is not None else "what its ledger lists")
+    raise NightRefused(
+        f"the FHIR store and the lake are published together or not at all (fhir {'on' if fhir_on else 'off'}, "
+        f"lake {'on' if lake_on else 'off'}; the store holds {holds})"
+    )
 
 
 def _empty_night(cfg: AdapterConfig) -> Path:
@@ -656,22 +686,30 @@ def _publish_locked(
     from adapter.pipeline import PASSED, REFUSALS, RERUN_DIR
 
     final_dir = snapshot_dir(cfg.lake_dir, snap)
+
+    def end() -> Published:
+        """Every way out: what the lake serves is read from ``CURRENT`` (second review, H1; review F6)."""
+        out.promoted = _current(cfg.lake_dir) == snap
+        return out
+
     try:
         _recover_all(cfg)
-    except SnapshotBuilding as exc:  # a killed re-run's lake build still runs: nothing is read or moved
+    except SnapshotBuilding as exc:  # a killed publisher's lake build still runs: nothing is read or moved
         out.steps = {s: PENDING for s in STEPS}
         out.lake_busy = True
         out.errors += [f"lake rebuild failed: {exc}", BUSY_ERROR]
-        return out
+        return end()
     except FhirRestoreOutstanding as exc:  # review R5: before any store is touched
         out.steps = {s: PENDING for s in STEPS}
         out.errors = [str(exc)]
         out.fhir_outstanding = str(exc)
-        out.promoted = _current(cfg.lake_dir) == snap
-        return out
-    if not cfg.fhir_base_url and (st := read_state(cfg))["state"] != CLEAN:  # review R3: the marker stays, said
-        out.fhir_outstanding = f"{outstanding(st)} (no FHIR endpoint is configured; it is restored when one is)"
-        out.errors.append(out.fhir_outstanding)
+        return end()
+    try:
+        refuse_split(cfg, load_fhir=load_fhir, rebuild_lake=rebuild_lake)
+    except NightRefused as exc:
+        out.steps = {s: PENDING for s in STEPS}
+        out.errors = [f"night refused: {exc}"]
+        return end()
     if _current(cfg.lake_dir) != snap:
         finish_served(cfg)
     rerun = night_dir.resolve() != final_dir.resolve()
@@ -681,8 +719,7 @@ def _publish_locked(
         rec = {"snapshot": snap, "fingerprint": mark, "steps": {}, "at": {}}
     steps: dict[str, str] = {s: str(rec["steps"].get(s) or PENDING) for s in STEPS}
     out.steps = steps
-    fhir_on = bool(load_fhir and cfg.fhir_base_url)
-    lake_on = bool(rebuild_lake and (cfg.rebuild is not None or (cfg.build is not None and cfg.promote is not None)))
+    fhir_on, lake_on = _fhir_on(cfg, load_fhir), _lake_on(cfg, rebuild_lake)
     # the lake in two steps (build, then promote last) for a night that is not served yet; a re-run of the served
     # night replaces the served file by building, so there the build is the promotion
     two_step = lake_on and not rerun and cfg.build is not None and cfg.promote is not None
@@ -729,31 +766,22 @@ def _publish_locked(
         )
         note(step, STALE)
 
-    def end() -> Published:
-        """Every way out: what the lake serves is read from ``CURRENT`` (second review, H1)."""
-        out.promoted = _current(cfg.lake_dir) == snap
-        return out
-
     def fhir_back(why: str) -> None:
         """The promotion did not happen: the FHIR store goes back to the night the lake serves, with none served to
-        nothing (reviews MED-1, R4). ``FHIR_STATE`` says the put-back is owed until it verified (reviews R2, N1):
-        a failed one leaves it ``rollback-required`` and the step ``failed``."""
-        if not fhir_on:
-            return
-        st = read_state(cfg)
-        if st["state"] == CLEAN and steps["fhir"] not in (DONE, FAILED):
-            return
-        if st["state"] != ROLLBACK:
-            _rollback(cfg, st, why)
+        nothing (reviews MED-1, R4; :func:`restore`, which does nothing when the store is not owed). A put-back that
+        fails leaves the store owed and the step ``failed``; so does a lake build of this night that still runs."""
         try:
-            restore_fhir(cfg)
-        except FhirRestoreOutstanding as exc:
+            restore(cfg, why)
+        except (FhirRestoreOutstanding, SnapshotBuilding) as exc:
             from adapter import failure
 
-            failure.log_failure(log, "fhir-store put-back failed", exc.__cause__ or exc)
-            out.errors.append(f"fhir-store put-back failed: {failure.words(exc.__cause__ or exc)}")  # D-668
-            out.errors.append(str(exc))
-            out.fhir_outstanding = str(exc)
+            cause = exc.__cause__ or exc
+            failure.log_failure(log, "fhir-store put-back failed", cause)
+            out.errors.append(f"fhir-store put-back failed: {failure.words(cause)}")  # D-668
+            out.fhir_outstanding = (
+                str(exc) if isinstance(exc, FhirRestoreOutstanding) else outstanding(derive(cfg).intent)
+            )
+            out.errors.append(out.fhir_outstanding)
             note("fhir", FAILED)
             return
         note("fhir", PENDING)
@@ -789,33 +817,44 @@ def _publish_locked(
     if todo("omop"):  # T-106 (D-339): its refusal or failure never holds the night; None: the flag is off
         out.omop = load_night(cfg, snap, night_dir)
         note("omop", DONE if out.omop is not None else SKIPPED)
-    touched = False  # this call loaded the FHIR store or promoted the night (review D7: else the end check is owed only
-    # when the marker does not say the night is checked already)
-    if todo("fhir"):
-        if fhir_on:
-            # P-03: what a kill in the load leaves, in the box-level marker (the record's step is not the evidence)
-            _write_state(cfg, {"state": LOADING, "night": snap, "target": _current(cfg.lake_dir) or "",
-                               "previous": last_good, "by": _me(), "since": _now()})  # fmt: skip
+    touched = False  # this call loaded the FHIR store or promoted the night: only then is the end check owed (D7)
+    intent: dict[str, Any] = {"want": snap, "fingerprint": mark, "verified": False, "reason": LOADING}
+    if fhir_on:
+        # P-03: whether this night's NDJSON is in the store is read from the intent alone (the record's ``fhir`` is
+        # what it shows): a settled retry loads nothing, asks the store nothing and writes nothing (review D7)
+        now = read_intent(cfg) or {}
+        if now.get("verified") is True and now.get("want") == snap and now.get("fingerprint") == mark:
+            if steps["fhir"] != DONE:
+                note("fhir", DONE)
+        else:
+            from adapter import failure
+
+            if on_step is not None:
+                on_step("fhir", dict(steps))
+            try:  # W1, before the store's first write; a full disk fails the step, nothing sent (review E4)
+                intent = _write_intent(cfg, intent)
+            except OSError as exc:
+                failure.log_failure(log, "fhir-store load failed", exc)
+                out.errors.append(f"fhir-store load failed: {failure.words(exc)}")  # D-668
+                note("fhir", FAILED)
+                return end()
             set_step("fhir", LOADING)
             try:
                 out.fhir_loaded, out.fhir_deleted = _sync_fhir(
                     cfg, night_dir, snapshot_dir(cfg.lake_dir, last_good) if last_good else None
                 )
             except Exception as exc:  # F-2: the lake is not promoted after this
-                from adapter import failure
-
                 failure.log_failure(log, "fhir-store load failed", exc)
                 said = failure.words(exc)
                 out.errors.append(f"fhir-store load failed: {said}")  # D-668
-                _rollback(cfg, read_state(cfg), f"load failed: {said}")
                 note("fhir", FAILED)
-                fhir_back("load failed")  # what was loaded before the failure does not stay
+                fhir_back(f"load failed: {said}")  # what was loaded before the failure does not stay
                 return end()
             _checkpoint("FHIR store loaded")
             note("fhir", DONE)
             touched = True
-        else:
-            note("fhir", SKIPPED)
+    elif todo("fhir"):
+        note("fhir", SKIPPED)
     if todo("lake"):
         aside = cfg.lake_dir / RERUN_DIR / f"{snap}.replaced"
         if two_step:
@@ -864,6 +903,7 @@ def _publish_locked(
                 _write_record(out.out_dir, rec)
                 if final_dir.exists():
                     final_dir.rename(aside)
+                    _checkpoint("re-run swap: served folder aside")  # review F5: between the two renames
                 night_dir.rename(final_dir)
                 out.out_dir = final_dir
                 _checkpoint("re-run swapped in")
@@ -899,23 +939,17 @@ def _publish_locked(
         else:
             note("lake", SKIPPED)
         shutil.rmtree(aside, ignore_errors=True)
-    # P-03: the store is clean only once checked against the night the lake serves (review D1 of the second reviewer,
-    # Q1: its folder, and only when this night's lake step put it there; a skipped lake step serves nothing, so the
-    # marker stays ``loading`` and the next recovery puts the store back). A call that loaded and promoted nothing,
-    # over a marker that says this night is checked, checks nothing and writes nothing (review D7)
-    st = read_state(cfg)
-    checked = st["state"] == CLEAN and st.get("night") == snap
-    if fhir_on and steps["lake"] == DONE and _current(cfg.lake_dir) == snap and (touched or not checked):
+    # P-03: the store is clean only once checked against the night the lake serves now (:func:`settle`, counts after
+    # the publish's own load under the lock). A served night that is not settled writes no pid map and no PASSED and
+    # keeps its hold (review F4): the next recovery puts the store to it and its resume ends it
+    if fhir_on and touched:
         try:
-            _write_state(cfg, {"state": CLEAN, "night": snap, "verified_at": _now(),
-                               "counts": verify_fhir(cfg, snapshot_dir(cfg.lake_dir, snap))})  # fmt: skip
-            finish_load(snap)
-        except Exception as exc:  # not the night, or not checked: the night is served, the next recovery puts the
-            # store back to it (an unchecked store is never clean)
-            why = str(exc) if isinstance(exc, FhirMismatch) else f"the check got no answer ({type(exc).__name__})"
-            st = _rollback(cfg, read_state(cfg), why, night=snap, target=snap)
-            out.errors.append(outstanding(st))
-            out.fhir_outstanding = outstanding(st)
+            settle(cfg, intent, final_dir, ids=False)
+        except FhirRestoreOutstanding as exc:
+            out.errors.append(str(exc))
+            out.fhir_outstanding = str(exc)
+            note("fhir", FAILED)
+            return end()
     if todo("pidmap"):  # last: only a served night's chart numbers reach the reverse map (F-12)
         try:
             pm = cfg.pidmap()
@@ -986,21 +1020,26 @@ def publish_held(
 __all__ = [
     "RECORD",
     "STEPS",
+    "Derived",
     "FhirMismatch",
     "FhirRestoreOutstanding",
+    "NightRefused",
     "NothingToPublish",
     "Published",
     "RecoveryBusy",
+    "derive",
     "fingerprint",
     "finish_served",
     "holders",
     "publish_held",
     "publish_night",
     "published",
+    "read_intent",
     "read_record",
-    "read_state",
     "recover",
     "recover_all",
-    "restore_fhir",
+    "refuse_split",
+    "restore",
+    "settle",
     "verify_fhir",
 ]

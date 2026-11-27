@@ -40,7 +40,7 @@ from tb_contracts import IngestRequest, dump
 from adapter import failure, runs
 from adapter.cli import build_config
 from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
-from adapter.publish import FhirRestoreOutstanding, RecoveryBusy
+from adapter.publish import FhirRestoreOutstanding, NightRefused, RecoveryBusy
 
 log = logging.getLogger("adapter")
 
@@ -116,7 +116,8 @@ def _undo_killed_load() -> str:
     """E2E P-03: the ingest's process ended badly (killed for memory, say) and may have left the FHIR store ahead of
     the lake: it is put back now, while this service still holds the run gate, not only when the next night runs
     (``adapter.publish.recover_all``: a killed re-run's swap first, review N3). Never raised: the next ingest or
-    publish tries again. Returns the words of a put-back that is still owed ("" when none is)."""
+    publish tries again. Returns the words of a put-back that is still owed ("" when none is), a recovery that failed
+    on its way included (review F7: the store is then still owed)."""
     try:
         from adapter.publish import FhirRestoreOutstanding, RecoveryBusy, recover_all
 
@@ -129,6 +130,7 @@ def _undo_killed_load() -> str:
             return str(exc)
     except Exception as exc:
         log.error("a killed FHIR load could not be undone after the ingest's process ended (%s)", type(exc).__name__)
+        return f"fhir_restore_outstanding: recovery failed ({type(exc).__name__}); the store is still owed"
     return ""
 
 
@@ -252,7 +254,7 @@ def run(req: IngestRequest) -> JSONResponse:
             )
             end.update(state="done", report=dump(report))
         # T-612, D-679, U-5 (D-1280): refused before anything was read
-        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError) as exc:
+        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError, NightRefused) as exc:
             end.update(state="refused", detail=f"night refused: {exc}")
         except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
             end.update(state="refused", detail=str(exc))

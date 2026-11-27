@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         from adapter import failure
         from adapter.cli import build_config
         from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
-        from adapter.publish import FhirRestoreOutstanding, RecoveryBusy
+        from adapter.publish import FhirRestoreOutstanding, NightRefused, RecoveryBusy
 
         setup_logging("adapter")
         prefer_me_when_memory_runs_out()  # a night can be run again; the service's requests cannot
@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             end = {"state": "done", "report": dump(report)}
         # T-612, D-679, U-5 (D-1280): refused before anything was read
-        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError) as exc:
+        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError, NightRefused) as exc:
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
             end = {"state": "refused", "detail": str(exc)}
