@@ -93,11 +93,43 @@ def test_the_same_atom_with_its_window_written_out_compiles() -> None:
         ),
         # no window at all: nothing says "relative to the index"
         ("Febuxostat within the last 3 months.", {"duration": {"min_days": -90}}),
+        # the period turned round or a duration (Codex review R1): never read as "within"
+        ("Febuxostat taken more than 3 months ago.", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
+        ("On febuxostat for at least 3 months.", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
+        ("Febuxostat for 3 months or longer.", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
+        ("3か月以上フェブキソスタットを服用", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
+        # the tail of a grouped number is not a period (Codex review R2): 1,090 days never stands for 90
+        ("Febuxostat within the last 1,090 days.", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
+        ("1,090日以内のフェブキソスタット", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
+        # a negated line, also with the atom under "not": left for a person
+        ("No febuxostat within the last 3 months.", {"window": {"anchor": "index"}, "duration": {"min_days": -90}}),
     ],
 )
 def test_anything_else_with_a_negative_duration_still_goes_to_a_person(text: str, logic: dict[str, Any]) -> None:
     c = _one(text, {"domain": "medication", "concept": "febuxostat", "quantifier": "any", **logic})
     assert c.class_ == "human" and "duration_read_as_window" not in (c.flags or []), logic
+
+
+def test_an_atom_under_not_on_a_negated_line_is_not_read() -> None:
+    atom = {"domain": "medication", "concept": "febuxostat", "quantifier": "any", "window": {"anchor": "index"},
+            "duration": {"min_days": -90}}  # fmt: skip
+    c = _one("No febuxostat in the last 3 months.", {"op": "not", "args": [atom]})
+    assert "duration_read_as_window" not in (c.flags or [])
+
+
+@pytest.mark.parametrize(
+    ("text", "days"),
+    [
+        ("Febuxostat in the past 3 months.", -90),
+        ("Febuxostat within 12 weeks.", -84),
+        ("過去6か月以内にフェブキソスタットを服用", -180),
+        ("3か月以内のフェブキソスタット", -90),
+    ],
+)
+def test_a_look_back_period_is_read_in_its_forms(text: str, days: int) -> None:
+    c = _one(text, {"domain": "medication", "concept": "febuxostat", "quantifier": "any", "window": {"anchor": "index"},
+                    "duration": {"min_days": days}})  # fmt: skip
+    assert c.class_ == "structured" and "duration_read_as_window" in (c.flags or []) and _window(c) == (days, 0), text
 
 
 def test_a_real_duration_is_left_as_it_is() -> None:

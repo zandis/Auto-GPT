@@ -435,9 +435,25 @@ def _value_as_age(n: dict[str, Any], text: str) -> dict[str, Any] | None:
     return age
 
 
-#: a period a line writes ("6 months", "3か月"): its number and unit, and the days a unit may be read as
-_PERIOD = re.compile(
-    r"(\d+(?:\.\d+)?)\s*(days?|weeks?|wks?|months?|mos?|years?|yrs?|日|天|週|か月|ヵ月|ヶ月|カ月|個月|个月|年)", re.I
+#: a look-back period a line writes ("within the last 6 months", "過去6か月", "3か月以内"): its number (whole: never the
+#: tail of "1,090") and unit; the days a unit may be read as. A line that turns the period round ("more than 3 months
+#: ago", "for at least 3 months") or negates it is never read (Codex review R1, R2)
+_UNIT = r"(days?|weeks?|wks?|months?|mos?|years?|yrs?)\b"
+_CJK_UNIT = r"(日|天|週|か月|ヵ月|ヶ月|カ月|個月|个月|年)"
+_LOOKBACK = (
+    re.compile(
+        r"\b(?:within\s+(?:the\s+)?(?:(?:last|past|previous|preceding|prior)\s+)?|(?:in|during|over)\s+the\s+"
+        r"(?:last|past|previous|preceding|prior)\s+|(?:last|past|previous|preceding|prior)\s+)(\d+(?:\.\d+)?)\s*"
+        + _UNIT,
+        re.I,
+    ),
+    re.compile(r"(?:過去|最近|近)\s*(\d+)\s*" + _CJK_UNIT),
+    re.compile(r"(?<![\d.,])(\d+)\s*" + _CJK_UNIT + r"\s*(?:以内|以內|内|內)"),
+)
+_TURNED = re.compile(
+    r"\bago\b|\bmore\s+than\b|\blonger\s+than\b|\bat\s+least\b|\bbefore\b|\bearlier\s+than\b|\bor\s+(?:more|longer)\b"
+    r"|以前|より前|以上|前に",
+    re.I,
 )
 _UNIT_DAYS = (
     (re.compile(r"^(?:days?|日|天)$", re.I), (1,)),
@@ -451,8 +467,9 @@ def _duration_as_window(n: dict[str, Any], text: str) -> dict[str, Any] | None:
     """ASSESS-1 Q1 (P-07): "within the last 6 months" written as a window with no bounds (``{anchor: index}``) beside
     ``duration: {min_days: -180}``. A duration of at most 0 days is met by everyone (D-914: ``kind`` refuses it and the
     line goes to a person); a bare window says only "relative to the index". Together they mean the window from -N to
-    0, read so only when the line writes that period (N = a number it writes times its unit's days). A window with
-    bounds of its own, no window, or a period the line does not write: None (D-914's refusal stands)."""
+    0, read so only when the line writes that period as a look-back one (N = a number it writes after "within", "in
+    the last", "過去" ..., times its unit's days) and has no word that turns it round or negates it. A window with
+    bounds of its own, no window, or any other line: None (D-914's refusal stands)."""
     d, w = n.get("duration"), n.get("window")
     if (
         not isinstance(d, dict)
@@ -462,10 +479,15 @@ def _duration_as_window(n: dict[str, Any], text: str) -> dict[str, Any] | None:
     ):
         return None
     m = d.get("min_days")
-    if not isinstance(m, int) or m >= 0:
+    if not isinstance(m, int) or m >= 0 or _TURNED.search(text) or _NEGATION.search(text):
         return None
     said = {
-        round(float(x) * k) for x, u in _PERIOD.findall(text) for rx, days in _UNIT_DAYS if rx.match(u) for k in days
+        round(float(x) * k)
+        for lb in _LOOKBACK
+        for x, u in lb.findall(text)
+        for rx, days in _UNIT_DAYS
+        if rx.match(u)
+        for k in days
     }
     return {**w, "from_days": m, "to_days": 0} if -m in said else None
 
