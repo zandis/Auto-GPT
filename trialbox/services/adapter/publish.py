@@ -21,7 +21,9 @@ one call did not end well, a newer night was promoted meanwhile), the FHIR store
 serves (``fhir_back``: every resource of that night is loaded again, so a resource the broken load had changed goes
 back too); if that fails, the publish says so and its ``fhir`` step stays ``failed``. The OMOP store of record
 (dual write, where it is on) is the one store that can be a night ahead until the publish is resumed: it never moves
-back (D-339).
+back (D-339). A process killed inside the FHIR load (an out-of-memory kill, a power cut: no handler runs) leaves
+the step ``loading`` in the record; the next publish or ingest puts the FHIR store back to the served night before
+it reads anything (:func:`recover_fhir`, E2E P-03).
 
 **What the lake serves is read, not remembered.** ``Published.promoted`` is ``CURRENT == night`` on every way out,
 so a publish that failed after the promotion (the pid map's step, an answer of the lake that was lost) never says
@@ -73,6 +75,7 @@ log = logging.getLogger("adapter")
 RECORD = "publish.json"  # in the night's folder: the publish's step record (no patient data)
 STEPS = ("build", "omop", "fhir", "lake", "pidmap")
 DONE, SKIPPED, FAILED, BUSY, REFUSED, PENDING = "done", "skipped", "failed", "busy", "refused", "pending"
+LOADING = "loading"  # the FHIR load began and its end is not recorded yet: a killed process leaves it (P-03)
 STALE = "stale"  # a newer night is served: this one is not published (the box never moves back in time)
 ENDED = (DONE, SKIPPED)
 BUSY_ERROR = "lake busy: the night is run again once the lake is free (nothing was written)"
@@ -220,14 +223,44 @@ def _recover(cfg: AdapterConfig, snap: str, aside: Path) -> str:
 
 
 def recover_all(cfg: AdapterConfig) -> list[str]:
-    """:func:`recover` for every night a killed re-run left swapped. Called before a publish and before an ingest
-    reads the lake's folders."""
+    """:func:`recover` for every night a killed re-run left swapped, then :func:`recover_fhir`. Called before a
+    publish and before an ingest reads the lake's folders."""
     from adapter.pipeline import RERUN_DIR
 
     home = cfg.lake_dir / RERUN_DIR
-    if not home.is_dir():
+    swapped = sorted(home.glob("*.replaced")) if home.is_dir() else []
+    done = [p.name[: -len(".replaced")] for p in swapped if recover(cfg, p.name[:-9])]
+    return done + [n for n in recover_fhir(cfg) if n not in done]
+
+
+def recover_fhir(cfg: AdapterConfig) -> list[str]:
+    """E2E P-03: a process killed inside a night's FHIR load left the store half loaded with that night while the
+    lake still serves the one before (its record says the step is ``loading``). The FHIR store is put back to the
+    served night (every resource again, as :func:`_fhir_put_back`) and the step becomes ``pending``: the night's
+    next publish loads it from the start. No night served yet: there is nothing to go back to, the step only becomes
+    ``pending``. A put-back that fails is logged and the records are left as they are, so the next call tries again
+    (never raised: the night that is running must not fail for it). Returns the nights whose load was undone."""
+    from adapter.pipeline import RERUN_DIR
+
+    folders = [*(cfg.lake_dir / "ndjson").glob("*"), *(cfg.lake_dir / RERUN_DIR).glob("*")]
+    killed = [f for f in sorted(folders) if f.is_dir() and (read_record(f).get("steps") or {}).get("fhir") == LOADING]
+    if not killed:
         return []
-    return [p.name[: -len(".replaced")] for p in sorted(home.glob("*.replaced")) if recover(cfg, p.name[:-9])]
+    served = _current(cfg.lake_dir)
+    back = snapshot_dir(cfg.lake_dir, served) if served else None
+    if cfg.fhir_base_url and back is not None and back.is_dir():
+        try:
+            _fhir_put_back(cfg, back)
+        except Exception as exc:
+            log.error("the FHIR store could not be put back to %s after a killed load (%s)", served, type(exc).__name__)
+            return []
+    for f in killed:
+        rec = read_record(f)
+        rec["steps"] = {**rec.get("steps", {}), "fhir": PENDING}
+        _write_record(f, rec)
+    log.warning("a killed FHIR load of %s was undone: the FHIR store holds the served night %s",
+                ", ".join(f.name for f in killed), served)  # fmt: skip
+    return [f.name for f in killed]
 
 
 def finish_served(cfg: AdapterConfig) -> bool:
@@ -433,6 +466,8 @@ def publish_night(
         note("omop", DONE if out.omop is not None else SKIPPED)
     if todo("fhir"):
         if fhir_on:
+            steps["fhir"], rec["steps"] = LOADING, {**steps, "fhir": LOADING}  # P-03: what a kill in the load leaves
+            _write_record(out.out_dir, rec)
             try:
                 out.fhir_loaded, out.fhir_deleted = _sync_fhir(
                     cfg, night_dir, snapshot_dir(cfg.lake_dir, last_good) if last_good else None
@@ -604,4 +639,5 @@ __all__ = [
     "read_record",
     "recover",
     "recover_all",
+    "recover_fhir",
 ]
