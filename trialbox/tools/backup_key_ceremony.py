@@ -64,6 +64,7 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
+import ctypes
 import errno
 import fcntl
 import functools
@@ -895,13 +896,17 @@ def _read_back(dfd: int, name: str, dev: int, path: Path, ino: int | None) -> by
 
 def _new_file(pfd: int, name: str | None, data: bytes, mode: int = 0o644) -> int:
     """A file of ``data`` in the public key's folder, ``mode`` (0644) whatever the umask, written whole and synced:
-    unnamed (O_TMPFILE) when ``name`` is None, else made new under ``name`` (O_EXCL). Returns the open descriptor."""
+    unnamed (O_TMPFILE) when ``name`` is None, else made new under ``name`` (O_EXCL). Returns the open descriptor.
+    N-01: 0600 is the mode it is made with (never wider under any umask) and is not set again: a FAT or exFAT stick
+    has no file modes and refuses the change (EPERM); what goes there is the sealed copy (encrypted) or the restore
+    key file the runbook puts on that stick."""
     if name is None:
         fd = os.open(".", os.O_WRONLY | os.O_TMPFILE | os.O_CLOEXEC, 0o600, dir_fd=pfd)
     else:
         fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=pfd)
     try:
-        os.fchmod(fd, mode)
+        if mode != 0o600:
+            os.fchmod(fd, mode)
         if os.write(fd, data) != len(data):
             raise OSError(errno.EIO, "short write")
         os.fsync(fd)
@@ -1232,6 +1237,20 @@ def _offbox_targets(env: Mapping[str, str]) -> list[Path]:
     return [t for t in cfg.targets if cfg.classify(t).offbox]
 
 
+def _box_devs(pfd: int) -> set[int]:
+    """The box's own disk: the devices of the public key's folder and of the system's root."""
+    return {os.fstat(pfd).st_dev, os.stat("/").st_dev}
+
+
+def _off_the_box(tfd: int, pfd: int) -> bool:
+    """H-02 (third review): an off-box target as it is open, not as its path was classified: its filesystem is a
+    mount in the mount table and not the box's disk. A share unmounted in between opens its mount point, a folder on
+    the box's disk: refused."""
+    dev = os.fstat(tfd).st_dev
+    mounted = {os.makedev(int(a), int(b)) for a, b in (mm.split(":") for mm, _, _ in _mounts())}
+    return dev in mounted and dev not in _box_devs(pfd)
+
+
 def _put_sealed(dfd: int, name: str, data: bytes, passphrase: str, pub: bytes) -> None:
     """The sealed file made new (0600) in the folder ``dfd``, synced, and read back: it opens to ``pub``'s key."""
     try:
@@ -1263,7 +1282,15 @@ def install_sealed(env: Mapping[str, str], passphrase: str) -> dict[str, str]:
     from tb_common import kek
 
     pfd = _open_pub(env)
+    tfds: list[int] = []
     try:
+        for t in targets:  # H-02: each target opened before a key is made, checked and written through that descriptor
+            try:
+                tfds.append(os.open(t, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC))
+            except OSError as e:
+                raise Stop(STEP_FAILED, n=1, why=_why(e)) from None
+            if not _off_the_box(tfds[-1], pfd):
+                raise Stop(NO_OFFBOX_COPY, targets=str(t))
         site = env.get("TB_SITE_ID") or ""
         key = new_key()
         pub = public_of(key)
@@ -1277,15 +1304,8 @@ def install_sealed(env: Mapping[str, str], passphrase: str) -> dict[str, str]:
         del key
         data = (json.dumps(doc, indent=1, sort_keys=True) + "\n").encode()
         _put_sealed(pfd, name, data, passphrase, pub)
-        for t in targets:  # H-02: before backup.pub, the same sealed file off the box's disk
-            try:
-                tfd = os.open(t, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
-            except OSError as e:
-                raise Stop(STEP_FAILED, n=1, why=_why(e)) from None
-            try:
-                _put_sealed(tfd, name, data, passphrase, pub)
-            finally:
-                os.close(tfd)
+        for tfd in tfds:  # H-02: before backup.pub, the same sealed file off the box's disk
+            _put_sealed(tfd, name, data, passphrase, pub)
         copies = ", ".join(str(t / name) for t in targets)
         detail = {"fingerprint": fp, "operator": "install", "witness": "none: made at an unattended install",
                   "site": site, "stick": f"none: sealed under the install's KEK passphrase ({name}), on the box "
@@ -1295,14 +1315,27 @@ def install_sealed(env: Mapping[str, str], passphrase: str) -> dict[str, str]:
         return {**detail, "pub": str(PUB_DIR / PUB_NAME), "seq": str(seq), "sealed": str(PUB_DIR / name),
                 "copies": copies}  # fmt: skip
     finally:
+        for fd in tfds:
+            os.close(fd)
         os.close(pfd)
+
+
+def _rename_noreplace(dfd: int, src: str, dst: str) -> None:
+    """``src`` renamed to ``dst`` in the folder ``dfd`` only while ``dst`` is free, in one step (renameat2
+    RENAME_NOREPLACE: ext4, tmpfs, vfat and exFAT have it; a filesystem without it refuses, never a replace)."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.renameat2(dfd, os.fsencode(src), dfd, os.fsencode(dst), 1) != 0:  # 1: RENAME_NOREPLACE
+        e = ctypes.get_errno()
+        raise OSError(e, os.strerror(e), dst)
 
 
 def unseal_to(sealed: Path, out: Path, passphrase: str) -> str:
     """``--unseal``: the key file ``restore --key`` reads, made new at ``out`` (0600), from a sealed file and its
     passphrase; the key's fingerprint. M-05: the sealed file is looked at before a byte is read (not a plain file, or
     larger than MAX_FILE: refused). M-03: the key file is written under a new temporary name beside ``out`` (O_EXCL),
-    synced, then renamed to ``out``: a run cut short leaves nothing at ``out`` that stops the next one."""
+    synced, then renamed to ``out``: a run cut short leaves nothing at ``out`` that stops the next one, and the
+    temporary file a killed run left (the key's bytes) is removed by the next run to ``out``. H-05: the rename never
+    replaces a key file another unseal made meanwhile."""
     try:
         fd = os.open(sealed, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
         try:
@@ -1319,12 +1352,14 @@ def unseal_to(sealed: Path, out: Path, passphrase: str) -> str:
     try:
         if _exists(dfd, out.name):  # never over a file
             raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(out))
+        for left in os.listdir(dfd):  # M-03: a run killed after its write left its key's bytes here: removed
+            if left.startswith(f".{out.name}.") and left.endswith(".part"):
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(left, dir_fd=dfd)
         tmp = f".{out.name}.{secrets.token_hex(4)}.part"
         try:
             os.close(_new_file(dfd, tmp, key_text(raw), 0o600))
-            # ponytail: looked at, then renamed (no atomic no-replace rename in the stdlib, and a FAT stick has no
-            # hard link); a second unseal to the same place at the same moment is the gap
-            os.rename(tmp, out.name, src_dir_fd=dfd, dst_dir_fd=dfd)
+            _rename_noreplace(dfd, tmp, out.name)  # H-05: a key file made meanwhile is never replaced
         except BaseException:
             with contextlib.suppress(OSError):
                 os.unlink(tmp, dir_fd=dfd)
@@ -1386,7 +1421,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 TTY = "/dev/tty"
 
 
-def _guarded[T](lang: str, call: Callable[[], T]) -> T | None:
+# N-02: not generic (PEP 695 syntax would not parse on the python3 of a host before 3.12)
+def _guarded(lang: str, call: Callable[[], Any]) -> Any:
     """``call()``, or None once its refusal or stop is said on stderr (an unexpected error by its type only: a
     message could hold anything)."""
     try:

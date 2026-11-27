@@ -1822,7 +1822,9 @@ fi
 case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" in DEV|TEST|VALIDATION)
   [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2 ;;
 *)
-  if [ ! -f deploy/secrets/backup.pub ] && [ -z "${TEST_BOX:-}" ]; then
+  # M-06 (third review): TEST_BOX left in a PRODUCTION install's environment is ignored here, and said
+  [ -z "${TEST_BOX:-}" ] || echo "install: note: TEST_BOX is ignored on a PRODUCTION install: the backup key step runs" >&2
+  if [ ! -f deploy/secrets/backup.pub ]; then
     if { : </dev/tty; } 2>/dev/null; then
       say "backup key: made now, shown once on this terminal"
       PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install \
