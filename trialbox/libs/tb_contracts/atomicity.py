@@ -83,17 +83,20 @@ def check_atom(atom: Atom | Mapping[str, Any], subjects: Mapping[str, str] | Non
         out.add("no_concept_set")
     if a.get("quantifier") == "none" or any(_negated_name(v) for v in (vs if isinstance(vs, list) else [vs])):
         out.add("negation_in_atom")
-    for w in a.get("window") if isinstance(a.get("window"), list) else [a.get("window")]:
-        if isinstance(w, Mapping) and not w.get("anchor_text"):
-            if w.get("anchor") is None or (w.get("anchor") == "event" and not w.get("event_atom")):
-                out.add("window_without_anchor")
+    windows: list[Any] = a["window"] if isinstance(a.get("window"), list) else [a.get("window")]
+    for w in windows:
+        if not isinstance(w, Mapping) or w.get("anchor_text"):
+            continue
+        if w.get("anchor") is None or (w.get("anchor") == "event" and not w.get("event_atom")):
+            out.add("window_without_anchor")
     own = a.get("subject") or "patient"
     if isinstance(own, list):
         own = own[0] if len(set(own)) == 1 else None
     refs = [c.get("if_atom") for c in a.get("value_if") or [] if isinstance(c, Mapping)]
     if isinstance(a.get("window"), Mapping):
         refs.append(a["window"].get("event_atom"))
-    if own is None or any(r in (subjects or {}) and (subjects or {})[r] != own for r in refs):
+    others = subjects or {}
+    if own is None or any(isinstance(r, str) and r in others and others[r] != own for r in refs):
         out.add("mixed_subject")
     return sorted(out)
 

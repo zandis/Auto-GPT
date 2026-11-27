@@ -67,8 +67,8 @@ class Ruleset:
     elm: dict[str, str] = field(default_factory=dict)
     sql: str = ""
     path: Path | None = None
+    # the atomicity lint at load (tb_contracts.atomicity): "<criterion>.<atom>" -> reasons; reported, never refused
     lint: dict[str, list[str]] = field(default_factory=dict)
-    """The atomicity lint at load (``tb_contracts.atomicity``): ``<criterion>.<atom>`` -> reasons; reported, not refused."""
 
     @property
     def id(self) -> str:
