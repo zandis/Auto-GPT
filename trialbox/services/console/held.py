@@ -6,7 +6,8 @@ after a reset (D-133) and a pilot proposal awaiting its confirmation. They are k
 folder of ``TB_CONSOLE_HELD_DIR`` (compose sets the console's tmpfs; no default), which must be a memory filesystem
 (tmpfs or ramfs; any other is refused at the start, as before: never on disk, in a log, the audit trail or a database; a
 restart forgets it). The folder is this user's own, mode 0700, opened without following a symbolic link and checked as
-opened; every file is reached through that open folder. A file's name is the SHA-256 of its key and it holds the value
+opened, its own filesystem too (``fstatfs`` of the open folder: a disk mounted at the folder itself is refused);
+every file is reached through that open folder. A file's name is the SHA-256 of its key and it holds the value
 with the monotonic time it was kept (one clock for every process on the host, not moved by setting the wall clock); an
 entry older than its time to live, or dated ahead of that clock, is never returned and is removed at the next keep or
 read, as the in-memory store did. Unset, the console still starts and every keep, read and removal refuses
@@ -18,6 +19,7 @@ JSON (a tuple comes back as a list).
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import fcntl
 import hashlib
 import json
@@ -31,6 +33,8 @@ from typing import Any
 
 MOUNTINFO = Path("/proc/self/mountinfo")
 MEMORY = ("tmpfs", "ramfs")
+MAGIC = {0x01021994: "tmpfs", 0x858458F6: "ramfs", 0x9FA0: "proc"}  # statfs(2) f_type
+_LIBC = ctypes.CDLL(None, use_errno=True)
 
 
 def fs_type(path: Path) -> str:
@@ -42,6 +46,16 @@ def fs_type(path: Path) -> str:
         if (str(path) == point or str(path).startswith(point.rstrip("/") + "/")) and len(point) >= len(where):
             where, kind = point, right.split()[0]
     return kind
+
+
+def fd_type(fd: int) -> str:
+    """The filesystem type of an open file itself (``fstatfs``), not of a path to it; another kind as its number."""
+    buf = ctypes.create_string_buffer(256)  # struct statfs (120 bytes on 64-bit Linux), f_type its first word
+    if _LIBC.fstatfs(fd, buf):
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+    kind = ctypes.c_long.from_buffer(buf).value
+    return MAGIC.get(kind, hex(kind))
 
 
 class HeldUnset(PermissionError):
@@ -69,6 +83,9 @@ class Held:
         st = os.fstat(self._dir)  # the folder opened is the one checked and the one used
         if st.st_uid != os.getuid() or st.st_mode & 0o077:
             raise PermissionError(f"{self.folder}: not this user's own 0700 folder")
+        kind = fd_type(self._dir)  # the folder itself: a disk mounted at it is not its parent's tmpfs
+        if kind not in MEMORY:
+            raise PermissionError(f"{self.folder} is {kind}, not memory: TB_CONSOLE_HELD_DIR names a tmpfs")
 
     def _name(self, key: str) -> str:
         return hashlib.sha256(key.encode("utf-8")).hexdigest()

@@ -423,7 +423,7 @@ def test_the_console_held_dir_is_judged_by_its_own_mount(tmp_path: Path) -> None
     env = {"TB_CONSOLE_HELD_DIR": "/tmp/held"}
     for volumes in (["held:/tmp/held"], ["./site/held:/tmp/held:rw"], [{"type": "volume", "target": "/tmp/held"}],
                     ["/tmp/held"]):  # fmt: skip
-        console = {"tmpfs": ["/tmp"], "volumes": volumes, "environment": env}
+        console: dict[str, Any] = {"tmpfs": ["/tmp"], "volumes": volumes, "environment": env}
         got = status(doctor.run(inputs(compose_config={"services": {"console": console}})), "console_held")
         assert got.status == "FAIL" and "/tmp/held" in got.detail, volumes
     console = {"tmpfs": ["/tmp"], "volumes": ["data:/data", {"type": "tmpfs", "target": "/tmp/held"}]}

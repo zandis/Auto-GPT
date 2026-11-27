@@ -88,17 +88,28 @@ def percentile(times: Sequence[float], q: float) -> float:
     return ordered[rank - 1]
 
 
+START_S = 30.0  # the longest wait for all the clients to be started
+
+
+class LoadNotGenerated(RuntimeError):
+    """The host did not start every client of :func:`under_load`: the declared load was not measured."""
+
+
 def under_load(get: Callable[[str], Answer], paths: Sequence[str], users: int, rounds: int = 5) -> tuple[float, int]:
     """P2-11 (ASSESS-1-ADDENDUM D7): ``users`` clients at once, each asking for every path ``rounds`` times. Returns the
     worst page's 95th percentile (nearest rank, per path, so one slow page is not hidden among fast ones) of the
     answers' times in seconds, by the client's clock (waiting for a worker is what is measured here, unlike
     :func:`walk`), and the count of answers that were not ``200``. The service level is
     ``tools.trialbox.console_size.SLO_P95_S`` at the site's declared ``TB_SITE_USERS``. No client asks before all
-    ``users`` of them are ready, so a fast one is not done before the last one starts."""
+    ``users`` of them are ready, so a fast one is not done before the last one starts; not all ready within
+    ``START_S`` (the host would not start them) is :class:`LoadNotGenerated`, never a wait without end."""
     ready = threading.Barrier(users)
 
     def one(_: int) -> list[tuple[str, float, int]]:
-        ready.wait()
+        try:
+            ready.wait(START_S)
+        except threading.BrokenBarrierError:
+            raise LoadNotGenerated(f"{users} clients were not all started within {START_S} s") from None
         out = []
         for _round in range(rounds):
             for path in paths:
@@ -108,7 +119,14 @@ def under_load(get: Callable[[str], Answer], paths: Sequence[str], users: int, r
         return out
 
     with ThreadPoolExecutor(max_workers=users) as pool:
-        answers = [a for chunk in pool.map(one, range(users)) for a in chunk]
+        started = []
+        try:
+            for i in range(users):
+                started.append(pool.submit(one, i))
+        except RuntimeError as exc:  # the host starts no more threads
+            ready.abort()
+            raise LoadNotGenerated(f"{users} clients were not all started: {len(started)} were") from exc
+        answers = [a for f in started for a in f.result()]
     worst = max(percentile([t for p, t, _ in answers if p == path], 95) for path in paths)
     return worst, sum(1 for _, _, s in answers if s != 200)
 

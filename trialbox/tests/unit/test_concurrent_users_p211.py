@@ -21,6 +21,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
@@ -296,12 +297,12 @@ def test_the_service_level_is_measured_with_the_users_at_once() -> None:
 def test_a_load_the_host_cannot_start_fails_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
     # TB-08: fewer threads than clients (the host would start no more): the started ones do not wait forever
     monkeypatch.setattr(console_timing, "START_S", 0.5)
-    real = console_timing.ThreadPoolExecutor
+    real = ThreadPoolExecutor
     monkeypatch.setattr(console_timing, "ThreadPoolExecutor", lambda max_workers: real(max_workers=2))
     with pytest.raises(console_timing.LoadNotGenerated, match="25 clients"):
         console_timing.under_load(lambda _p: (200, {}), ["/home"], users=25, rounds=1)
 
-    class NoThirdThread(real):
+    class NoThirdThread(ThreadPoolExecutor):
         def submit(self, *args: Any, **kwargs: Any) -> Any:
             if len(self._threads) == 2:
                 raise RuntimeError("can't start new thread")
