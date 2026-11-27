@@ -18,6 +18,7 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import json
 import logging
@@ -440,6 +441,10 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     status = o.status
     if status == "pass" and o.unknown_kind == "data_gap":
         status = "unknown"  # S1 kept the patient on a null exclusion value; the list says "unknown" as v1 did
+    if not (refs or quote or quote_date or opinions or prov) and confidence is None:
+        affirmed = o.affirmed if status == "fail" else None
+        return _bare(o.criterion_id, status, code_of(o.reason, status, False), _final(o, status),
+                     basis_of(o, status, pair), affirmed)  # fmt: skip
     return CriterionVerdict(
         id=o.criterion_id,
         verdict=status,
@@ -455,6 +460,35 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
         basis=basis_of(o, status, pair),
         affirmed=o.affirmed if status == "fail" else None,  # round 5: both models affirmed this note exclusion
         prov=list(dict.fromkeys(prov)),
+    )
+
+
+# prof16 (CODED-PROFILE §4; ruling of 2026-11-27): verdict assembly kept one CriterionVerdict and one Evidence per
+# patient and criterion: 22.7 M objects, 4.4 GB at 100,000 patients, 98 % of them excluded. An answer with no record,
+# quote, opinion or call is the same for every patient who has it, so they share one object (the same fields set, so
+# the same bytes in every output). Nothing changes a verdict in place: coded_values.attach puts a copy in its list.
+# ponytail: shared by value, bounded by criteria x answers; the full compact store of excluded rows is a later item
+@functools.lru_cache(maxsize=8192)
+def _bare(
+    cid: str, status: Any, reason: str, final: bool | None, basis: Any, affirmed: bool | None
+) -> CriterionVerdict:
+    """:func:`verdict_of`'s answer that carries no record, quote, confidence, opinion or call."""
+    return CriterionVerdict(
+        id=cid,
+        verdict=status,
+        evidence=Evidence(resource_refs=[], quote=None, quote_date=None, confidence=None, reason=reason, opinions=None),
+        final=final,
+        basis=basis,
+        affirmed=affirmed,
+        prov=[],
+    )
+
+
+@functools.lru_cache(maxsize=4096)
+def _not_evaluated(cid: str) -> CriterionVerdict:
+    """A criterion the cascade stopped before (a hard fail came first): the same row for every such patient."""
+    return CriterionVerdict(
+        id=cid, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value), prov=[]
     )
 
 
@@ -480,14 +514,7 @@ def verdicts_of(
             continue
         o = t.outcomes.get(c.id)
         if o is None:
-            vs.append(
-                CriterionVerdict(
-                    id=c.id,
-                    verdict="unknown",
-                    evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value),
-                    prov=[],
-                )
-            )
+            vs.append(_not_evaluated(c.id))
             continue
         vs.append(verdict_of(o, pair))
         judged_rows.append(vs[-1])
