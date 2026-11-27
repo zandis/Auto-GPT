@@ -8,7 +8,10 @@ PostgreSQL, synthetic rows."""
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +21,13 @@ from adapter.pipeline import run_ingest
 
 from tests.unit.test_dataflow_lake_p0 import _Lakes, _row
 from tests.unit.test_t723_publish_night import N1, N2, Fhir, _fhir_cfg, _night, _record
+
+
+def _gone() -> int:
+    """The pid of a process that has ended."""
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    return child.pid
 
 
 def test_a_night_killed_in_its_fhir_load_is_put_back_to_the_served_night(
@@ -51,6 +61,10 @@ def test_a_night_killed_in_its_fhir_load_is_put_back_to_the_served_night(
     folder = snapshot_dir(cfg.lake_dir, N2)
     assert lakes.lake.current() == N1 and not (folder / "passed.json").exists()
     assert _record(folder)["fhir"] == "loading"  # the record says the load began and never ended
+    rec = publish_mod.read_record(folder)
+    assert rec["fhir_loader"]["pid"] == os.getpid()  # the loader: this process, which a real kill takes away
+    assert publish_mod.recover_all(cfg) == [] and fhir.holds == f"part of {N2}"  # a load that still runs is let be
+    publish_mod._write_record(folder, {**rec, "fhir_loader": {"pid": _gone(), "start": rec["fhir_loader"]["start"]}})
 
     fhir.calls, fhir.back, fhir.full = [], [], []
     assert publish_mod.recover_all(cfg) == [N2]

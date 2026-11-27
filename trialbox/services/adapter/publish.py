@@ -54,6 +54,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
 import shutil
 import time
 from collections.abc import Callable
@@ -243,7 +244,7 @@ def recover_fhir(cfg: AdapterConfig) -> list[str]:
     from adapter.pipeline import RERUN_DIR
 
     folders = [*(cfg.lake_dir / "ndjson").glob("*"), *(cfg.lake_dir / RERUN_DIR).glob("*")]
-    killed = [f for f in sorted(folders) if f.is_dir() and (read_record(f).get("steps") or {}).get("fhir") == LOADING]
+    killed = [f for f in sorted(folders) if f.is_dir() and _killed_load(read_record(f))]
     if not killed:
         return []
     served = _current(cfg.lake_dir)
@@ -256,11 +257,33 @@ def recover_fhir(cfg: AdapterConfig) -> list[str]:
             return []
     for f in killed:
         rec = read_record(f)
-        rec["steps"] = {**rec.get("steps", {}), "fhir": PENDING}
-        _write_record(f, rec)
+        if _killed_load(rec):  # read again: never over a step a load wrote meanwhile
+            rec["steps"] = {**rec.get("steps", {}), "fhir": PENDING}
+            _write_record(f, rec)
     log.warning("a killed FHIR load of %s was undone: the FHIR store holds the served night %s",
                 ", ".join(f.name for f in killed), served)  # fmt: skip
     return [f.name for f in killed]
+
+
+def _started(pid: int) -> str:
+    """The process's start time in clock ticks since boot (``/proc/<pid>/stat`` field 22), "" when it is gone: with
+    the pid, it names one process (a pid used again later has another start)."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text(encoding="ascii").rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError, UnicodeDecodeError):
+        return ""
+
+
+def _killed_load(rec: dict[str, Any]) -> bool:
+    """The record's FHIR step began and never ended, and the process that loads is gone (a night run from the command
+    line takes no run lock: a load that still runs is never taken for a killed one)."""
+    if (rec.get("steps") or {}).get("fhir") != LOADING:
+        return False
+    who = rec.get("fhir_loader") or {}
+    try:
+        return not who.get("start") or _started(int(who["pid"])) != who["start"]
+    except (KeyError, TypeError, ValueError):
+        return True
 
 
 def finish_served(cfg: AdapterConfig) -> bool:
@@ -467,6 +490,7 @@ def publish_night(
     if todo("fhir"):
         if fhir_on:
             steps["fhir"], rec["steps"] = LOADING, {**steps, "fhir": LOADING}  # P-03: what a kill in the load leaves
+            rec["fhir_loader"] = {"pid": os.getpid(), "start": _started(os.getpid())}
             _write_record(out.out_dir, rec)
             try:
                 out.fhir_loaded, out.fhir_deleted = _sync_fhir(
