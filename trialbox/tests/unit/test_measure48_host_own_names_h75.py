@@ -88,7 +88,7 @@ def test_with_nothing_set_compose_renders_byte_identical_to_the_literal_names(tm
     assert doc["name"] == "trialbox"
     names = {n["name"] for n in doc["networks"].values()}
     assert "trialbox-net" in names and "trialbox-model-backend" in names
-    assert names <= {"trialbox-net", "trialbox-model-net", "trialbox-model-backend", "trialbox-egress",
+    assert names <= {"trialbox-net", "trialbox-fhir", "trialbox-model-net", "trialbox-model-backend", "trialbox-egress",
                      "trialbox-console", "trialbox-hostnet"}  # fmt: skip
     if "docker-compose.test.yml" in stack:
         assert "trialbox-hostnet" in names
