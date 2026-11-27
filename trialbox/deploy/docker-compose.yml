@@ -87,8 +87,39 @@ services:
     # without a working archive_command: Postgres would keep every WAL file until the disk is full.
     logging: *logging
     image: ${POSTGRES_IMAGE:-trialbox-postgres:16-1}  # deploy/docker/db.Dockerfile, pinned in deploy/images.lock (D-204)
+    # P2-06 (ASSESS-1-ADDENDUM D3/D4): TLS on the TCP listener. Each start makes a new self-signed key and certificate
+    # in the db's own /tmp (a tmpfs: never on disk, never in a backup, 0600 to postgres), then runs the image's
+    # entrypoint as before. Clients connect with libpq's and pgjdbc's default sslmode (prefer: encrypted, no
+    # certificate check); pg_hba.conf refuses a TCP client without TLS.
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        umask 077 && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 -subj /CN=db
+        -keyout /tmp/tb-db-tls.key -out /tmp/tb-db-tls.crt 2>/dev/null && exec docker-entrypoint.sh "$$@"
+      - tb-db-start
     command:
       - postgres
+      # P2-06 (D3/D4): the access file and its peer map (deploy/docker/pg_hba.conf: no trust), the socket 0770, TLS,
+      # and a log line per connection and per disconnection (who and from where; never a statement or a value).
+      # pgaudit is not in the image (D-204's extensions are pgvector and PGroonga): the application's audit chain
+      # stays the record of what was read and changed (docs/security/db-access-model.md).
+      - -c
+      - hba_file=/etc/trialbox/pg/pg_hba.conf
+      - -c
+      - ident_file=/etc/trialbox/pg/pg_ident.conf
+      - -c
+      - unix_socket_permissions=0770
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/tmp/tb-db-tls.crt
+      - -c
+      - ssl_key_file=/tmp/tb-db-tls.key
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
       - -c
       - wal_compression=${TB_PG_WAL_COMPRESSION:-zstd}
       - -c
@@ -155,6 +186,8 @@ services:
     volumes:
       - db-pg:/var/lib/postgresql/data
       - ./docker/db-init:/docker-entrypoint-initdb.d:ro
+      - ./docker/pg_hba.conf:/etc/trialbox/pg/pg_hba.conf:ro   # P2-06 (D3/D4)
+      - ./docker/pg_ident.conf:/etc/trialbox/pg/pg_ident.conf:ro
       - ./pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
       - ./secrets/pgbackrest:/etc/pgbackrest/conf.d:ro
       - ${TB_PGBACKREST_REPO:-./pgbackrest/repo}:/var/lib/pgbackrest
