@@ -1084,7 +1084,7 @@ envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/
 case "$CONSENT_PROXY" in
   "") ;;
   on|off) envset TB_CONSENT_PROXY "$CONSENT_PROXY"; echo "    consent by a representative: $CONSENT_PROXY (--consent-proxy)" ;;
-  *) die "--consent-proxy takes on or off, not '$CONSENT_PROXY': nothing was changed" ;;
+  *) die "--consent-proxy takes on or off, not '$CONSENT_PROXY': nothing was changed" ;;  # H-94 not a stop: a usage error, refused by name on every box
 esac
 # ---- end of CONSENT-PROXY
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
