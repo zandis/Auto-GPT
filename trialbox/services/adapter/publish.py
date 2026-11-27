@@ -735,8 +735,9 @@ def _publish_locked(
                 from adapter import failure
 
                 failure.log_failure(log, "fhir-store load failed", exc)
-                out.errors.append(f"fhir-store load failed: {failure.words(exc)}")  # D-668
-                _rollback(cfg, read_state(cfg), f"load failed: {failure.words(exc)}")
+                said = failure.words(exc)
+                out.errors.append(f"fhir-store load failed: {said}")  # D-668
+                _rollback(cfg, read_state(cfg), f"load failed: {said}")
                 note("fhir", FAILED)
                 fhir_back("load failed")  # what was loaded before the failure does not stay
                 return end()
@@ -826,9 +827,7 @@ def _publish_locked(
                                "counts": verify_fhir(cfg, out.out_dir)})  # fmt: skip
         except Exception as exc:  # not the night, or not checked: the night is served, the next recovery puts the
             # store back to it (an unchecked store is never clean)
-            from adapter import failure
-
-            why = str(exc) if isinstance(exc, FhirMismatch) else failure.words(exc)
+            why = str(exc) if isinstance(exc, FhirMismatch) else f"the check got no answer ({type(exc).__name__})"
             st = _rollback(cfg, read_state(cfg), why, night=snap, target=snap)
             out.errors.append(outstanding(st))
             out.fhir_outstanding = outstanding(st)

@@ -616,11 +616,6 @@ def _run_ingest(
             )
         raise
     refuse_site_needs(cfg, snap, source_kind)  # U-5 (D-1280): before a row, a folder or a lake build exists for it
-    from adapter.publish import recover_all
-
-    # P-03 (review R5): a FHIR put-back that is owed is done, or refuses the night by its name
-    # (FhirRestoreOutstanding), before this night touches any store
-    recover_all(cfg)
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
@@ -635,6 +630,11 @@ def _run_ingest(
                 detail={"source": source_kind, "refused": "site_key", "reason": str(exc)},
             )
         raise
+    from adapter.publish import recover_all
+
+    # P-03 (review R5): a FHIR put-back that is owed is done, or refuses the night by its name
+    # (FhirRestoreOutstanding), before this night reads its source or touches any store
+    recover_all(cfg)
     errors: list[str] = []
     # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
     # is scratch on the lake volume (``lake:tmp``), removed when the night ends
