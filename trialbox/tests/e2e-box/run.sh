@@ -138,9 +138,9 @@ site_needs() { # what a PRODUCTION install refused without, as a site sets it (d
   local extra
   extra=$(vm "sudo sed -n 's/^EGRESS_EXTRA=//p' /opt/trialbox/deploy/.env | tail -1") || return 1
   envset TB_AUDIT_ANCHOR_TARGETS /srv/hospital-audit && envset TB_BACKUP_TARGETS /srv/hospital-backup &&
-    envset TB_LOG_DIR /var/log/trialbox-e2e && envset TB_BACKUP_ALERT_ROUTE health-page &&
+    envset TB_LOG_DIR /srv/trialbox-logs && envset TB_BACKUP_ALERT_ROUTE health-page &&
     envset EGRESS_EXTRA "${extra:+$extra,}llm-service=10.0.2.2:$E2E_JUDGE_PORT,llm-verifier=10.0.2.2:$E2E_VERIFIER_PORT" &&
-    vm 'sudo mkdir -p /var/log/trialbox-e2e && sudo chmod a+rx /srv/hospital-audit &&
+    vm 'sudo mkdir -p /srv/trialbox-logs && sudo chmod a+rx /srv/hospital-audit &&
       sudo install -m 0644 /root/site/hardening.conf /opt/trialbox/deploy/site/hardening.conf &&
       cd /opt/trialbox && sudo deploy/network.sh apply --env deploy/.env 2>&1 | tail -n 3'
 }
