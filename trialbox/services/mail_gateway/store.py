@@ -68,11 +68,12 @@ ALTER TABLE intake ADD COLUMN IF NOT EXISTS cmd TEXT
 SCHEMA_V4 = """
 ALTER TABLE send_keys ADD COLUMN IF NOT EXISTS hold_reason TEXT
 """
-# Review M-1: a key held under V3 has no code. The site-information holds of that time are the queued, never-tried keys
-# that name the page in their line (the page's gate line, or NO_RELAY); they get WAITS. Any other key keeps its NULL
+# Review M-1: a key held under V3 has no code. The site-information holds of that time are the queued keys that name
+# the page in their line (the page's gate line, always in English, or NO_RELAY); they get WAITS. The hold kept the
+# key's earlier tries, as this release's hold does, so the count is not part of the test. Any other key keeps its NULL
 # code and its retry time.
 SCHEMA_V5 = """
-UPDATE send_keys SET hold_reason = 'waits' WHERE state = 'queued' AND hold_reason IS NULL AND attempts = 0
+UPDATE send_keys SET hold_reason = 'waits' WHERE state = 'queued' AND hold_reason IS NULL
 AND last_error LIKE '%Information still needed%'
 """
 MIGRATIONS = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
