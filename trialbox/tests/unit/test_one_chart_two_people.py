@@ -21,7 +21,16 @@ from typing import Any
 
 import pytest
 from adapter.ndjson import read_type, snapshot_dir
-from adapter.pipeline import COMPLETENESS, HELD, IDENTITY_CONFLICT, PASSED, AdapterConfig, bulk_id, run_ingest
+from adapter.pipeline import (
+    COMPLETENESS,
+    HELD,
+    IDENTITY_CHECKED,
+    IDENTITY_CONFLICT,
+    PASSED,
+    AdapterConfig,
+    bulk_id,
+    run_ingest,
+)
 from adapter.publish import TwoPeopleOneChart, publish_held
 from tb_common.crypto import pid_for_mrn
 from tb_contracts import RebuildResult
@@ -246,6 +255,59 @@ def test_one_persons_row_twice_and_a_clean_night_are_unchanged(good: Any, tmp_pa
     assert (folder / PASSED).exists() and not (folder / IDENTITY_CONFLICT).exists()
     assert json.loads((folder / COMPLETENESS).read_text())["tables"]["patient"]["duplicate_keys"] == 1
     assert _audit(tmp_path)[-1]["detail"]["identity_conflicts"] is None
+
+
+@pytest.mark.parametrize("both", [True, False])
+def test_chart_numbers_a_merge_makes_one_patient_are_one_person(good: Any, tmp_path: Path, both: bool) -> None:
+    """Review P-04-1: a chart number merged into a served one (T-659b) is written under the served patient, so its
+    row is compared as that patient's. Both numbers tonight with two people's demographics: two people within the
+    night, never accepted. The merged number alone: another person against the served night, held."""
+    cfg, rb = _from_good(good, tmp_path)
+    feed = _feed(tmp_path)
+    first = good[2]
+    pid = pid_for_mrn(KEY, first["mrn"])
+    pm = cfg.pidmap()
+    try:
+        old, survivor = pm.merge(KEY, "19999999", first["mrn"], "synthetic merge", "SYN-1")
+    finally:
+        pm.close()
+    assert survivor == pid
+    rows = _rows(feed / "patient.csv")
+    other = {**_other_person(first), "mrn": "19999999"}
+    _write(feed / "patient.csv", [*rows, other] if both else [other, *rows[1:]])
+    rep = _night(cfg, feed, NEXT)
+    text = " ".join(rep.errors)
+    said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
+    if both:
+        assert "1 within this night, 0 against" in text, text
+        assert said["tonight"] == [old] and said["against"]["pids"] == []
+    else:
+        assert f"0 within this night, 1 against the served night {GOOD}" in text, text
+        assert said["tonight"] == [] and said["against"] == {"snapshot": GOOD, "pids": [old]}
+    _assert_held_and_kept(cfg, rb, rep, first, pid)
+    if both:
+        with pytest.raises(TwoPeopleOneChart):
+            publish_held(cfg, NEXT)
+        assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD and rb.calls == []
+
+
+def test_an_accept_of_a_night_the_identity_check_never_ran_on_is_refused(good: Any, tmp_path: Path) -> None:
+    """Review M1: a night held by an earlier release (or by a run that stopped before the check) has neither the
+    conflict file nor the check's mark; its accept is refused, never taken for a night with no conflict."""
+    cfg, rb = _from_good(good, tmp_path)
+    feed = _feed(tmp_path)
+    rows = _rows(feed / "patient.csv")
+    _write(feed / "patient.csv", [_other_person(rows[0]), *rows[1:]])  # held, and acceptable as it stands
+    rep = _night(cfg, feed, NEXT)
+    folder = snapshot_dir(cfg.lake_dir, NEXT)
+    assert rep.held and (folder / IDENTITY_CHECKED).is_file() and (folder / IDENTITY_CONFLICT).is_file()
+    for name in (IDENTITY_CONFLICT, IDENTITY_CHECKED):  # the folder as an earlier release left its held night
+        (folder / name).unlink()
+    with pytest.raises(TwoPeopleOneChart, match="never ran on this night"):
+        publish_held(cfg, NEXT)
+    assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD and rb.calls == []
+    (folder / IDENTITY_CHECKED).write_text(json.dumps({"snapshot": NEXT}) + "\n", encoding="utf-8")
+    assert publish_held(cfg, NEXT).promoted and rb.calls == [NEXT]  # checked, no conflict listed: the steward's
 
 
 def test_a_bulk_export_with_two_people_under_one_patient_id_is_held(tmp_path: Path) -> None:

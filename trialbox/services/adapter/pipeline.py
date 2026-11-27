@@ -957,13 +957,14 @@ def _run_ingest(
                 served_now = _current(cfg.lake_dir)
                 pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
             pm.stage(snap, patient_pairs, identities or [])
+            aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
             # H34-06: tonight's name and national id against the served ones (the pid map's identity is written
-            # only when a night is published); the served NDJSON carries neither
+            # only when a night is published); the served NDJSON carries neither. A merged chart number is compared
+            # with the patient its records are written under too (review P-04-1)
             # ponytail: one look-up per patient; a bulk read if it ever shows in the night's timings
             for pid, said in identities:
-                if _two_people(pm.identity(pid) or {}, said):
+                if any(_two_people(pm.identity(p) or {}, said) for p in {pid, aliases.get(pid, pid)}):
                     against_served.add(pid)
-            aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
@@ -1095,14 +1096,29 @@ def _run_ingest(
     # night is held and the pseudonymous ids go to a file in its folder. Two people within the night cannot be
     # accepted (adapter.publish.refuse_two_people: an accept would serve one under the other's chart); a change
     # against the served night is the steward's to accept (a correction of one person) or reject (another person)
+    # review P-04-1: chart numbers a merge makes one patient (T-659b aliases, applied as the records are written) are
+    # one person: two of them tonight with two people's demographics are two people within the night
+    under: dict[str, list[str]] = {}  # the patient each of tonight's chart numbers is written under -> those numbers
+    for pid in patient_who:
+        under.setdefault(aliases.get(pid, pid), []).append(pid)
+    for group in under.values():
+        if len(group) > 1:
+            merged: dict[str, dict[str, str]] = {}
+            identity_conflicts.update(p for p in group if _two_people_seen(merged, "", patient_who[p]))
+    if aliases and identities:
+        named: dict[str, dict[str, str]] = {}
+        identity_conflicts.update(p for p, said in identities if _two_people_seen(named, aliases.get(p, p), said))
     against: set[str] = set(against_served)
     if last_good is not None and patient_who:
         # one read of the served night's Patient file per night (an index if it ever shows in the night's timings)
         for r in read_type(snapshot_dir(cfg.lake_dir, last_good), "Patient"):
-            pid = str(r.get("id"))
-            if pid in patient_who and _two_people(_who(r), patient_who[pid]):
-                against.add(pid)
+            for pid in under.get(str(r.get("id")), []):
+                if _two_people(_who(r), patient_who[pid]):
+                    against.add(pid)
     against -= identity_conflicts
+    # review M1: the night says the identity check ran on it; an accept of a held night without this (an earlier
+    # release's, or a run that stopped before here) is refused (adapter.publish.refuse_two_people)
+    (out_dir / IDENTITY_CHECKED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
     if identity_conflicts or against:
         (out_dir / IDENTITY_CONFLICT).write_text(
             json.dumps({"snapshot": snap, "tonight": sorted(identity_conflicts),
@@ -1832,6 +1848,7 @@ REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of 
 UNMAPPED_CODES = "unmapped_codes.json"  # NEW-DIN-6 (D-580): every code no look-up knows, with its row count
 COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
 IDENTITY_CONFLICT = "identity_conflict.json"  # H34-06: the pids that arrived as two people (tonight / against)
+IDENTITY_CHECKED = "identity_checked.json"  # H34-06 review M1: the identity check ran on this night
 _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of who the person is
 
 
