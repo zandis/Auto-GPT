@@ -153,12 +153,13 @@ def test_a_fhir_store_failure_does_not_promote_and_the_next_call_resumes_at_that
     out = publish_night(cfg, N2, folder, last_good=N1, on_step=lambda step, _steps: seen.append(step))
     assert out.ok and out.promoted and lakes.lake.current() == N2
     assert "omop" not in seen and seen[0] == "fhir" and seen[-1] == "pidmap"  # the pid map last
-    assert fhir.calls == [N1, N2, N1, N2] and lakes.calls == [N1, N2] and fhir.holds == N2
+    # P-03 (reviews R2, N1): the put-back that failed is owed (FHIR_STATE) and done first, then the night is loaded
+    assert fhir.calls == [N1, N2, N1, N1, N2] and lakes.calls == [N1, N2] and fhir.holds == N2
     assert (folder / "passed.json").exists() and set(_record(folder).values()) <= {"done", "skipped"}
     assert _resolves(cfg, "10000001")
     # a third call does nothing at all
     again = publish_night(cfg, N2, folder, last_good=N1)
-    assert again.ok and fhir.calls == [N1, N2, N1, N2] and lakes.calls == [N1, N2]
+    assert again.ok and fhir.calls == [N1, N2, N1, N1, N2] and lakes.calls == [N1, N2]
 
 
 def test_the_same_night_run_again_resumes_and_a_changed_night_starts_over(
