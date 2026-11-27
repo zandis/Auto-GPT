@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from adapter.mapping.engine import Mapper, Mapping, MappingError, resource_id
+from adapter.mapping.engine import Mapper, Mapping, MappingError
 from tb_common.crypto import pid_for_mrn
+from tb_common.identity import Identifier, IdentityState, resolve_record
 
 KEY = b"k" * 32
 
@@ -49,20 +50,30 @@ def test_paths_types_refs_and_pruning(tmp_path: Path) -> None:
             }
         ],
     )
-    res = Mapper(m, KEY, "S1").map_row(
-        m.resources[0],
-        {
-            "id": "E1",
-            "mrn": "12345678",
-            "staff": "P1",
-            "dt": "2026-01-02 08:30:00",
-            "typ": "XX",
-            "dept": "RHEU",
-            "nothing": "",
-        },
+    mapper = Mapper(m, KEY, "S1")
+    row = {
+        "id": "E1",
+        "mrn": "12345678",
+        "staff": "P1",
+        "dt": "2026-01-02 08:30:00",
+        "typ": "XX",
+        "dept": "RHEU",
+        "nothing": "",
+    }
+    res = mapper.map_row(m.resources[0], row)
+    other = mapper.map_row(m.resources[0], {**row, "mrn": "20481234"})
+    expected = resolve_record(
+        KEY,
+        '["S1","t"]',
+        (Identifier("12345678", "chart"),),
+        "Encounter",
+        (Identifier("E1"),),
+        table="t",
+        state=IdentityState(),
     )
     assert res is not None
-    assert res["id"] == resource_id(KEY, "Encounter", "E1")
+    assert res["id"] == expected.record_key
+    assert other is not None and other["id"] != res["id"]
     assert res["subject"]["reference"] == f"Patient/{pid_for_mrn(KEY, '12345678')}"
     assert res["participant"][0]["individual"]["reference"] == "Practitioner/P1"
     assert res["period"]["start"] == "2026-01-02T08:30:00+08:00"

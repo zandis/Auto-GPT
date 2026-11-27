@@ -22,6 +22,7 @@ from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.identity import BULK_SCOPE
 from tb_common.site_profile import Profile as SiteProfile
 from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
@@ -987,6 +988,7 @@ def _run_ingest(
     full_counts = write_snapshot(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
         aliases=aliases if base is not None else None, moved=carried_moved,
+        identity_scope=mapper.snapshot_scope if mapper else BULK_SCOPE,
     )  # fmt: skip
     if carried_moved:
         log.info(

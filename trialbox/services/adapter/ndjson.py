@@ -21,6 +21,8 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import IO, Any
 
+from tb_common.identity import SCOPE_FILE, check_snapshot_scope, check_unscoped_key
+
 Resource = dict[str, Any]
 TOMBSTONES = "tombstones.json"
 SORT_ENV = "TB_INGEST_SORT_MB"
@@ -261,6 +263,12 @@ def _base_lines(base: Path, rtype: str, check: bool) -> Iterator[_Item]:
         yield rid, n - 2**62, _canon(r)  # before every record of the night
 
 
+def _checked_plain_records(records: Iterable[Resource]) -> Iterator[Resource]:
+    for resource in records:
+        check_unscoped_key(resource["id"])
+        yield resource
+
+
 def write_snapshot(
     directory: Path,
     by_type: Mapping[str, Iterable[Resource]] | Spool,
@@ -272,6 +280,7 @@ def write_snapshot(
     removed: dict[str, int] | None = None,
     aliases: Mapping[str, str] | None = None,
     moved: dict[str, int] | None = None,
+    identity_scope: str | None = None,
 ) -> dict[str, int]:
     """Write all resource types; with ``base`` (previous snapshot) resources are merged by id.
 
@@ -292,10 +301,16 @@ def write_snapshot(
     ``aliases`` (old pid -> surviving pid, NEW-B-36, D-677): the chart merges, applied to the records carried over
     from ``base`` as ``transform`` applies them to the night's; ``moved`` counts, per type, the carried-over records
     they changed."""
-    directory.mkdir(parents=True, exist_ok=True)
+    if base is not None:
+        check_snapshot_scope(base, identity_scope)
     counts: dict[str, int] = {}
     dead = {t: set(ids) for t, ids in (tombstones or {}).items()}
     out = {t: set(ids) for t, ids in (left_out or {}).items()}
+    plain_delta = base is not None and identity_scope is None
+    if plain_delta:
+        for keys in (*dead.values(), *out.values()):
+            for key in keys:
+                check_unscoped_key(key)
     dropped: dict[str, list[str]] = {}
     spool = by_type if isinstance(by_type, Spool) else None
     given: Mapping[str, Iterable[Resource]] = {} if isinstance(by_type, Spool) else by_type
@@ -304,6 +319,12 @@ def write_snapshot(
     has_base = base is not None and base.exists()
     if base is not None and has_base:
         types |= {p.stem for p in base.glob("*.ndjson")}
+    if any(p.stem not in types for p in directory.glob("*.ndjson")):
+        # A retry may retain other files. Never certify records this invocation did not write.
+        check_snapshot_scope(directory, identity_scope)
+    directory.mkdir(parents=True, exist_ok=True)
+    scope_file = directory / SCOPE_FILE
+    scope_file.unlink(missing_ok=True)
     for rtype in sorted(types):
         work = directory / f".{rtype}.runs"
         night = directory / f".{rtype}.night"
@@ -313,7 +334,8 @@ def write_snapshot(
             # the night's records, transformed in arrival order, sorted once into a file of (id, seq, line)
             fresh: Iterable[Resource] = spool.read(rtype) if spool is not None else given.get(rtype, ())
             kept = (r for r in fresh if transform is None or transform(r))
-            items = ((r["id"], n, _canon(r)) for n, r in enumerate(kept))
+            checked = _checked_plain_records(kept) if plain_delta else kept
+            items = ((r["id"], n, _canon(r)) for n, r in enumerate(checked))
             with night.open("w", encoding="utf-8") as fh:
                 fh.writelines(
                     f"{json.dumps(i)}\t{n}\t{line}\n" for i, n, line in _sorted(items, budget, work / "night")
@@ -344,6 +366,8 @@ def write_snapshot(
         marker.write_text(json.dumps(dropped, sort_keys=True, indent=1) + "\n", encoding="utf-8")
     else:
         marker.unlink(missing_ok=True)
+    if identity_scope is not None:
+        scope_file.write_text(identity_scope, encoding="utf-8")
     return counts
 
 

@@ -10,12 +10,14 @@ counted, never guessed. Synthetic rows only."""
 from __future__ import annotations
 
 import contextlib
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from adapter.mapping.engine import Mapper, Mapping, MappingError, resource_id
+from adapter.mapping.engine import Mapper, Mapping, MappingError
+from tb_common.identity import Identifier, IdentityState, resolve_record
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
@@ -55,11 +57,28 @@ def _run(tmp_path: Path, visits: list[dict[str, str]], diags: list[dict[str, str
     return m, {"links": list(links.values())}
 
 
+def _encounter_ref(key: bytes, site: str, mrn: str, visit: str) -> str:
+    record = resolve_record(
+        key,
+        json.dumps([site, "demo_his"], separators=(",", ":")),
+        (Identifier(mrn, "chart"),),
+        "Encounter",
+        (Identifier(visit),),
+        table="encounter",
+        state=IdentityState(),
+    )
+    return f"Encounter/{record.record_key}"
+
+
 def test_a_diagnosis_links_to_the_one_visit_of_its_branch_patient_and_day(tmp_path: Path) -> None:
     visits = [_visit("V1", "A", "P1", "2026-01-13 09:10:00"), _visit("V2", "A", "P1", "2026-01-20 10:00:00"),
               _visit("V3", "B", "P1", "2026-01-13 11:00:00")]  # fmt: skip
+    visits.append({**visits[0], "mrn": "P2"})
     m, got = _run(tmp_path, visits, [_diag("D1", "A", "P1", "2026-01-13")])
-    assert got["links"] == [f"Encounter/{resource_id(b'k' * 32, 'Encounter', 'V1')}"]
+    _, other = _run(tmp_path, visits, [_diag("D2", "A", "P2", "2026-01-13")])
+    (other_ref,) = other["links"]
+    assert got["links"] == [_encounter_ref(b"k" * 32, "s", "P1", "V1")]
+    assert other_ref is not None and other_ref != got["links"][0]
     assert m.encounter_links() == {"diagnosis": {"linked": 1}}
 
 
@@ -170,8 +189,6 @@ def _feed(path: Path, visits: list[dict[str, str]], diags: list[dict[str, str]])
 
 
 def test_a_delta_night_links_a_changed_diagnosis_to_its_unchanged_visit(tmp_path: Path) -> None:
-    import json
-
     from adapter.ndjson import read_type, snapshot_dir
     from adapter.pipeline import run_ingest
 
@@ -182,12 +199,13 @@ def test_a_delta_night_links_a_changed_diagnosis_to_its_unchanged_visit(tmp_path
     visit = {**_visit("V1", "A", "10000001", "2026-09-30 09:10:00"), "updated_at": "2026-09-30"}
     d1 = {**_diag("D1", "A", "10000001", "2026-09-30"), "updated_at": "2026-09-30"}
     d2 = {**_diag("D2", "A", "10000001", "2026-09-30"), "updated_at": "2026-10-01"}  # changed after the first night
-    feed = _feed(tmp_path / "feed", [visit], [d1, d2])
+    feed = _feed(tmp_path / "feed", [visit, {**visit, "mrn": "10000004"}], [d1, d2])
     run_ingest(cfg, "csv", feed, snapshot="2026-10-01", load_fhir=False, validate=False)
     run_ingest(cfg, "csv", feed, since="2026-10-01", snapshot="2026-10-02", load_fhir=False, validate=False)
     folder = snapshot_dir(cfg.lake_dir, "2026-10-02")
-    want = f"Encounter/{resource_id(_key(cfg), 'Encounter', 'V1')}"
+    want = _encounter_ref(_key(cfg), cfg.site_id, "10000001", "V1")
     assert {(c.get("encounter") or {}).get("reference") for c in read_type(folder, "Condition")} == {want}
+    assert len({e["id"] for e in read_type(folder, "Encounter")}) == 2
     comp = json.loads((folder / "completeness.json").read_text(encoding="utf-8"))
     assert comp["tables"]["diagnosis"]["encounter_by_day"] == {"linked": 1}  # D2: the one row read tonight
 
