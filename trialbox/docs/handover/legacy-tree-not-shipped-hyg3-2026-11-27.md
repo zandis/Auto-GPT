@@ -9,7 +9,7 @@ language.
 - **Base:** int/r1plus1 3390bf74
 - **Change:** one guard test, `tests/unit/test_legacy_tree_not_shipped.py`; no build file changed
 - **Findings:** [`legacy-tree-not-shipped-hyg3-2026-11-27/findings.json`](legacy-tree-not-shipped-hyg3-2026-11-27/findings.json)
-  (HYG3-01 to HYG3-02)
+  (HYG3-01 to HYG3-03)
 
 ## Files outside the card
 
@@ -46,3 +46,33 @@ script, every compose file's build contexts, the `COPY`/`ADD` sources of every D
 - No image was built and no image's file list was read; the test reads the build inputs only.
 - Commands outside the release targets (drills, the proof-of-concept script, cloud scripts) were not read by the
   test; they build no shipped image.
+
+## Review round (#1583, R1 to R6, after one design consult)
+
+Consult decision: every recognised build line yields one verified, resolved context; an unresolved one fails. Named
+contexts, `--from` sources, the release closure and the `SC_IMAGES` assignments are all read. Test file only; no
+Makefile, Dockerfile or compose change.
+
+- Every parser takes text, so each regression case feeds a planted string.
+- R1: `COPY`/`ADD --from` and `RUN --mount from=` must name a stage of the file (or a stage index);
+  `--build-context name=value` and compose `build.additional_contexts` (list or mapping) must resolve inside
+  `trialbox/` unless the value is a URL.
+- R2: each build's context is resolved from the folder the line runs in, moved by each `cd`; a `cd` to a non-literal,
+  a `-` context or a URL context fails.
+- R3: a make reference stays one word; the context is the one literal positional; any other bare make variable must be
+  one of `PLATFORM_ARG`, `BUILD_ARGS`, `CA_SECRET`, `OCI_LABELS`, `NO_CACHE_ARG`, each asserted to hold flags and
+  their values only, with no `--build-context`. Recognised builds equal verified contexts on every recipe line.
+- R4: the closure of `make release-images` (prerequisites and `$(MAKE)` goals) is walked: the targets with a build
+  recipe are exactly `images` and `demo-bundle`, and the only script it calls that builds is
+  `deploy/build_db_image.sh`. `images-multiarch` is read too.
+- R5: `SC_IMAGES` and `SC_OWN_IMAGES` have one `?=` assignment each; `SC_IMAGES` reads as it does today and
+  `SC_OWN_IMAGES` is the tags of the release builds and the database script's tag. Make is not run.
+- R6: the `trialbox`-prefix assertion is gone; a top-level `trialbox-notes.md` is legacy like any other name.
+
+Not covered: an environment override of a `?=` variable (`SC_IMAGES`, `SC_OWN_IMAGES`) at release time (HYG3-03).
+
+Each case planted in the work tree and reverted, old guard (d599b8aa) against the new one: P1 `COPY --from=legacy`,
+P2 `--build-context legacy=..`, P3 compose `additional_contexts: [legacy=../..]`, P4 `cd .. && docker build .`,
+P5 `docker build -f Dockerfile $(IMAGE_CONTEXT)` beside the good builds, P6 `release-images: extra-image` with a
+build of `..`, P7 `SC_IMAGES += dir:../legacy`: the old guard passed each (10 passed), the new one failed each. P8 a
+tracked top-level `trialbox-notes.md`: the old guard failed on it, the new one passes.

@@ -20,6 +20,14 @@
    "lane": "H",
    "basis": "shown",
    "state": "open"
+  },
+  {
+   "id": "HYG3-03",
+   "severity": "Low",
+   "claim": "the guard reads the Makefile's assignments, not make's run: an environment override of SC_IMAGES or SC_OWN_IMAGES (both ?=) at release time is not covered",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
   }
  ]
 }
