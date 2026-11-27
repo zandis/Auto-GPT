@@ -229,8 +229,10 @@ console's sweep, the restore's sweep) are replaced by one marker and one rebuild
 
 Deviations from the design: the design's `GRANT DELETE ... TO tb_audit_writer` (the rebuild's role) is not made,
 because D-997's tests hold that the drain cannot take a row back; so `deploy/install.sh` does not run the rebuild
-(no role there can) and a new or upgraded box's doctor fails `provenance_index` until the administrator runs
-`trialbox provenance --rebuild` (P19-03 stays open). The demo box (`DemoBox`) writes no marker: its rollback restores
+(no role there can) and an upgraded box's doctor fails `provenance_index` until the administrator runs
+`trialbox provenance --rebuild` (P19-03 stays open). A new box has nothing to rebuild: at its start the drain writes the
+verified marker when there is no marker file, the index is installed and empty and no chain line makes a row
+(`provenance_index.mark_new_box`, under the writer's lock, only where no marker is), so a fresh install's doctor passes. The demo box (`DemoBox`) writes no marker: its rollback restores
 no database and its container is recreated from the image. P19-03 and P19-04 are `open` with a `remaining` note
 (the register has no partial state).
 

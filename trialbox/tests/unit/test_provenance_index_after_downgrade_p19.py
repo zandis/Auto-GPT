@@ -1558,3 +1558,56 @@ def test_rebuild_time_at_the_declared_site_size(box: str, tmp_path: Path) -> Non
         took = time.monotonic() - t0
     print(f"rebuild of {lines} chain lines: {took:.1f} s")
     assert took <= float(budget)
+
+
+def test_a_new_box_has_nothing_to_rebuild_and_its_first_doctor_passes(box: str, tmp_path: Path) -> None:
+    """Rehearsal of PR 1584: a fresh install (the role script's index, no marker, a chain with no row to index) failed
+    its own doctor, "must be rebuilt (no marker, since unknown)". The drain's start finds nothing to rebuild and the
+    marker says verified; the next lines are indexed."""
+    from tools.trialbox import doctor
+
+    chain = tmp_path / "audit"
+    chain.mkdir()
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+    _put(box, 20, "console.login", {"detail": {}})  # a line the index takes no row from
+    _drain(box, chain)
+    assert _clean(chain), idx.read_marker(chain)
+    env = {"TB_DB_URL": _url(box), "TB_AUDIT_DIR": str(chain)}
+    row = doctor.check_provenance_index(doctor.DoctorInputs(env=env))
+    assert row.status == "PASS", row
+    _send(box, 21, "c1", PID_A)
+    _drain(box, chain)
+    assert _calls(box) == ["c1"]
+    assert _check(box, chain).ok
+
+
+@pytest.mark.parametrize("how", ["restore_marker", "upgraded_chain", "index_rows", "restore_meanwhile"])
+def test_only_a_new_box_is_marked_verified(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    """The new box's marker never stands in for the rebuild: a restore's marker (before the drain's start or written
+    while it looks), a chain with rows (an upgraded box) or an index with rows keep the rebuild required."""
+    chain = tmp_path / "audit"
+    chain.mkdir()
+    if how == "upgraded_chain":  # drained before the index was installed
+        _send(box, 20, "c1", PID_A)
+        _drain(box, chain)
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+        if how == "index_rows":
+            c.execute("INSERT INTO provenance.model_calls (rec_hash, call_id, at) VALUES ('h', 'c0', now())")
+    if how == "restore_marker":
+        idx.require_rebuild(chain, "update rollback")
+    if how == "restore_meanwhile":
+        real = idx.chain_records
+
+        def restored_meanwhile(directory: Path) -> Any:
+            idx.require_rebuild(chain, "backup restore")
+            return real(directory)
+
+        monkeypatch.setattr(idx, "chain_records", restored_meanwhile)
+    _drain(box, chain)
+    m = idx.read_marker(chain)
+    want = {"restore_marker": "update rollback", "restore_meanwhile": "backup restore"}.get(how, "no marker")
+    assert (m.clean, m.reason) == (False, want)
