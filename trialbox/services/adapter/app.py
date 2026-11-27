@@ -31,6 +31,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
+from lake.store import SnapshotBuilding
 from pydantic import BaseModel, Field
 from tb_common import ids
 from tb_common import service_auth as sa
@@ -258,7 +259,9 @@ def run(req: IngestRequest) -> JSONResponse:
             end.update(state="refused", detail=f"night refused: {exc}")
         except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
             end.update(state="refused", detail=str(exc))
-        except RecoveryBusy as exc:  # P-03: another publish or recovery holds the FHIR store: nothing is published
+        # P-03: another publish or recovery holds the FHIR store, or a killed publisher's lake build still runs
+        # (review M3): nothing is published
+        except (RecoveryBusy, SnapshotBuilding) as exc:
             end.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)

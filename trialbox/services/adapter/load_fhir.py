@@ -184,8 +184,10 @@ def sync_snapshot(
     # lets it through only over a build that never finished
     # review of NEW-B-5: one load of the store at a time (the ledger's build lock, held to the end: a put-back
     # waits for a load that runs and never writes under it), and a put-back the ledger refuses is an error
+    # ``finish`` False (the publish, E2E P-03 review H1): a load the ledger refuses as older is an error too, never
+    # "nothing to load", so the publish never counts a load that did not run as done
     with contextlib.ExitStack() as held:
-        built, book = _begin_night(directory.name, back, held)
+        built, book = _begin_night(directory.name, back, held, strict=back or not finish)
         if built is _OLDER:
             return 0, 0
         out = _sync(base_url, directory, ledger, previous, workers, full, shrink=finish)
@@ -223,6 +225,42 @@ def finish_load(name: str, ledger: Path, ids: dict[str, set[str]]) -> None:
         raise LedgerError(f"the generation ledger did not answer ({type(exc).__name__})") from exc
 
 
+def finished_after(name: str) -> str | None:
+    """The night the generation ledger has the FHIR store's load finished from, when it is newer than ``name`` (""
+    for no night); None when it is not, or there is no trial database to ask. A ledger that does not answer raises
+    :class:`LedgerError` (E2E P-03, review G2: a lake restored behind the trial database)."""
+    if not os.environ.get("TB_DB_URL"):
+        return None
+    from tb_common.generation import FINISHED
+
+    try:
+        from datacore.generations import Built
+
+        with Built() as book:
+            st = book.state("fhir")
+    except Exception as exc:
+        raise LedgerError(f"the generation ledger did not answer ({type(exc).__name__})") from exc
+    if st is None or st[1] != FINISHED or st[0].snapshot <= name:
+        return None
+    return st[0].snapshot
+
+
+def upgrade_put_back(name: str) -> None:
+    """E2E P-03, review H5: the generation ledger's FHIR row goes back to the served night ``name`` (``building``)
+    over a newer generation the loader from before FHIR_STATE finished (its "finished" was its last resource in,
+    never checked as served), so the put-back that follows is not refused over it. The caller holds ``fhir.lock``
+    and asks only for a box without FHIR_STATE. :class:`LedgerError` when the ledger does not answer."""
+    if not _NIGHT.match(name) or not os.environ.get("TB_DB_URL"):
+        return
+    try:
+        from datacore.generations import Built
+
+        with Built() as book, book.building("fhir"):
+            book.begin("fhir", name, back=True, upgrade=True)
+    except Exception as exc:
+        raise LedgerError(f"the generation ledger did not answer ({type(exc).__name__})") from exc
+
+
 def _sync(
     base_url: str, directory: Path, ledger: Path, previous: Path | None, workers: int, full: bool, *, shrink: bool
 ) -> tuple[int, int]:
@@ -256,7 +294,7 @@ _OLDER = object()
 _NIGHT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def _begin_night(name: str, back: bool, held: contextlib.ExitStack) -> tuple[Any, Any]:
+def _begin_night(name: str, back: bool, held: contextlib.ExitStack, *, strict: bool) -> tuple[Any, Any]:
     """Record the start of the FHIR store's load of the night ``name`` in the generation ledger, under the
     ledger's build lock (kept in ``held`` until the load is over). Returns ``(generation, ledger)``; ``_OLDER``
     when the store holds a newer night (the load is then skipped); ``(None, None)`` when there is no ledger to ask
@@ -264,7 +302,7 @@ def _begin_night(name: str, back: bool, held: contextlib.ExitStack) -> tuple[Any
     cannot be read stops the load (review of T-725, M1: it loaded an older night over a newer one, deletes
     included, while the ledger still said "newer, finished"). A put-back (``back``) that the ledger refuses is
     an error, never "nothing to load": the store then holds a night that is not the served one, and the caller
-    must say so (review of NEW-B-5, HIGH-1)."""
+    must say so (review of NEW-B-5, HIGH-1); with ``strict`` so is a forward load (:class:`LedgerError`)."""
     if not _NIGHT.match(name) or not os.environ.get("TB_DB_URL"):
         return None, None
     from tb_common.generation import OlderGeneration
@@ -276,8 +314,8 @@ def _begin_night(name: str, back: bool, held: contextlib.ExitStack) -> tuple[Any
         held.enter_context(book.building("fhir"))
         return book.begin("fhir", name, back=back), book
     except OlderGeneration as exc:
-        if back:  # never "nothing to load" (review F2): the caller keeps the store owed, by the refusal's words
-            raise LedgerError(f"fhir-store put-back refused: {exc}") from exc
+        if strict:  # never "nothing to load" (reviews F2, H1): the caller keeps the store owed, by the refusal's words
+            raise LedgerError(f"fhir-store {'put-back' if back else 'load'} refused: {exc}") from exc
         log.warning("fhir-store not loaded: %s", exc)
         return _OLDER, None
     except Exception as exc:

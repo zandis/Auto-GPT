@@ -1085,6 +1085,7 @@ def test_current_moved_under_a_verified_intent_is_owed(tmp_path: Path, monkeypat
     publish_mod.recover_all(cfg)
     assert fhir.calls == [N2] and fhir.holds == N2 and _clean_at(cfg, N2)
     served = snapshot_dir(cfg.lake_dir, N2)
+    publish_mod._write_record(served, {"snapshot": N2, "fingerprint": publish_mod.fingerprint(served), "steps": {}})
     record = (served / "publish.json").read_bytes()
     _restored_with_another_value(served)
     assert (served / "publish.json").read_bytes() == record and not publish_mod.derive(cfg).clean

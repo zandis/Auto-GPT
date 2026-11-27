@@ -39,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     lock = runs.RunLock.adopt(int(args[0]), lake_dir)
     try:
         from lake.build import prefer_me_when_memory_runs_out
+        from lake.store import SnapshotBuilding
         from tb_common.logging import setup_logging
         from tb_contracts import dump
 
@@ -69,7 +70,9 @@ def main(argv: list[str] | None = None) -> int:
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
             end = {"state": "refused", "detail": str(exc)}
-        except RecoveryBusy as exc:  # P-03: another publish or recovery holds the FHIR store: nothing is published
+        # P-03: another publish or recovery holds the FHIR store, or a killed publisher's lake build still runs
+        # (review M3): nothing is published
+        except (RecoveryBusy, SnapshotBuilding) as exc:
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except Exception as exc:
             failure.log_failure(log, f"ingest run {state.get('run')} failed", exc)
