@@ -53,6 +53,8 @@ FORMAT = "tb-ingest-memory/1"
 CAPS = {"adapter": "TB_MEM_ADAPTER", "lake": "TB_MEM_LAKE"}
 #: the orchestrator's cap, sized from the size ladder's peaks (H23b-01, D-1005)
 ORCH, ORCH_VAR = "orchestrator", "TB_MEM_ORCH"
+#: the console's cap, sized from the people who use it at once (E2E P-06: ``TB_SITE_USERS``)
+CONSOLE, CONSOLE_VAR = "console", "TB_MEM_CONSOLE"
 ORCH_RECORD = ROOT / "deploy" / "measured" / "orchestrator_memory.json"
 ORCH_FORMAT = "tb-orchestrator-memory/1"
 MARKER = "# memcaps:"
@@ -169,6 +171,25 @@ def patients(env: Mapping[str, str], lake: Path | None) -> tuple[int | None, str
     return None, "no CURRENT snapshot and no TB_SITE_PATIENTS"
 
 
+def site_users(env: Mapping[str, str]) -> int:
+    """E2E P-06: the people who use the console at once (``TB_SITE_USERS``); 0: not given (one)."""
+    raw = (env.get("TB_SITE_USERS") or "").strip()
+    if raw and not raw.isdigit():
+        raise ValueError(f"TB_SITE_USERS={raw!r}: a whole number of people")
+    return int(raw or 0)
+
+
+def console_need_mb(
+    users: int, people: Sequence[tuple[int, Mapping[str, float]]], compose: Path = COMPOSE
+) -> dict[str, int]:
+    """E2E P-06: the console's cap for ``users`` people at once (not given: one): HEADROOM times the measured peak,
+    never below its compose default; none without the measurements."""
+    if not people:
+        return {}
+    mb = math.ceil(HEADROOM * peak_mib(people, CONSOLE_VAR, users or 1))
+    return {CONSOLE: max(mb, size_mb(compose_default(CONSOLE_VAR, compose)))}
+
+
 def need_mb(
     n: int,
     record: Mapping[str, Any],
@@ -217,29 +238,40 @@ def _marker(env_text: str) -> dict[str, str]:
 
 def plan(
     env_text: str,
-    n: int,
+    n: int | None,
     record: Mapping[str, Any],
     compose: Path = COMPOSE,
     orch: Mapping[str, Any] | None = None,
     overlay: Path | None = None,
     peaks: Sequence[tuple[int, Mapping[str, float]]] = (),
+    users: int = 0,
+    people: Sequence[tuple[int, Mapping[str, float]]] = (),
 ) -> dict[str, str | None]:
     """The caps ``--write`` sets: each service's need, except a cap the operator set by hand (kept). The orchestrator's
     only above its default (the profile ``overlay``'s when it names one: a value under it would lower the cap);
     ``None``: a value this tool wrote that is no longer needed, removed."""
     env = _parse_env(env_text)
     ours = _marker(env_text)
-    need = need_mb(n, record, env, compose, orch, overlay, peaks)
+    need = need_mb(n, record, env, compose, orch, overlay, peaks) if n is not None else {}
+    need |= console_need_mb(users, people, compose)
     out: dict[str, str | None] = {}
-    if ORCH in need:
-        have = env.get(ORCH_VAR)
-        mine = have is not None and ours.get(ORCH_VAR) == have
-        if need[ORCH] > size_mb(orch_default(compose, overlay)):
+    above = {
+        ORCH: (ORCH_VAR, orch_default(compose, overlay)),
+        CONSOLE: (CONSOLE_VAR, compose_default(CONSOLE_VAR, compose)),
+    }
+    for svc, (var, default) in above.items():  # only above the default (a value under it would lower the cap)
+        if svc not in need:
+            continue
+        have = env.get(var)
+        mine = have is not None and ours.get(var) == have
+        if need[svc] > size_mb(default):
             if have is None or mine:
-                out[ORCH_VAR] = f"{need[ORCH]}m"
+                out[var] = f"{need[svc]}m"
         elif mine:
-            out[ORCH_VAR] = None
+            out[var] = None
     for svc, var in CAPS.items():
+        if svc not in need:
+            continue
         have = env.get(var)
         if have is not None and ours.get(var) != have:
             continue  # set by hand: kept; doctor says when it is too small
@@ -280,20 +312,32 @@ def check(
     orchestrator's too when ``orch_path``, its record, is given; its default the profile ``overlay``'s, as compose
     runs it)."""
     n, source = patients(env, lake)
+    users = site_users(env)
+    console = console_need_mb(users, load_users(record_path.parent / PEAKS_NAME), compose)  # E2E P-06
+    fix = "re-run deploy/install.sh (it sizes them) or set them in deploy/.env"
     if n is None:
+        have_c = size_mb(env.get(CONSOLE_VAR) or compose_default(CONSOLE_VAR, compose))
+        if console and have_c < console[CONSOLE]:
+            return "FAIL", (
+                f"{CONSOLE_VAR} {have_c} MB < {console[CONSOLE]} MB for {users or 1} people at once (TB_SITE_USERS): "
+                f"the console may be killed under a large study's lists; {fix}"
+            )
         return "WARN", f"{source}: the memory caps were not compared with the hospital's size"
     record = load_record(record_path)
     orch = load_orch_record(orch_path) if orch_path is not None else None
-    need = need_mb(n, record, env, compose, orch, overlay, load_peaks(record_path.parent / PEAKS_NAME))
-    names = {**CAPS, **({ORCH: ORCH_VAR} if orch is not None else {})}
+    need = need_mb(n, record, env, compose, orch, overlay, load_peaks(record_path.parent / PEAKS_NAME)) | console
+    names = {**CAPS, **({ORCH: ORCH_VAR} if orch is not None else {}), **({CONSOLE: CONSOLE_VAR} if console else {})}
     have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in CAPS.items()}
     if orch is not None:
         have[ORCH] = size_mb(env.get(ORCH_VAR) or orch_default(compose, overlay))
+    if console:
+        have[CONSOLE] = size_mb(env.get(CONSOLE_VAR) or compose_default(CONSOLE_VAR, compose))
     low = [f"{names[s]} {have[s]} MB < {need[s]} MB" for s in names if have[s] < need[s]]
     facts = f"{n} patients ({source}); measured record {record_path.name} ({record.get('measured_at', '?')})"
+    if console:
+        facts += f"; {users or 1} people at once (TB_SITE_USERS)"
     if low:
-        fix = "re-run deploy/install.sh (it sizes them) or set them in deploy/.env"
-        what = "the night's ingest, the rebuild or a SCREEN of the whole hospital may be killed"
+        what = "the night's ingest, the rebuild, a SCREEN of the whole hospital or the console may be killed"
         return "FAIL", f"{'; '.join(low)} for {facts}: {what}; {fix}"
     return "PASS", f"{', '.join(f'{names[s]} {have[s]} MB (needs {need[s]})' for s in names)} for {facts}"
 
@@ -495,18 +539,23 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(doc["services"], sort_keys=True))
         return 0
     text = a.env_file.read_text(encoding="utf-8") if a.env_file.is_file() else ""
-    env = {**_parse_env(text), **{k: v for k, v in os.environ.items() if k == "TB_SITE_PATIENTS"}}
+    env = {**_parse_env(text), **{k: v for k, v in os.environ.items() if k in ("TB_SITE_PATIENTS", "TB_SITE_USERS")}}
     n, source = patients(env, a.lake or (Path(env["TB_LAKE_DIR"]) if env.get("TB_LAKE_DIR") else None))
-    if n is None:
+    users = site_users(env)
+    if n is None and not users:
         print(f"memcaps: {source}: the compose defaults stay (set TB_SITE_PATIENTS to size them)")
         return 0
     orch = load_orch_record(ORCH_RECORD) if ORCH_RECORD.is_file() else None
-    caps = plan(text, n, load_record(), orch=orch, overlay=a.overlay, peaks=load_peaks(RECORD.parent / PEAKS_NAME))
+    caps = plan(
+        text, n, load_record(), orch=orch, overlay=a.overlay, peaks=load_peaks(RECORD.parent / PEAKS_NAME),
+        users=users, people=load_users(RECORD.parent / PEAKS_NAME),
+    )  # fmt: skip
     gone = "removed (the compose default fits)"
     said = ", ".join(f"{k}={v}" if v is not None else f"{k} {gone}" for k, v in caps.items())
-    print(f"memcaps: {n} patients ({source}): " + (said or "set by hand"))
+    who = f"{n} patients ({source})" if n is not None else f"{users} people at once (TB_SITE_USERS)"
+    print(f"memcaps: {who}: " + (said or "set by hand"))
     if a.write and caps:
-        write(a.env_file, caps, n, source)
+        write(a.env_file, caps, n or 0, source)
     return 0
 
 
