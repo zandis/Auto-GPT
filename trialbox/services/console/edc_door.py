@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 from edc_backend import events, linkmap, oidc, tools
 from edc_backend import store as door
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from tb_common import egress_edge
 
 from console.home import Helpers
 
@@ -162,9 +164,19 @@ def register(app: FastAPI, h: Helpers) -> None:
     def connection() -> dict[str, Any]:
         """D-1046: the EDC connection's state for the page; one capabilities read, closed at once."""
         base, token = tools.tool_base(), tools.tool_token()
+        named = [x for x in [urlparse(base).hostname] if x]  # no EDC set: none named, nothing leaves
+
+        def edge(req: Any) -> None:  # P-13 ruling: each request through the egress edge, as its own route
+            egress_edge.leave("edc.tool", req.url.host, req.content.decode("utf-8", "replace"), audit=h.au,
+                              actor="console", named=named)  # fmt: skip
+
         http = tools.http_client()
+        http.event_hooks["request"].append(edge)
         try:
             return tools.connection_status(base, token, http)
+        except egress_edge.Refused as exc:
+            return {"configured": bool(base and token), "reachable": False, "module": False, "pending": None,
+                    "dead_letter": None, "reason": f"refused by the egress edge ({exc.reason})"}  # fmt: skip
         finally:
             http.close()
 

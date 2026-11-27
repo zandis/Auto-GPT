@@ -147,3 +147,27 @@ def test_the_edc_admin_connection_check_goes_through_the_guard(monkeypatch: pyte
     status = edc_tools.connection_status("https://10.0.2.4:8443", "tool-token", edc_tools.http_client())
     assert status["reachable"] is False and "did not answer" in status["reason"]
     assert isinstance(other.value, httpx.ConnectError)  # caught where any connection failure is
+
+
+def test_the_edc_tool_route_reaches_only_the_configured_edc_host() -> None:
+    """P-13 ruling: ``edc.tool`` goes to the site's configured EDC host only, is recorded as itself (never
+    ``edc.write``), and with no EDC configured nothing leaves."""
+    from tb_common import egress_edge
+
+    class Audit:
+        def __init__(self) -> None:
+            self.lines: list[dict[str, object]] = []
+
+        def append(self, event: str, **kw: object) -> None:
+            self.lines.append({"event": event, **kw})
+
+    audit = Audit()
+    assert egress_edge.leave("edc.tool", "edc.example", "", audit=audit, actor="console", named=["edc.example"]) == ""
+    for host, named in (("other.example", ["edc.example"]), ("169.254.169.254", ["edc.example"]),
+                        ("edc.example", []), ("", [])):  # fmt: skip
+        with pytest.raises(egress_edge.Refused) as got:
+            egress_edge.leave("edc.tool", host, "", audit=audit, actor="console", named=named)
+        assert got.value.reason == "not_named"
+    rows = [x["detail"] for x in audit.lines]
+    assert [r["route"] for r in rows] == ["edc.tool"] * 5
+    assert [r["result"] for r in rows] == ["sent"] + ["refused"] * 4

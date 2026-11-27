@@ -90,3 +90,37 @@ def test_the_role_check_is_unchanged(box: dict[str, Any], edc_env: pytest.Monkey
     edc_env.setattr(tools, "http_client", lambda: _edc(["trialbox"]))
     c, _ = login(box["app"], "viewer", VIEWER_PW)
     assert c.get("/admin/edc").status_code == 403
+
+
+def _egress(tmp_path: Any) -> list[dict[str, Any]]:
+    import json
+
+    lines = [json.loads(x) for p in sorted((tmp_path / "audit").glob("*.jsonl")) for x in p.read_text().splitlines()]
+    return [x["detail"] for x in lines if x["event"] == "egress.leave"]
+
+
+def test_the_connection_check_leaves_by_its_own_edge_route(box: dict[str, Any], edc_env: pytest.MonkeyPatch,
+                                                           tmp_path: Any) -> None:  # fmt: skip
+    """P-13 ruling: the check goes through the egress edge as ``edc.tool``, to the configured host, never recorded
+    on ``edc.write``."""
+    edc_env.setattr(tools, "http_client", lambda: _edc(["trialbox"]))
+    c, _ = login(box["app"])
+    assert 'data-testid="edc-status-module-on"' in c.get("/admin/edc").text
+    rows = _egress(tmp_path)
+    assert [(r["route"], r["destination"], r["result"]) for r in rows] == [("edc.tool", "edc.example", "sent")]
+
+
+def test_the_connection_check_cannot_reach_another_host(box: dict[str, Any], edc_env: pytest.MonkeyPatch,
+                                                        tmp_path: Any) -> None:  # fmt: skip
+    """P-13 ruling: a request of the check to any host but the configured EDC's is refused by the edge, before it is
+    sent, and recorded as refused."""
+    sent: list[str] = []
+    edc_env.setattr(tools, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(
+        lambda r: sent.append(str(r.url)) or httpx.Response(200, json={"modules": [{"id": "trialbox"}]}))))  # fmt: skip
+    edc_env.setattr(tools, "connection_status", lambda base, token, http: http.get("https://other.example/x").json())
+    c, _ = login(box["app"])
+    page = c.get("/admin/edc")
+    assert page.status_code == 200 and sent == []
+    assert [(r["route"], r["destination"], r["result"]) for r in _egress(tmp_path)] == [
+        ("edc.tool", "other.example", "refused")
+    ]

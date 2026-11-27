@@ -68,6 +68,7 @@ def test_default_install_passes() -> None:
         "egress.patient.mail",  # M3, D-1093
         "egress.patient.download",  # M3, D-1093
         "egress.edc.write",  # M3, D-1093
+        "egress.edc.tool",  # P-13 ruling: /admin/edc's connection check, its own route
         "egress.nhi.submit",  # M3, D-1093
         "egress.tripwire",  # M3, D-1093
         "console_mfa",
