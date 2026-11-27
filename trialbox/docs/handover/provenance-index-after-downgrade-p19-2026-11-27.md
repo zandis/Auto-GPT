@@ -43,8 +43,9 @@ Which of the two made the walk's 108 rows is not known here: the box's log was n
 - Lines older than that are never written back by the drain: their rows were written, or were taken out at an opt-out.
   Only `trialbox provenance --rebuild` reads the register that says which. The drain's role cannot read the register.
   So case 2's lines from before the tables existed still need that rebuild (P19-03).
-- The anchor is the drain's restore signal, not the index's newest row: an opt-out that takes the index's newest use
-  row makes an older row the newest, and a catch-up from there would write the erased row back.
+- The anchor is the drain's restore signal, not the index's newest row. This is a deviation from the lead's first
+  plan ("catch up only the lines newer than the index's newest row"), kept with the lead's go: an opt-out that takes
+  the index's newest use row makes an older row the newest, and a catch-up from there would write the erased row back.
 
 ## Case 2 and the update path
 
