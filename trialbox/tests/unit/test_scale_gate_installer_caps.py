@@ -40,8 +40,12 @@ def test_the_dev_defaults_are_not_the_installer_s_caps() -> None:
     assert compose_caps()["adapter"] != sg.installer_caps()["adapter"]
 
 
+#: the tools whose green is an acceptance proof of "fits at the declared size" (the size ladder measures peaks: its
+#: caps bound a measurement, not a claim, and it is not listed)
+PROOF_TOOLS = ("tools/scale_gate.py",)
+
+
 def test_no_proof_tool_takes_the_compose_defaults_as_its_caps() -> None:
     bare = re.compile(r"\bcompose_caps\(\)")
-    users = [p.relative_to(ROOT).as_posix() for p in sorted((ROOT / "tools").glob("*.py"))
-             if bare.search(p.read_text(encoding="utf-8"))]  # fmt: skip
+    users = [t for t in PROOF_TOOLS if bare.search((ROOT / t).read_text(encoding="utf-8"))]
     assert users == [], users
