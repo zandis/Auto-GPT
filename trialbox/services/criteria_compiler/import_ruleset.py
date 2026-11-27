@@ -64,8 +64,10 @@ def install(repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98
             # operator's install is what the tag records from now on (a site box refuses a seeded approval)
             if SEEDED_TAG in repo.tag_message(tag):
                 repo.retag(tag, f"{tag} (offline update, {by})")
+            repo.materialize(rid, "main")  # INT-R3A (INTR3A-08): an install cut short before its swap is finished
             return tag
         raise ImportRefused(f"{tag} already exists with different content; bump the version")
+    repo.check_swap()  # INT-R3A (INTR3A-02): SwapUnsupported before the commit and the tag, nothing written
     repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
     repo.tag(tag, "main", f"{tag} (offline update, {by})")
     repo.materialize(rid, "main")

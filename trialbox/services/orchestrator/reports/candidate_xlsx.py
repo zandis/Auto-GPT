@@ -9,7 +9,8 @@ from dataclasses import dataclass
 
 from tb_common.deterministic import normalize_ooxml
 from tb_common.ruleset import Ruleset
-from tb_common.verdict_word import shown_of
+from tb_common.verdict_word import NOTE_AGAINST, NOTE_AGAINST_COUNT, notes_against, shown_of
+from tb_common.wording import lang_of
 from tb_contracts import CandidateRow
 
 from orchestrator.reports.common import ReportMeta
@@ -46,6 +47,7 @@ def render(
     from openpyxl.worksheet.datavalidation import DataValidation
 
     crit = [c for c in rs.active() if c.kind in ("inclusion", "exclusion")]
+    lang = lang_of(meta.locale)
     wb = Workbook()
     wb.properties.creator = f"TrialBox {meta.site_id}"
     wb.properties.title = f"{title} {rs.id} v{rs.version}"
@@ -72,7 +74,14 @@ def render(
             practitioners.get(r.practitioner_id or "", r.practitioner_id or ""),
             r.department or "",
         ]
-        values += [SHOWN[shown_of(by_id[c.id])[0]] if c.id in by_id else "" for c in crit]
+        values += [
+            NOTE_AGAINST[lang].format(criterion=c.label or c.id)  # INT-S-B: a note may speak against it; not excluded
+            if c.id in by_id and notes_against(by_id[c.id])
+            else SHOWN[shown_of(by_id[c.id])[0]]
+            if c.id in by_id
+            else ""
+            for c in crit
+        ]
         values += [
             r.n_unknown or 0,
             "; ".join(r.actions or []),
@@ -85,9 +94,12 @@ def render(
             cell = ws.cell(row=rown, column=first_crit_col + j)
             if v is not None and v.evidence is not None and (v.evidence.quote or v.evidence.reason):
                 text = f"{v.evidence.quote_date or ''} {v.evidence.quote or ''}".strip() or ""
-                if v.evidence.reason:
+                if notes_against(v):  # every verified quote with its date: both models' when the pair is stored
+                    quotes = [(o.quote_date, o.quote) for o in v.evidence.opinions or [] if o.quote]
+                    text = "\n".join(f"{d or ''} {q}".strip() for d, q in quotes) or text
+                elif v.evidence.reason:
                     text += f"\n({v.evidence.reason})"
-                if v.evidence.confidence is not None:
+                if v.evidence.confidence is not None and v.verdict != "unknown":  # INT-S-C: also a stored row
                     text += f"\nconfidence {v.evidence.confidence:.2f}"
                 cell.comment = Comment(text[:1000], "TrialBox")
             if c.id in set(r.changed or []):
@@ -102,6 +114,11 @@ def render(
     for i, w in enumerate([12, 34, 8, 18, 22, 10], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.append([])
+    n_against = sum(1 for r in rows if any(notes_against(v) for v in r.criteria))
+    if n_against:  # INT-S-B: below the table, so the header row and the rows keep their places
+        ws.append([NOTE_AGAINST_COUNT[lang].format(n=n_against)])
+        assert ws.oddHeader is not None
+        ws.oddHeader.center.text = NOTE_AGAINST_COUNT[lang].format(n=n_against)  # print header: moves no row
     ws.append([meta.footer])
     if meta.notice:  # D-442: scores not verified for this snapshot
         ws.append([meta.notice])

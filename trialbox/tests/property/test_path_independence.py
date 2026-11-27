@@ -597,7 +597,7 @@ INTENDED: dict[str, Intended] = {
         "NAV's lists are not tiers: likely_eligible holds a patient whose every inclusion is met and no exclusion is "
         "known to apply; a patient SCREEN would send to review with an inclusion unknown is on no NAV list (its "
         "open items are the 確認 rows of a listed patient). So: SCREEN high or review with every inclusion met is "
-        "likely_eligible; everything else is on no list. 'Met' is the one status function's yes (D-478): an "
+        "likely_eligible, and one whose only open inclusions a note speaks against (D-1072); everything else is on no list. 'Met' is the one status function's yes (D-478): an "
         "inclusion answered below the confidence threshold is a person's check, not met.",
         "SPEC §8.4 (nav.py docstring), D-478",
     ),
@@ -731,7 +731,10 @@ def expected_status(w: World, rule: Rule, key: str) -> str | None:
             return "review" if stored == "review" and not asked_again else st
         return st
     if rule.family == "nav":
-        if st in ("high", "review") and all(ref.answers.get(key, {}).get(c) == "yes" for c in INCLUSIONS):
+        ans, said = ref.answers.get(key, {}), ref.verdicts.get(key, {})
+        # D-1072: a note "not met" (a verdict of fail the status rule answers "unknown") keeps the patient on the sheet
+        stays = {c for c in INCLUSIONS if ans.get(c) == "unknown" and said.get(c) == "fail"}
+        if st in ("high", "review") and all(ans.get(c) == "yes" or c in stays for c in INCLUSIONS):
             return "likely_eligible"
         return "-"
     if rule.family == "case":
@@ -761,9 +764,10 @@ _COVERS["microbatch.new"] = set(SCREENED) - {"OPT"}  # the register keeps OPT ou
 # UNDATED is on no list: an undated refusal keeps the patient out on every path (D-477, the ruling on its review)
 # NOFLARE: its note inclusion "not met" sends it to review, so it is in the pool (R22-17, D-1069; ruled on #639
 # 7079180333: the planted patient is expected in review and in the pool)
-POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP", "NOFLARE"}
+# INF, PREGNANT: a pair's stated note exclusion sends them to review since ring 0 (D-1072), so they are in the pool
+POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP", "NOFLARE", "INF", "PREGNANT"}
 _COVERS["microbatch.recheck"] = _COVERS["microbatch.amended"] = POOL
-_COVERS["microbatch.after_single"] = POOL | {"INF", "PREGNANT"}  # one model's "not met" is not final
+_COVERS["microbatch.after_single"] = POOL  # one model's "not met" is not final
 
 
 # ------------------------------------------------------------------------------------------------ known differences

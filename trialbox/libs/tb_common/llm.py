@@ -161,6 +161,22 @@ def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
     return data if ok else {**data, "quote_date": None}
 
 
+#: what a judge reply holds about the span it read; an abstention has read none
+_SPAN_FIELDS = ("quote", "quote_date", "certainty", "experiencer", "time")
+
+
+def unknown_carries_nothing(data: dict[str, Any]) -> dict[str, Any]:
+    """INT-S-C: a verdict ``unknown`` is an answer nobody gave, so it has no quote, no quote date, no reading of the
+    quote and no confidence (0.0: the reply's number field stays a number). The judge's filler for them ("unknown",
+    "0000-01-01", 1.0) never reaches a row, a tier or a page. A ``pass`` or ``fail`` reply is returned as it is."""
+    if data.get("verdict") != "unknown":
+        return data
+    cleared: dict[str, Any] = {k: None for k in _SPAN_FIELDS if k in data}
+    if "confidence" in data:
+        cleared["confidence"] = 0.0
+    return {**data, **cleared}
+
+
 def load_prompt(prompt_id: str, environment: str | None = None) -> Prompt:
     """``judge`` -> the served version (the newest; in PRODUCTION the newest qualified one, D-359); ``judge_v3`` ->
     exactly version 3. Resolved through the prompt registry (D-300): an unregistered id or version, or a file whose
@@ -446,6 +462,7 @@ class LlmClient:
                 # G8 (D-958), on every path (P2b: SCREEN's note judge failed three protocols on it): a quote date
                 # that is no real date is no date, before the schema reads it
                 data = no_sentinel_date(data) if isinstance(data, dict) else data
+                data = unknown_carries_nothing(data) if isinstance(data, dict) else data  # INT-S-C
                 errors = schema_errors(schema_name, data)
                 codes = schema_error_codes(schema_name, data)  # what leaves the call: no model output (T-605)
             except (json.JSONDecodeError, ValueError) as exc:
