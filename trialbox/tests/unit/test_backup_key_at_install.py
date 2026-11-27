@@ -1430,7 +1430,7 @@ def test_two_replaces_in_one_second_keep_both_old_records(
 
     a, b = _two_targets(tmp_path, monkeypatch)
 
-    class OneSecond(real):  # type: ignore[misc,valid-type]
+    class OneSecond(real):
         @classmethod
         def now(cls, tz: Any = None) -> Any:
             return real(2026, 11, 28, 1, 2, 3, tzinfo=tz)
