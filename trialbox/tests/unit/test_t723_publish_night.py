@@ -65,7 +65,19 @@ class Fhir:
         self.down = False
         self.bad: set[str] = set()  # nights the store refuses part-way (it is up: a put-back works)
         self.holds: str | None = None  # the night the store holds now
+        self.home = home
         monkeypatch.setattr(home, "sync_snapshot", self)
+        if hasattr(home, "verify_fhir"):  # P-03: the store's check against a night is answered from what it holds
+            monkeypatch.setattr(home, "verify_fhir", self.verify)
+
+    def verify(self, cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: Any = ()) -> dict[str, int]:
+        if self.down:
+            raise self.home.FhirMismatch("the FHIR store did not answer the check (ConnectionError)")
+        nothing = ("", "fhir-nothing-served")
+        holds, night = self.holds or "", folder.name
+        if holds != night and not (holds in nothing and night in nothing):
+            raise self.home.FhirMismatch(f"the store holds {holds or 'nothing'}, not {night}")
+        return {}
 
     def __call__(
         self, base: str, folder: Path, ledger: Path, previous: Path | None = None, full: bool = False,

@@ -40,6 +40,7 @@ from tb_contracts import IngestRequest, dump
 from adapter import failure, runs
 from adapter.cli import build_config
 from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
+from adapter.publish import FhirRestoreOutstanding
 
 log = logging.getLogger("adapter")
 
@@ -111,16 +112,24 @@ def _child_env() -> dict[str, str]:
     return {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
 
 
-def _undo_killed_load() -> None:
+def _undo_killed_load() -> str:
     """E2E P-03: the ingest's process ended badly (killed for memory, say) and may have left the FHIR store ahead of
-    the lake: it is put back now, while this service still holds the run gate, not only when the next night runs.
-    Never raised: the next ingest or publish tries again (``adapter.publish.recover_all``)."""
+    the lake: it is put back now, while this service still holds the run gate, not only when the next night runs
+    (``adapter.publish.recover_all``: a killed re-run's swap first, review N3). Never raised: the next ingest or
+    publish tries again. Returns the words of a put-back that is still owed ("" when none is)."""
     try:
-        from adapter.publish import recover_fhir
+        from adapter.publish import FhirRestoreOutstanding, RecoveryBusy, recover_all
 
-        recover_fhir(build_config()[0])
+        try:
+            recover_all(build_config()[0])
+        except RecoveryBusy:
+            log.warning("a killed FHIR load is left to the publish or recovery that holds the FHIR store now")
+        except FhirRestoreOutstanding as exc:
+            log.error("%s", exc)
+            return str(exc)
     except Exception as exc:
         log.error("a killed FHIR load could not be undone after the ingest's process ended (%s)", type(exc).__name__)
+    return ""
 
 
 def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, Any]) -> None:
@@ -151,8 +160,7 @@ def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, An
             lock.hand_over()  # closed, never unlocked: an unlock would take the lock from the child
         _children[rid] = proc
         code = proc.wait()
-        if code != 0:
-            _undo_killed_load()
+        owed = _undo_killed_load() if code != 0 else ""
         end = runs.read(lake_dir, rid)
         if end is None:  # the record cannot be read now: say so, and do not write over what the child wrote
             state.update(state="failed", detail="the run's record could not be read when the ingest's process ended")
@@ -161,6 +169,8 @@ def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, An
         if end.get("state") == "failed" and end.get("detail") == runs.ENDED_WITHOUT_ANSWER and code > 0:
             end = {**end, "detail": f"the ingest's process ended with exit code {code} and no answer (the adapter's "
                                     "log has its error)"}  # fmt: skip
+        if owed:
+            end = {**end, "detail": "; ".join(d for d in (str(end.get("detail") or ""), owed) if d)}
         state.update(end)
     except Exception as exc:
         log.exception("ingest run %s could not be run as a process", rid)
@@ -244,6 +254,8 @@ def run(req: IngestRequest) -> JSONResponse:
         # T-612, D-679, U-5 (D-1280): refused before anything was read
         except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError) as exc:
             end.update(state="refused", detail=f"night refused: {exc}")
+        except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
+            end.update(state="refused", detail=str(exc))
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)
             end.update(state="failed", detail=failure.words(exc, rid))  # D-668: the type, never a foreign text
@@ -352,7 +364,7 @@ def publish(body: PublishBody) -> JSONResponse:
         end: dict[str, Any] = {}  # NEW-B-56: shown only once the gate is given back (the steps are shown as they go)
         try:
             out = publish_held(ac, body.snapshot, on_step=lambda _s, steps: state.update(steps=steps))
-            end.update(steps=dict(out.steps), promoted=out.promoted)
+            end.update(steps=dict(out.steps), promoted=out.promoted, fhir_outstanding=out.fhir_outstanding)
             if out.ok and out.promoted:  # review HIGH-1: "done" is a night that is served, nothing less
                 end.update(state="done")
             else:

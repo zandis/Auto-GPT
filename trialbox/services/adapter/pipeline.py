@@ -616,6 +616,11 @@ def _run_ingest(
             )
         raise
     refuse_site_needs(cfg, snap, source_kind)  # U-5 (D-1280): before a row, a folder or a lake build exists for it
+    from adapter.publish import recover_all
+
+    # P-03 (review R5): a FHIR put-back that is owed is done, or refuses the night by its name
+    # (FhirRestoreOutstanding), before this night touches any store
+    recover_all(cfg)
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
