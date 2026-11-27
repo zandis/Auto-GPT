@@ -3,10 +3,11 @@
 
 So the image's layout is checked here, without Docker: every ``COPY`` of python.Dockerfile is read, and the file
 ``console.about`` opens (``NOTICE``, beside ``pyproject.toml``, at the folder above ``services/``) must be one that the
-base image copies to that same place under ``/app``. Every Dockerfile of the repo is then one of: the base, an image
-whose last stage is ``FROM ${BASE_IMAGE}`` (embed, jvm, backup: they inherit it), one that copies the whole folder to
-``/app`` (demo), or one named in :data:`NOT_YET` with the reason; a new Dockerfile is in none and fails. The
-``.dockerignore`` the base image's build reads (``python.Dockerfile.dockerignore`` beside it if there is one, else the
+base image copies to that same place under ``/app``. Every image the box ships (deploy/docker and demo; the test
+and CI images are not shipped) is then one of: the base, an image whose last stage is ``FROM ${BASE_IMAGE}`` (embed,
+jvm, backup: they inherit it), one that copies the whole folder to ``/app`` (demo), or one named in :data:`NOT_YET`
+with the reason; a new Dockerfile is in none and fails. The ``.dockerignore`` the base image's build reads
+(``python.Dockerfile.dockerignore`` beside it if there is one, else the
 context's) must keep NOTICE, read in order as BuildKit reads it (``!`` takes a file back).
 """
 
