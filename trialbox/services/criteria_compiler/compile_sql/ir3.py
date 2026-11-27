@@ -5,7 +5,6 @@ flattened tables. Record and person maps are the existing export mappings;
 duplicate mappings fail as scalar subqueries rather than multiplying evidence.
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 from typing import Any
@@ -13,11 +12,6 @@ from typing import Any
 from tb_contracts.criterion_ir import Atom as Atom3
 
 from criteria_compiler.semantics import Window, fmt_num
-
-
-@dataclass(frozen=True)
-class AnchoredWindow(Window):
-    anchor: str = "b.index_date"
 
 
 def sql_template(name: str, **parts: str) -> str:
@@ -61,16 +55,12 @@ def medication_source(gen: Any, atom: Atom3, w: Window) -> str:
     fields = {
         "quantity": "m.quantity",
         "unit": "m.dose_unit_source_value",
-        "route": "m.route_concept_id",
         "supply": "m.days_supply",
         "start_date": "m.drug_exposure_start_date",
         "end_date": "m.drug_exposure_end_date",
     }
     join = detail("drug_exposure", "x", "mid", fields)
     checks, missing = [], []
-    if med.route:
-        missing.append("d.detail.route IS NULL OR d.detail.route = 0")
-        checks.append(f"CAST(d.detail.route AS VARCHAR) IN ({', '.join(lit(x) for x in med.route)})")
     if med.dose:
         dose = med.dose
         assert dose.num is not None

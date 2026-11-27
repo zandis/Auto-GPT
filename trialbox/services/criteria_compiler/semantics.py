@@ -24,10 +24,12 @@ Normative semantics (DECISIONS D-17):
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 from tb_common.derived import COMPONENTS, DEFAULT_WINDOW_DAYS
 from tb_contracts import Atom, BoolExpr, CriterionIR
@@ -35,6 +37,9 @@ from tb_contracts.criterion_ir import Atom as Atom3
 from tb_contracts.criterion_ir import CriterionIRv3, NotV1Expressible, downgrade_to_v1, upgrade_v1
 
 UNBOUNDED_PAST = "1900-01-01"
+#: the evidence token of a ``value.ref`` comparison that has no bound: the result carries no reference range of its
+#: own and the signed site table has none for its code, unit and sex (RULES-ARCH §2.5)
+NO_REFERENCE_RANGE = "no_reference_range"
 
 
 class CompileError(ValueError):
@@ -62,6 +67,64 @@ class Kind(StrEnum):
 class Window:
     from_days: int | None
     to_days: int
+
+
+@dataclass(frozen=True)
+class AnchoredWindow(Window):
+    """A window counted from a study anchor (screening / randomization) instead of the index date: ``anchor`` is the
+    engine's expression for that date (``b.screening_date`` in SQL, ``ScreeningDate`` in CQL)."""
+
+    anchor: str = "b.index_date"
+
+
+@dataclass(frozen=True)
+class RefRangeRow:
+    """One line of the site table: the range a lab reports for one analyte code in one unit, for one sex or both."""
+
+    system: str
+    code: str
+    unit: str
+    sex: Literal["male", "female"] | None
+    low: float | None
+    high: float | None
+
+
+@dataclass(frozen=True)
+class SiteRefRanges:
+    """The signed site default table of reference ranges (RULES-ARCH §2.3, risk 4): ``value.ref`` reads it when a
+    result carries no range of its own. A table without a signer and a date is refused, and nothing in it is a
+    default the compiler invents: a code, unit or sex it does not list gives no bound (``no_reference_range``)."""
+
+    signed_by: str
+    signed_at: str
+    rows: tuple[RefRangeRow, ...]
+
+    @classmethod
+    def load(cls, path: Path) -> SiteRefRanges:
+        """``{"signed": {"by": ..., "at": ...}, "ranges": [{"system", "code", "unit", "sex"?, "low"?, "high"?}]}``."""
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        signed = doc.get("signed") or {}
+        if not str(signed.get("by") or "").strip() or not str(signed.get("at") or "").strip():
+            raise ValueError(f"{path}: the site reference-range table is not signed (signed.by and signed.at)")
+        rows = []
+        for r in doc.get("ranges") or []:
+            low, high = r.get("low"), r.get("high")
+            if r.get("sex") not in (None, "male", "female"):
+                raise ValueError(f"{path}: sex {r.get('sex')!r} is not male, female or absent")
+            if (low is None and high is None) or any(
+                x is not None and not (isinstance(x, int | float) and math.isfinite(x)) for x in (low, high)
+            ):
+                raise ValueError(f"{path}: {r.get('code')}: a range needs a finite low or high")
+            rows.append(RefRangeRow(r["system"], r["code"], r["unit"], r.get("sex"), low, high))
+        return cls(str(signed["by"]), str(signed["at"]), tuple(rows))
+
+    def bounds(self, kind: Literal["uln", "lln"], codes: list[tuple[str, str]]) -> list[tuple[RefRangeRow, float]]:
+        """The rows giving a ``kind`` bound for those (system, code) pairs: a row for the patient's sex before the
+        row for both, as a lab that gives both means; first match wins."""
+        want = set(codes)
+        out = [(r, r.high if kind == "uln" else r.low) for r in self.rows if (r.system, r.code) in want]
+        got = [(r, b) for r, b in out if b is not None]
+        return sorted(got, key=lambda rb: rb[0].sex is None)  # stable: the table's order within each group
 
 
 def window(atom: Atom) -> Window:
@@ -143,11 +206,50 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
     def walk(node: Any) -> Atom | BoolExpr:
         if not isinstance(node, str):
             return BoolExpr.model_construct(op=node.op, args=[walk(arg) for arg in node.args])
-        a = by_id[node]
-        if a.value_if or a.attribute or a.change or a.aggregate or a.lot or a.diagnosis_role:
+        return switched(by_id[node], ())
+
+    def switched(a: Atom3, seen: tuple[str, ...]) -> Atom | BoolExpr:
+        """``value_if`` (first match wins) as logic over atoms: with condition c, its threshold x and the rest r,
+        ``(c AND x) OR (NOT c AND r) OR (x AND r)``. Under three-valued logic that is x when c holds, r when it does
+        not, and, when c is unknown, the answer both thresholds agree on, else unknown. Each use is lowered afresh,
+        so every atom of the result is its own object."""
+        if not a.value_if:
+            return one(a)
+        if a.id in seen:
+            raise CompileError(f"atom {a.id}: value_if conditions refer back to it")
+        if a.value is None:
+            raise CompileError(f"atom {a.id}: value_if needs the atom's own value")
+        return branches(a, (*seen, a.id))
+
+    def branches(a: Atom3, seen: tuple[str, ...]) -> Atom | BoolExpr:
+        """The atom's own ``value_if`` list from its first branch on. ``seen`` already holds the atom: the later
+        branches are the same atom, not a reference back to it, so only ``cond()`` checks for a cycle."""
+        if not a.value_if:
+            return one(a)
+        first, later = a.value_if[0], a.value_if[1:]
+
+        def rest() -> Atom | BoolExpr:
+            return branches(a.model_copy(update={"value_if": later or None}), seen)
+
+        def cond() -> Atom | BoolExpr:
+            return switched(by_id[first.if_atom], seen)
+
+        def alt() -> Atom | BoolExpr:
+            return one(a.model_copy(update={"value": first.value, "value_if": None}))
+
+        def node(op: Literal["and", "or", "not"], *args: Atom | BoolExpr) -> BoolExpr:
+            return BoolExpr.model_construct(op=op, args=list(args))
+
+        return node(
+            "or",
+            node("and", cond(), alt()),
+            node("and", node("not", cond()), rest()),
+            node("and", alt(), rest()),
+        )
+
+    def one(a: Atom3) -> Atom | BoolExpr:
+        if a.attribute or a.change or a.aggregate or a.lot or a.diagnosis_role:
             raise CompileError(f"atom {a.id}: unsupported v3 qualifier")
-        if a.on_hit == "review":
-            raise CompileError(f"atom {a.id}: on_hit review is not compiled")
         if a.window and a.window.unit == "h":
             raise CompileError(f"atom {a.id}: a window counted in hours is not compiled")
         data = a.model_dump(exclude_none=True)
@@ -182,6 +284,11 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
                 raise CompileError("dose thresholds must be finite")
             if a.medication.route == []:
                 raise CompileError("medication.route must not be empty")
+            if a.medication.route:  # ponytail: refused until a SNOMED -> OMOP route table exists; then map, compare
+                raise CompileError(
+                    f"atom {a.id}: medication.route is SNOMED and no SNOMED -> OMOP route mapping exists "
+                    "(no_route_mapping)"
+                )
             data.pop("medication")
             # Reuse observation quantifiers, including latest/all, for row predicates.
             data["domain"] = "observation"

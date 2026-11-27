@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -32,11 +32,13 @@ from tb_common.derived import (
 from tb_common.fhir import library_name
 from tb_common.labunit import ANALYTES, DIGITS, UNITLESS_KEYS, conversion, key, scale_arms
 from tb_contracts import Atom, BoolExpr, CriterionIR
+from tb_contracts.criterion_ir import Atom as Atom3
 from tb_contracts.criterion_ir import CriterionIRv3
 
 from criteria_compiler.semantics import (
     FILTERED,
     UNBOUNDED_PAST,
+    AnchoredWindow,
     CompileError,
     Kind,
     Window,
@@ -55,7 +57,10 @@ _env = Environment(
     loader=FileSystemLoader(TEMPLATES), undefined=StrictUndefined, keep_trailing_newline=True, autoescape=False
 )
 CS_NAMES = {LOINC: "LOINC", SCORE: "TBSCORE"}
-SQL_ONLY_ANCHORS = ("screening", "randomization")
+#: study anchors (§6.2.4) as library parameters: the caller gives each patient's date; none makes the atom unknown,
+#: as the SQL's absent ``criterion_anchors`` row does
+ANCHOR_PARAMS = {"screening": "ScreeningDate", "randomization": "RandomizationDate"}
+NO_CQL_REFERENCE_RANGE = "no_cql_reference_range"
 YJ_SHAPE = "[0-9]{7}[A-Z][0-9A-Z]{4}"  # a 12-character YJ code (T-610), as compile_sql's YJ_STEM_OF reads it
 # resource type and coding list of a presence atom whose ValueSet is a code-prefix grouper (D-113 families)
 FAMILY_CODINGS = {
@@ -113,15 +118,16 @@ def q(name: str) -> str:
     return '"' + name.replace('"', '\\"') + '"'
 
 
-def date_expr(days: int) -> str:
+def date_expr(days: int, anchor: str = "IndexDate") -> str:
     if days == 0:
-        return "IndexDate"
-    return f"IndexDate - {abs(days)} days" if days < 0 else f"IndexDate + {days} days"
+        return anchor
+    return f"{anchor} - {abs(days)} days" if days < 0 else f"{anchor} + {days} days"
 
 
 def win_expr(w: Window) -> str:
-    lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days)
-    return f"Interval[{lo}, {date_expr(w.to_days)}]"
+    anchor = w.anchor if isinstance(w, AnchoredWindow) else "IndexDate"
+    lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days, anchor)
+    return f"Interval[{lo}, {date_expr(w.to_days, anchor)}]"
 
 
 def unit_function(name: str, want: str | None) -> str:
@@ -203,10 +209,17 @@ def cmp_expr(atom: Atom, value: str, code: str | None = None, censor: str | None
 class _Ctx:
     vs: ValueSets
     codes_used: dict[str, tuple[str, str]]
+    anchors: set[str] = field(default_factory=set)
 
 
 class CqlGenerator:
-    def __init__(self, ruleset: str, version: str, valuesets: ValueSets, lookback_months: int = 36) -> None:
+    def __init__(
+        self,
+        ruleset: str,
+        version: str,
+        valuesets: ValueSets,
+        lookback_months: int = 36,
+    ) -> None:
         self.ruleset = ruleset
         self.version = version
         self.vs = valuesets
@@ -475,8 +488,9 @@ class CqlGenerator:
         p = f"{cid}_{n}"
         assert atom.duration is not None and atom.duration.min_days is not None
         gap = 30 if atom.duration.gap_days is None else atom.duration.gap_days
-        lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days)
-        hi = date_expr(w.to_days)
+        anchor = w.anchor if isinstance(w, AnchoredWindow) else "IndexDate"
+        lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days, anchor)
+        hi = date_expr(w.to_days, anchor)
         qn, pn, dn, on = q("Q_" + p), q("P_" + p), q("D_" + p), q("O_" + p)
         start = "Coalesce(date from X.dispenseRequest.validityPeriod.start, date from X.authoredOn)"
         defs = [
@@ -520,18 +534,31 @@ class CqlGenerator:
         return [], "(" + " and ".join(conds) + ")", "List<String>{}"
 
     # ------------------------------------------------------------------ criteria
-    def _atom(self, ctx: _Ctx, cid: str, n: int, atom: Atom) -> tuple[list[str], str, str]:
+    def _atom(self, ctx: _Ctx, cid: str, n: int, atom: Atom, ext: Atom3 | None = None) -> tuple[list[str], str, str]:
         k = kind(atom)
         w = window(atom)
+        anchor = None
+        if ext is not None and ext.window is not None and ext.window.anchor in ANCHOR_PARAMS:
+            anchor = ANCHOR_PARAMS[ext.window.anchor]
+            ctx.anchors.add(anchor)
+            w = AnchoredWindow(w.from_days, w.to_days, anchor)
         if k is Kind.PRESENCE:
-            return self._presence(cid, n, atom, w)
-        if k is Kind.OBS_VALUE:
-            return self._obs_value(cid, n, atom, w)
-        if k is Kind.DERIVED:
-            return self._derived(ctx, cid, n, atom, w)
-        if k is Kind.MED_DURATION:
-            return self._med_duration(cid, n, atom, w)
-        return self._demographic(atom)
+            defs, a, ev = self._presence(cid, n, atom, w)
+        elif k is Kind.OBS_VALUE:
+            defs, a, ev = self._obs_value(cid, n, atom, w)
+        elif k is Kind.DERIVED:
+            defs, a, ev = self._derived(ctx, cid, n, atom, w)
+        elif k is Kind.MED_DURATION:
+            defs, a, ev = self._med_duration(cid, n, atom, w)
+        else:
+            defs, a, ev = self._demographic(atom)
+            if anchor:
+                a = a.replace("IndexDate", anchor)
+        if anchor:  # as the SQL: no date for the patient, no answer
+            a = f"if {anchor} is null then null as Boolean else ({a})"
+        if ext is not None and ext.on_hit == "review":  # as the SQL: met goes to a person
+            a = f"({a}) and (null as Boolean)"
+        return defs, a, ev
 
     def _bool(self, expr: Atom | BoolExpr, names: dict[int, str]) -> str:
         if isinstance(expr, Atom):
@@ -541,13 +568,13 @@ class CqlGenerator:
             return f"(not {parts[0]})"
         return "(" + f" {expr.op} ".join(parts) + ")"
 
-    def criterion_defines(self, ctx: _Ctx, c: CriterionIR) -> list[str]:
+    def criterion_defines(self, ctx: _Ctx, c: CriterionIR, extensions: dict[int, Atom3] | None = None) -> list[str]:
         check_bool(c.logic)
         out: list[str] = []
         names: dict[int, str] = {}
         evs: list[str] = []
         for n, atom in enumerate(atoms(c.logic), start=1):
-            defs, a, ev = self._atom(ctx, c.id, n, atom)
+            defs, a, ev = self._atom(ctx, c.id, n, atom, (extensions or {}).get(id(atom)))
             out.extend(defs)
             aname = f"A_{c.id}_{n}"
             out.append(f"define {q(aname)}:\n  {a}")
@@ -577,13 +604,16 @@ class CqlGenerator:
             if original.class_ not in FILTERED:
                 continue
             c, extensions = lower(original)
-            # compiled in the SQL only: the CQL refuses them, so the criterion goes to a person
+            # compiled in the SQL only: the CQL refuses it, so the criterion goes to a person
             for x in extensions.values():
-                if (x.value and x.value.ref) or x.medication or (x.window and x.window.anchor in SQL_ONLY_ANCHORS):
+                if x.medication:
+                    raise CompileError(f"atom {x.id}: medication route and dose are not compiled to CQL")
+                if x.value is not None and x.value.ref is not None:
                     raise CompileError(
-                        f"atom {x.id}: reference ranges, study anchors and medication detail are not compiled to CQL"
+                        f"atom {x.id}: value.ref is not compiled to CQL, which cannot read the result's own range "
+                        f"before the site table as the SQL does ({NO_CQL_REFERENCE_RANGE})"
                     )
-            defines.extend(self.criterion_defines(ctx, c))
+            defines.extend(self.criterion_defines(ctx, c, extensions))
             for a in atoms(c.logic):
                 if a.domain != "demographic" and a.derived is None:
                     used_vs.add(a.valueset)
@@ -599,6 +629,7 @@ class CqlGenerator:
                 for name, (system, code) in sorted(ctx.codes_used.items())
             ],
             valuesets=[{"name": v, "url": self.vs.url(v), "version": self.vs.version(v)} for v in sorted(used_vs)],
+            anchors=sorted(ctx.anchors),
             defines=defines,
         )
 

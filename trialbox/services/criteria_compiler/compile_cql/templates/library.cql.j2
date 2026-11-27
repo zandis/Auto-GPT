@@ -18,6 +18,9 @@ valueset "{{ vs.name }}": '{{ vs.url }}'{% if vs.version %} version '{{ vs.versi
 
 parameter IndexDate Date
 parameter LookbackMonths Integer default {{ lookback }}
+{%- for p in anchors %}
+parameter {{ p }} Date
+{%- endfor %}
 
 context Patient
 {% for d in defines %}
