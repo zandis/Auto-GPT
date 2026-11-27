@@ -52,7 +52,9 @@ BASELINE = Path(__file__).resolve().parents[2] / "deploy" / "security" / "standi
 IMAGES = {
     "code-patterns": "semgrep/semgrep:1.187.0@sha256:0c8dfa7aa1ca8c50233ec9110e8cd88d139dedd603d56507493f74c6f4b3e062",
     "secrets-a": "zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
-    "secrets-b": "trufflesecurity/trufflehog:3.100.1@sha256:9c7a8325d43a4af2960d3f21d61a08981d8a1bf0542e007efa2e47097e386452",
+    "secrets-b": (
+        "trufflesecurity/trufflehog:3.100.1@sha256:9c7a8325d43a4af2960d3f21d61a08981d8a1bf0542e007efa2e47097e386452"
+    ),
     "platform": "bridgecrew/checkov:3.4.11@sha256:68da9ede242807850ab346b533dc1e4d2b00e15a9e6b4b595654d39c7f2e2566",
     "dockerfiles": "hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e",
 }
@@ -134,10 +136,10 @@ def commands(src: Path, rules: Path) -> dict[str, list[str]]:
                 "--exit-code",
                 "0",
             ],
-        ),  # fmt: skip
+        ),
         "secrets-b": docker_run(
             IMAGES["secrets-b"], src, ["filesystem", "/src", "--no-verification", "--json", "--no-update"]
-        ),  # fmt: skip
+        ),
         "platform": docker_run(
             IMAGES["platform"],
             src,
@@ -151,7 +153,7 @@ def commands(src: Path, rules: Path) -> dict[str, list[str]]:
                 "--soft-fail",
                 "--skip-download",
             ],
-        ),  # fmt: skip
+        ),
         "dockerfiles": docker_run(
             IMAGES["dockerfiles"],
             src,
@@ -163,7 +165,7 @@ def commands(src: Path, rules: Path) -> dict[str, list[str]]:
                 "json",
                 *(f"/src/trialbox/{f}" for f in DOCKERFILES),
             ],
-        ),  # fmt: skip
+        ),
     }
 
 

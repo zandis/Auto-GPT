@@ -34,7 +34,7 @@ FIXTURES = {
                 {"check_id": "python.lang.security.b.use-defused-xml"},
             ]
         }
-    ),  # fmt: skip
+    ),
     "secrets-a": json.dumps([{"RuleID": "generic-api-key"}]),
     "secrets-b": json.dumps({"DetectorName": "PrivateKey"}) + "\n" + json.dumps({"level": "info", "msg": "done"}),
     "platform": json.dumps({"check_type": "kubernetes", "results": {"failed_checks": [{"check_id": "CKV_K8S_21"}]}}),
@@ -191,7 +191,7 @@ def test_the_command_writes_the_record_and_fails_on_what_fails(tmp_path: Path, m
     base = ["standing-gates", "--src", str(src), "--rules", str(tmp_path / "r"), "--no-fetch", "--today", "2026-12-01",
             "--out"]  # fmt: skip
     for out, rc in ((clean, 0), (FIXTURES, 1)):
-        monkeypatch.setattr(sg.subprocess, "run", _Runner(dict(out)))
+        monkeypatch.setattr(subprocess, "run", _Runner(dict(out)))
         assert sc_main.main([*base, str(tmp_path / f"o-{rc}")]) == rc
     record = json.loads((tmp_path / "o-1" / "index.json").read_text(encoding="utf-8"))
     assert {t["tool"]: t["findings"] for t in record["tools"]} == {
