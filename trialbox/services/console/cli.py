@@ -4,7 +4,10 @@ action is also a command, with the same audit).
     bootstrap-admin [--username admin] [--mailbox you@hospital] [--password-stdin]
         First administrator. Without --password-stdin a random password is generated and printed once.
         Does nothing (exit 0) when an administrator exists. A printed password is replaced at first sign-in (D-279).
-    add-user NAME --role admin|coordinator|investigator|viewer [--mailbox ADDR] [--password-stdin]
+    add-user NAME --role admin|coordinator|investigator|viewer|cro|steward|privacy [--studies ID,ID]
+             [--affiliation hospital|smo|cro] [--mailbox ADDR] [--password-stdin]
+        Every role of the console (P-31). A CRO account, and any SMO or CRO affiliation, names its studies
+        (--studies, ruleset ids separated by commas) and sees no other (D-380); without one it is refused.
     reset-password NAME [--password-stdin]
         The person who runs these sets the password, so its owner replaces it at the next sign-in (D-279, SEC-1).
     disable NAME
@@ -33,7 +36,7 @@ from typing import Any
 import yaml
 
 from console.account_rules import protected_account
-from console.auth import AuthError, UserStore, random_password
+from console.auth import AFFILIATIONS, ROLES, AuthError, UserStore, random_password, scope_values
 
 
 def _audit(event: str, **fields: Any) -> None:
@@ -135,9 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--password-stdin", action="store_true")
     a = sub.add_parser("add-user")
     a.add_argument("name")
-    a.add_argument(
-        "--role", choices=("admin", "coordinator", "investigator", "viewer", "steward", "privacy"), required=True
-    )
+    a.add_argument("--role", choices=ROLES, required=True)
+    a.add_argument("--studies", default="", help="ruleset ids separated by commas (a CRO account names its studies)")
+    a.add_argument("--affiliation", choices=AFFILIATIONS, default=None, help="default: cro for a CRO account")
     a.add_argument("--mailbox", default="")
     a.add_argument("--password-stdin", action="store_true")
     r = sub.add_parser("reset-password")
@@ -221,9 +224,21 @@ def main(argv: list[str] | None = None) -> int:
             if generated:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "add-user":
+            affiliation = args.affiliation or ("cro" if args.role == "cro" else "hospital")
+            scope_values(affiliation, args.studies, None, args.role)  # D-380: refuse a bad scope before the account
             pw, generated = _password(args)
             store.create(args.name, args.role, pw, args.mailbox or None, must_change=True)  # D-279
-            _audit("console.user", detail={"action": "create", "user": args.name, "role": args.role})
+            made = store.set_scope(args.name, affiliation, args.studies)
+            _audit(
+                "console.user",
+                detail={
+                    "action": "create",
+                    "user": args.name,
+                    "role": args.role,
+                    "affiliation": made.affiliation,
+                    "studies": ",".join(made.studies),
+                },
+            )
             print(f"console: user '{args.name}' ({args.role}) created")
             if generated:
                 print(f"console: password (shown once): {pw}")
