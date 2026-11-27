@@ -494,7 +494,8 @@ services:
     # a memory tmpfs would take from the model; user and read_only wait for a GPU box.
     # P2-04 (ASSESS-1-ADDENDUM D5): every capability dropped, none added back. Root keeps reading what it owns and
     # what is readable to all; a model folder of another owner at 0600/0640 is not read (keep the site's copy
-    # root-owned or world-readable). `ipc: host` makes Docker add label=disable; it is not set here.
+    # root-owned or world-readable). Not yet run on a GPU box with these controls: a model folder it cannot read
+    # shows as a failed health check after start_period.
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)

@@ -26,6 +26,11 @@ services:
     image: ${TB_IMAGE:-trialbox-py:1.0.0}
     entrypoint: ["python", "-m", "tools.vllm_standin"]
     user: "10001:10001"
+    # P2-04 (D5): the box's own controls, written here too (the stand-in writes no file)
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     deploy: !reset {}   # no GPU reservation
     healthcheck: *health
   llm-verifier:
@@ -35,6 +40,11 @@ services:
     image: ${TB_IMAGE:-trialbox-py:1.0.0}
     entrypoint: ["python", "-m", "tools.vllm_standin", "--default-served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}"]
     user: "10001:10001"
+    # P2-04 (D5): written here, not only inherited: without a tier overlay there is no llm-verifier to inherit from
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     deploy: !reset {}
     healthcheck: *health
   embed-service:
@@ -52,6 +62,7 @@ services:
     # P2-04 (ASSESS-1-ADDENDUM D5): the controls of the box's own services; it keeps nothing and writes no file
     user: "10001:10001"
     read_only: true
+    tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m

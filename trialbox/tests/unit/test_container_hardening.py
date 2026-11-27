@@ -185,7 +185,7 @@ def test_every_overlay_service_takes_the_four_controls_or_names_its_exception() 
             excused = (svc, control) in EXCEPTIONS
             assert (control in applied) != excused, (svc, control)  # one or the other, never both, never neither
             assert not excused or len(EXCEPTIONS[(svc, control)]) > 20
-    # every overlay service now gives up privilege gain; the model servers keep llm-service's three exceptions
+    # every overlay service now gives up privilege gain; the model servers keep llm-service's two exceptions (read_only, user)
     assert all("no-new-privileges" in seen[s] for s in OUTSIDE_THE_15)
     assert {c for s, c in EXCEPTIONS if s == "llm-verifier"} == {c for s, c in EXCEPTIONS if s == "llm-service"}
     fully = sorted(s for s in OUTSIDE_THE_15 if not any((s, c) in EXCEPTIONS for c in CONTROLS))

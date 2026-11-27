@@ -32,7 +32,7 @@ def test_caddy_and_the_model_servers_drop_every_capability_in_every_stack() -> N
         for svc, body in _merge(stack).items():
             if svc in THIRD_PARTY and _active(body, profiles):
                 seen.add(svc)
-                assert _has(body, "cap_drop"), (stack, svc)
+                assert body.get("cap_drop") == ["ALL"], (stack, svc)
                 assert not body.get("cap_add"), (stack, svc)
                 assert _has(body, "no-new-privileges"), (stack, svc)
     assert seen == set(THIRD_PARTY)
@@ -50,12 +50,14 @@ def test_install_checks_the_tls_key_with_caddys_capabilities() -> None:
     assert "--user 0 --cap-drop ALL" in line
 
 
-def test_the_rehearsal_mail_sink_takes_the_baseline() -> None:
-    sink = _Compose((ROOT / "tools" / "rehearse_box" / "standins.yml").read_text(encoding="utf-8")).get_single_data()
-    body = sink["services"]["mail-sink"]
-    for control in ("cap_drop", "no-new-privileges", "read_only", "user"):
-        assert _has(body, control), control
-    assert body["mem_limit"] and body["pids_limit"] and not body.get("cap_add")
+def test_the_rehearsal_stand_ins_take_the_baseline() -> None:
+    doc = _Compose((ROOT / "tools" / "rehearse_box" / "standins.yml").read_text(encoding="utf-8")).get_single_data()
+    for svc in ("mail-sink", "llm-service", "llm-verifier"):  # the verifier's stand-in also runs with no tier overlay
+        body = doc["services"][svc]
+        for control in ("no-new-privileges", "read_only", "user"):
+            assert _has(body, control), (svc, control)
+        assert body["cap_drop"] == ["ALL"] and body["tmpfs"] == ["/tmp"] and not body.get("cap_add"), svc
+    assert doc["services"]["mail-sink"]["mem_limit"] and doc["services"]["mail-sink"]["pids_limit"]
 
 
 def test_the_closed_exceptions_stay_closed() -> None:
