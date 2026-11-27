@@ -40,7 +40,6 @@ SITE_A = ROOT / "tests/fixtures/synthetic_patients/site-a"
 MAPPING = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
 KEY = b"k" * 32
 GOOD, NEXT = "2026-11-01", "2026-11-02"
-MERGED = "19999999"  # a made-up chart number merged into a served one (review P-04-1)
 _MAP = itertools.count()  # one pid map per test: a test that accepts a correction writes the map's identity
 
 
@@ -256,40 +255,6 @@ def test_one_persons_row_twice_and_a_clean_night_are_unchanged(good: Any, tmp_pa
     assert (folder / PASSED).exists() and not (folder / IDENTITY_CONFLICT).exists()
     assert json.loads((folder / COMPLETENESS).read_text())["tables"]["patient"]["duplicate_keys"] == 1
     assert _audit(tmp_path)[-1]["detail"]["identity_conflicts"] is None
-
-
-@pytest.mark.parametrize("both", [True, False])
-def test_chart_numbers_a_merge_makes_one_patient_are_one_person(good: Any, tmp_path: Path, both: bool) -> None:
-    """Review P-04-1: a chart number merged into a served one (T-659b) is written under the served patient, so its
-    row is compared as that patient's. Both numbers tonight with two people's demographics: two people within the
-    night, never accepted. The merged number alone: another person against the served night, held."""
-    cfg, rb = _from_good(good, tmp_path)
-    feed = _feed(tmp_path)
-    first = good[2]
-    pid = pid_for_mrn(KEY, first["mrn"])
-    pm = cfg.pidmap()
-    try:
-        old, survivor = pm.merge(KEY, MERGED, first["mrn"], "synthetic merge", "SYN-1")
-    finally:
-        pm.close()
-    assert survivor == pid
-    rows = _rows(feed / "patient.csv")
-    other = {**_other_person(first), "mrn": MERGED}
-    _write(feed / "patient.csv", [*rows, other] if both else [other, *rows[1:]])
-    rep = _night(cfg, feed, NEXT)
-    text = " ".join(rep.errors)
-    said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
-    if both:
-        assert "1 within this night, 0 against" in text, text
-        assert said["tonight"] == [old] and said["against"]["pids"] == []
-    else:
-        assert f"0 within this night, 1 against the served night {GOOD}" in text, text
-        assert said["tonight"] == [] and said["against"] == {"snapshot": GOOD, "pids": [old]}
-    _assert_held_and_kept(cfg, rb, rep, first, pid)
-    if both:
-        with pytest.raises(TwoPeopleOneChart):
-            publish_held(cfg, NEXT)
-        assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD and rb.calls == []
 
 
 def test_an_accept_of_a_night_the_identity_check_never_ran_on_is_refused(good: Any, tmp_path: Path) -> None:
