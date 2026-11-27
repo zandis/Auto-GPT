@@ -69,7 +69,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeGuard
 
 import httpx
 from guard.guard import Guard
@@ -157,7 +157,7 @@ log = logging.getLogger("gateway")
 token_log = logging.getLogger("gateway.tokens")
 
 
-def _count(v: object) -> bool:
+def _count(v: object) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool) and v >= 0
 
 
