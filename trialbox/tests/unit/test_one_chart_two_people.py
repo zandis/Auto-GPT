@@ -280,6 +280,8 @@ def test_another_site_sharing_a_chart_number_of_the_pid_map_is_held(good: Any, t
     """The goldens fixture once gave two synthetic sites the same chart numbers: the hold is right, the fixture was
     wrong. Here the chart number is really shared: a second lake with no served night, on the same pid map and key,
     gets another person under a chart the first site published."""
+    # the pid map is the one of its key file, shared between the two sites as in the harness
+    shutil.copytree(good[0] / "secrets", tmp_path / "secrets")
     cfg, rb = _cfg(tmp_path, good[1])
     feed = _feed(tmp_path)
     first = good[2]
