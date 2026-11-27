@@ -113,7 +113,7 @@ def test_a_value_outside_the_observed_centiles_is_flagged_not_refused() -> None:
     assert outside.canonical_hash == canonical_hash(plain)  # the flags are outside the hash
     no_centiles = copy.deepcopy(CARD)
     del no_centiles["params"]["window_days"]["observed_p10_p90"]
-    assert not instantiate(Card.model_validate(no_centiles), {"window_days": 9999}).flags
+    assert not instantiate(Card.model_validate(no_centiles), {"window_days": 3000}).flags
 
 
 def test_card_hash_leaves_out_the_provenance() -> None:

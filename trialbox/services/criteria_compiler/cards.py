@@ -99,9 +99,13 @@ def load(card_id: str, version: str, cards_dir: Path = CARDS_DIR) -> Card:
     return card
 
 
+_TYPES: dict[str, type | tuple[type, ...]] = {"integer": int, "number": (int, float), "string": str}
+
+
 def _check(name: str, p: Param, v: Any) -> None:
     numeric = p.type in ("integer", "number")
-    if isinstance(v, bool) or not isinstance(v, {"integer": int, "number": (int, float), "string": str}[p.type]):
+    typed = not isinstance(v, bool) and isinstance(v, _TYPES[p.type])  # a bool is no number here
+    if not typed:
         raise CardError(f"param {name}: {v!r} is not {p.type}")
     if numeric and ((p.min is not None and v < p.min) or (p.max is not None and v > p.max)):
         raise CardError(f"param {name}: {v} is outside [{p.min}, {p.max}]")
