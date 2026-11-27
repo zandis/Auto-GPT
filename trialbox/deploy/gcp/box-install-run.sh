@@ -1297,8 +1297,8 @@ d_sign_throwaway() {  # validation: a key made here, never the vendor key; only 
   echo "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release"
   (cd "$CK" && mkdir -p "$BUILD/tmp" && TMPDIR="$BUILD/tmp" TB_TZ="${TB_TZ:-UTC}" tools/make_bundle.sh --key "$k/vendor_ed25519.key" --id "$RID" --release-seq "$SEQ" \
      --pub "$k/vendor_ed25519.pub" --out "$BNEXT/out/trialbox-$RID.tar" --gates build/supply-chain/gates.json --sbom-dir dist/sbom --models "$BMODELS") || return
-  # HYG2-R10: the public half is kept beside the attempt; step_b_sign moves it into place once this bundle is published
-  cp "$k/vendor_ed25519.pub" "$BNEXT/throwaway-signing-key.pub"
+  # HYG2-R10: the public half rides in the bundle's folder, so the one rename that publishes the bundle publishes its key
+  cp "$k/vendor_ed25519.pub" "$BNEXT/out/throwaway-signing-key.pub"
 }
 # the room make_bundle.sh needs: it stages every image (docker save, ~25 GB with vLLM) and then writes the bundle; its
 # staging goes under the build root (TMPDIR), not /tmp, and the build cache of b03 is dropped first (images are kept)
@@ -1334,9 +1334,9 @@ d_bundle_models() {
   note bundle_models "\"$(ls "$BMODELS" | tr '\n' ' ')\""
 }
 step_b_sign() {  # HYG2-R10: one signing at a time per build root (a lock), so whatever an earlier one left is stale
-  local lk rc
-  mkdir -p "$BUILD"
-  exec {lk}>"$BUILD/.sign.lock"
+  # ponytail: the lock's fd is inherited by the step's children; one that outlived b05 would keep the next one TB-SIGN-BUSY
+  local lk= rc
+  mkdir -p "$BUILD" && exec {lk}>"$BUILD/.sign.lock" || { STOP="TB-SIGN-LOCK: $BUILD/.sign.lock could not be opened"; return 1; }
   if flock -n "$lk"; then b_sign; rc=$?; else STOP="TB-SIGN-BUSY: another signing holds $BUILD/.sign.lock"; rc=1; fi
   exec {lk}>&-
   return $rc
@@ -1350,13 +1350,14 @@ b_sign() {
   # HYG2-R10: under the lock, a cut attempt's folder (a fixed name) and make_bundle.sh's staging are stale: removed
   # first, never one bundle of disk per cut
   local BNEXT="$BUILD/out.next.sign" O="$BUILD/out" rc
+  rm -rf "$BNEXT" "$BUILD/tmp"/tb-bundle.* \
+    || { STOP="TB-SIGN-STALE: what an earlier signing left ($BNEXT, $BUILD/tmp/tb-bundle.*) could not be removed"; return 1; }
   b_room
-  rm -rf "$BNEXT" "$BUILD/tmp"/tb-bundle.*
   if [ ! -e "$O" ] && [ -d "$O.old" ]; then
     mv -T "$O.old" "$O" \
       || { STOP="TB-BUNDLE-NOT-RESTORED: the last release is in $O.old and could not be put back into $O (kept there; nothing signed)"; return 1; }
   fi
-  mkdir "$BNEXT" || return 1
+  mkdir "$BNEXT" || { STOP="TB-SIGN-STALE: $BNEXT could not be made"; return 1; }
   need "the weights the site bundle carries (the pair, the template, the embedder: make_bundle.sh --models)" \
     d_bundle_models || { rm -rf "$BNEXT"; return 1; }
   if [ "$MODE" = validation ]; then
@@ -1366,7 +1367,7 @@ b_sign() {
   fi
   rc=$?
   if [ "$rc" = 0 ]; then
-    if [ -e "$O.old" ] && ! { [ -d "$O" ] && [ -n "$(ls -A "$O")" ]; }; then
+    if [ -e "$O.old" ] && ! { [ -d "$O" ] && [ ! -L "$O" ] && compgen -G "$O/trialbox-*.tar*" >/dev/null; }; then
       STOP="TB-BUNDLE-NOT-PLACED: $O.old is kept: $O beside it is not a release folder (nothing replaced)"; rc=1
     elif ! rm -rf "$O.old"; then
       STOP="TB-BUNDLE-NOT-PLACED: the retired $O.old could not be removed (the last release is in $O)"; rc=1
@@ -1381,8 +1382,6 @@ b_sign() {
       rc=1
     else
       rm -rf "$O.old"
-      [ "$MODE" != validation ] || mv -f "$BNEXT/throwaway-signing-key.pub" "$BUILD/throwaway-signing-key.pub" \
-        || { STOP="TB-BUNDLE-NO-PUB: the throwaway public key of the bundle in $O could not be kept"; rc=1; }
     fi
   fi
   rm -rf "$BNEXT"
@@ -1395,7 +1394,7 @@ step_b_verify() {
   local b="$BUILD/out/trialbox-$RID.tar"
   note mode "\"$MODE\""
   if [ "$MODE" = validation ]; then
-    cp "$BUILD/throwaway-signing-key.pub" "$BUILD/vendor.pub" || { STOP="no throwaway public key from b05"; return 1; }
+    cp "$BUILD/out/throwaway-signing-key.pub" "$BUILD/vendor.pub" || { STOP="no throwaway public key from b05"; return 1; }
     note not_a_release true
   else
     need "fetching the vendor public key" fetch_pub "$VPUB_SRC" "$BUILD/vendor.pub" || return 1
@@ -1413,7 +1412,7 @@ step_b_upload() {
   need "uploading the bundle" gcloud storage cp "$b" "$OUTP/trialbox-$RID.tar" || return 1
   need "uploading its sha256" gcloud storage cp "$b.sha256" "$OUTP/trialbox-$RID.tar.sha256" || return 1
   if [ "$MODE" = validation ]; then
-    need "uploading the throwaway key's public half" gcloud storage cp "$BUILD/throwaway-signing-key.pub" "$OUTP/throwaway-signing-key.pub" || return 1
+    need "uploading the throwaway key's public half" gcloud storage cp "$BUILD/out/throwaway-signing-key.pub" "$OUTP/throwaway-signing-key.pub" || return 1
   fi
   printf '{"release_id": "%s", "release_seq": %s, "commit": "%s", "sha256": "%s", "bytes": %s, "object": "%s", "mode": "%s", "not_a_release": %s, "signed_with": "%s"}\n' \
     "$RID" "$SEQ" "$COMMIT" "$sha" "$(stat -c %s "$b")" "$OUTP/trialbox-$RID.tar" "$MODE" \

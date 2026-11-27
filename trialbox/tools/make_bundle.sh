@@ -172,8 +172,10 @@ if [ -e "$DIST" ] && { [ ! -d "$DIST" ] || [ -n "$(ls -A "$DIST")" ]; }; then
   echo "make_bundle: --out's folder $DIST must be absent or empty: a release is published into a fresh folder, never over another one" >&2; exit 2
 fi
 # HYG2-R9: an ACL on that empty folder cannot be carried over to the folder published onto it: refused, never widened
-if [ -d "$DIST" ]; then case "$(ls -ld "$DIST")" in ??????????+*)
-  echo "make_bundle: --out's folder $DIST has an ACL: name a folder without one (its ACL would not be carried over)" >&2; exit 2 ;; esac; fi
+# (has_acl: ls marks a folder with an ACL by a + after its mode; a folder that cannot be read counts as one)
+has_acl() { local l; l=$(ls -ld "$1") || return 0; case "$l" in ??????????+*) return 0 ;; esac; return 1; }
+if [ -d "$DIST" ] && has_acl "$DIST"; then
+  echo "make_bundle: --out's folder $DIST has an ACL: name a folder without one (its ACL would not be carried over)" >&2; exit 2; fi
 if [ -n "$MODEL_OUT" ]; then
   case "$MODEL_OUT" in /*) ;; *) MODEL_OUT="$PWD/$MODEL_OUT" ;; esac
   [ "$(dirname "$MODEL_OUT")" = "$DIST" ] \
@@ -422,7 +424,11 @@ PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/bundle_keycheck.py" --pub "$STI
 # that got there first (mv -T refuses a folder that is no longer empty), leaves no mixed set
 # HYG2-R9: the published folder keeps the owner, group and mode of the empty one it replaces (an empty 0700 folder of
 # a restricted group stays so; one with an ACL was refused above); if they cannot be carried over, nothing is published
+# (checked again here: an ACL given to the folder during the build, or one the pending folder inherited from its parent)
 if [ -d "$DIST" ]; then
+  for d in "$DIST" "$PEND"; do
+    ! has_acl "$d" || { echo "make_bundle: $d has an ACL: refused, nothing published (an ACL is not carried over)" >&2; exit 1; }
+  done
   { chown --reference="$DIST" "$PEND" && chmod --reference="$DIST" "$PEND"; } \
     || { echo "make_bundle: the owner, group and mode of $DIST could not be given to the release: nothing published" >&2; exit 1; }
 else chmod 0755 "$PEND"; fi
