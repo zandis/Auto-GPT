@@ -95,3 +95,22 @@ def test_a_start_releases_the_holds_of_ended_jobs_and_keeps_the_others(tmp_path:
     left = Lake(lake_dir, TZ).holds()
     assert ended.job_id not in left, "an ended job's hold outlived the restart"
     assert set(left) == {waiting.job_id, "sitesetup-publish"}  # an unfinished job and a non-job keep theirs
+
+
+def test_the_next_job_to_end_releases_a_hold_the_start_could_not(tmp_path: Path) -> None:
+    lake_dir = _lake(tmp_path)
+
+    def scenario(ctx: Ctx) -> Outcome:
+        ctx.state("running")
+        ctx.services.lake.query("SELECT count(*) AS n FROM patient")
+        return Outcome(summary_md="ok")
+
+    orch = _orch(tmp_path, scenario, lake_dir)
+    ended = orch.create(JobCreate(type="FEAS", ruleset="GZQO", requested_by="scheduler"), notify=False)
+    orch.set_state(ended, "failed", error=JobError(step="running", message="killed"))
+    Lake(lake_dir, TZ).hold(NIGHT, ended.job_id, pin=True)  # left by a process that died; the lake was down at start
+    nxt = orch.create(JobCreate(type="FEAS", ruleset="RA-JAK", requested_by="scheduler"), notify=False)
+    orch.drain()
+    got = orch.db.get(nxt.job_id)
+    assert got is not None and got.state == "done", got
+    assert Lake(lake_dir, TZ).holds() == {}, "the ended job's hold outlived the next job"

@@ -595,6 +595,7 @@ class Orchestrator:
         if ctx._services is None and job.snapshot_date is None:
             return  # the job never read the lake
         release_hold(ctx._services, job.job_id)
+        self._release_ended_holds()  # R-A: a hold the start could not release (the lake was not up yet)
         for hook in list(self.after_job):
             try:
                 hook()
@@ -763,10 +764,11 @@ class Orchestrator:
             self._threads.append(t)
 
     def _release_ended_holds(self) -> None:
-        """r2rerun R-A (ruling c): at start, the lake hold of every job that has ended is released. A process that died
-        between a job's end and its release (or a failure that never reached it) left the hold, which blocked the
-        night's rebuild of that snapshot for HOLD_TTL_SECONDS (14 days). A holder that is not a job, or a job that has
-        not ended (it runs again and keeps its generation), keeps its hold."""
+        """r2rerun R-A (ruling c): at start and after each job, the lake hold of every job that has ended is released
+        (the orchestrator does not wait for the lake at start, so a box's boot may leave it to the first job). A
+        process that died between a job's end and its release (or a failure that never reached it) left the hold,
+        which blocked the night's rebuild of that snapshot for HOLD_TTL_SECONDS (14 days). A holder that is not a
+        job, or a job that has not ended (it runs again and keeps its generation), keeps its hold."""
         holds = getattr(self.services.lake, "holds", None)
         if holds is None:
             return
