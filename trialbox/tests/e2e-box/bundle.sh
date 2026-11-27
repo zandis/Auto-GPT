@@ -14,8 +14,9 @@ T=$(cd "${TREE:-$(dirname "$0")/../..}" && pwd)
 cd "$T" || exit 2
 : "${VENDOR_KEY:?}" "${MODELS_DIR:?}" "${REFDATA:?}"
 mkdir -p "$OUTDIR"
-export TMPDIR=${TMPDIR_BUNDLE:-/dev/shm/e2e-box/tmp}
-mkdir -p "$TMPDIR" && chmod 0700 "$TMPDIR"
+mkdir -p "${TMPDIR_BUNDLE:-/dev/shm/e2e-box}" && TMPDIR=$(mktemp -d "${TMPDIR_BUNDLE:-/dev/shm/e2e-box}/tmp.XXXXXXXX") || exit 2
+export TMPDIR
+trap 'rm -rf "$TMPDIR"' EXIT
 L=$OUTDIR/build-$ID.log
 : > "$L"
 s=$(date +%s)

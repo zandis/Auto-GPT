@@ -27,6 +27,7 @@ BUNDLE=/dev/shm/e2e-box/dist/trialbox-<id>.tar SIZE=50000 E2E_CPUSET=112-175 \
 | `SIZE` | the hospital's patients (default 50,000): the feed's size and the install's declared size |
 | `E2E_CPUSET`, `VCPU`, `VMEM` | the VM's host cores (default 112-175), vCPUs (24), memory (96G) |
 | `NAME`, `PORTBASE` | the VM (default `vm-e2e`) and its two ports on 127.0.0.1 (ssh, console) |
+| `E2E_FWD` | more host forwards of the VM's user network (`,hostfwd=tcp:127.0.0.1:P-:Q`), e.g. a file server's |
 | `NEXT_IMG` | the next bundle's media image (and `NEXT_IMG.ready` holding its id): the update journey; else skipped |
 | `E2E_MODELS_ENV`, `E2E_JUDGE_PORT`, `E2E_VERIFIER_PORT` | required: the host's served pinned pair (a 0600 `VLLM_API_KEY=` file and its two ports); without them the run refuses to start |
 | `E2E_REDCAP_URL`, `E2E_REDCAP_TOKEN_FILE` | the REDCap bench: else the EDC journey is skipped |
@@ -37,7 +38,7 @@ BUNDLE=/dev/shm/e2e-box/dist/trialbox-<id>.tar SIZE=50000 E2E_CPUSET=112-175 \
 `bundle.sh ID SEQ OUTDIR` builds a signed rehearsal bundle of a checkout (`TREE`), as the integration builds do.
 `VENDOR_KEY` must be a rehearsal-only key, never the release key: the build runs the code under test on the host.
 The bundle is not a rehearsal bundle (no `--rehearsal`); the bundler stages about 62 GB under `TMPDIR_BUNDLE`
-(default `/dev/shm/e2e-box/tmp`), never on a host's shared `/`.
+(default a private folder in `/dev/shm/e2e-box`, removed after), never on a host's shared `/`.
 Nightly, from cron on the VM host (one run at a time):
 
 ```

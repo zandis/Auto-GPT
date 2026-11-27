@@ -120,8 +120,12 @@ PY
 to_validation() { envset TB_ENV VALIDATION && vm "$DC up -d --wait 2>&1 | tail -n 3"; }
 j_rc1() { # a PRODUCTION box this release refuses the night's backup key, the held-night accept and SCREEN on (rc1):
   # the refusal is a row first; the rest of the run then goes on as VALIDATION, same host profile and models
-  step OPS-rc1 "rc1 on PRODUCTION refuses no live patient list and no key ceremony" rc1_production
-  if [ $? = 3 ]; then # only a refusal moves the box to VALIDATION, never a probe that failed
+  local T='cd /opt/trialbox && sudo python3 -m tools.trialbox' refused=0
+  if ! step OPS-rc1 "a key ceremony on PRODUCTION (backup-keygen into a scratch folder)" vm "sudo rm -rf /root/e2e-kc && sudo mkdir -m 700 /root/e2e-kc && $T backup-keygen --private /root/e2e-kc/k --public /root/e2e-kc/k.pub 2>&1 | tail -n 3; rc=\$?; sudo rm -rf /root/e2e-kc; exit \$rc"; then
+    step OPS-rc1 "rc1 on PRODUCTION refuses no live patient list and no key ceremony" rc1_production
+    [ $? != 3 ] || refused=1 # 3: the table refuses; any other failure is the probe's and changes nothing
+  fi
+  if [ $refused = 1 ]; then
     deviate env-validation "TB_ENV=VALIDATION, the stack re-created (site host profile and models kept): this release's rc1 table refuses the backup key, the held-night accept and SCREEN on PRODUCTION" to_validation
   fi
 }
@@ -243,6 +247,8 @@ PY
   fi
   step $J "selftest (pair canary) on the box as installed: the host's real pinned pair" vm 'cd /opt/trialbox && sudo timeout 900 trialbox selftest > /var/tmp/e2e-selftest.txt 2>&1; rc=$?; tail -n 5 /var/tmp/e2e-selftest.txt | cut -c1-200; exit $rc'
   vm 'sudo cat /var/tmp/e2e-selftest.txt' > "$EV/selftest-installed.txt" 2>&1
+  step $J "the box's model endpoints serve the pinned builds (doctor --serving)" vm 'cd /opt/trialbox && sudo python3 -m tools.trialbox doctor --serving --env-file deploy/.env > /var/tmp/e2e-doctor-serving.txt 2>&1; rc=$?; grep -E "^(PASS|WARN|FAIL)" /var/tmp/e2e-doctor-serving.txt | cut -c1-200; exit $rc'
+  vm 'sudo cat /var/tmp/e2e-doctor-serving.txt' > "$EV/doctor-serving.txt" 2>&1
   step $J "no answer came from a stand-in (selftest and doctor name none)" vm 'for f in /var/tmp/e2e-selftest.txt /var/tmp/e2e-doctor.txt /var/tmp/e2e-doctor-env.txt; do sudo test -s $f || { echo "$f missing"; exit 1; }; sudo grep -iE "answered by the rehearsal stand-in|REHEARSAL BOX" $f; [ $? = 1 ] || exit 1; done; echo "no stand-in named"'
   J=OPS-exports
   step $J "export ledger (trialbox exports)" vm 'cd /opt/trialbox && sudo trialbox exports 2>&1 | tail -n 8'

@@ -74,15 +74,16 @@ put_kit() { # the site kit at /root/site (runbook 01 "What the site brings"): th
   local k rc
   k=$(mktemp -d "$E2E_VMS/.kit.XXXXXXXX") || return 1
   sed "s#^data_source_host_dir: .*#data_source_host_dir: $SRC#" "$REPO/tools/rehearse_box/site_answers.yaml" > "$k/site.yaml"
-  grep -qx "data_source_host_dir: $SRC" "$k/site.yaml" || return 1
-  cp -r "$REPO/tools/rehearse_box/mapping" "$k/mapping" &&
+  grep -qx "data_source_host_dir: $SRC" "$k/site.yaml" &&
+    cp -r "$REPO/tools/rehearse_box/mapping" "$k/mapping" &&
     sed -e "s/@JUDGE_PORT@/$E2E_JUDGE_PORT/" -e "s/@VERIFIER_PORT@/$E2E_VERIFIER_PORT/" "$HERE/site/host-models.yml" > "$k/host-models.yml" &&
     cp "$HERE/site/hardening.conf" "$HERE/modelproxy.py" "$k/" &&
     tar -czf "$k.tgz" -C "$k" . && "$CTL" put "$NAME" "$k.tgz" /tmp/kit.tgz
   rc=$?
   rm -rf "$k" "$k.tgz"
   [ $rc = 0 ] || return 1
-  vm 'sudo bash -c "umask 077; mkdir -p /root/site && cat > /root/site/hostkey"' < "$E2E_MODELS_ENV" || return 1
+  sed -n 's/^VLLM_API_KEY=//p' "$E2E_MODELS_ENV" | head -n 1 |
+    vm 'sudo bash -c "umask 077; mkdir -p /root/site && cat > /root/site/hostkey && test -s /root/site/hostkey"' || return 1
   vm 'sudo bash -s' << 'SH'
 set -e
 mkdir -p /root/site && tar -xzf /tmp/kit.tgz -C /root/site && rm -f /tmp/kit.tgz
@@ -94,9 +95,12 @@ SH
 install_once() { # the runbook 01 command (ptyinstall.py answers at the terminal); the refusal lines, if any, as detail
   vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; echo rc=\$rc prompts=\$(sudo grep -c '^PROMPT:' /var/tmp/prompts.txt); sudo grep -iE 'refus|stop|not qualified' /var/tmp/install.log | tail -n 4 | cut -c1-200; exit \$rc"
 }
+keep_attempt() { # the first attempt's transcript and prompts kept beside the second's (0600), and copied with them
+  vm 'for f in /var/tmp/install.log /var/tmp/prompts.txt; do sudo test -f $f && sudo mv -f $f ${f%.*}.1.${f##*.}; done; true'
+}
 conditions() { # the box as the gate means to test it, read from its deploy/.env
   vm 'cd /opt/trialbox/deploy && sudo grep -E "^(TB_ENV|TB_HOST_PROFILE|COMPOSE_FILE|TB_SITE_PATIENTS)=" .env; sudo grep -qx TB_ENV=PRODUCTION .env &&
-    ! sudo grep -qx TB_HOST_PROFILE=poc .env && sudo grep -E "^COMPOSE_FILE=" .env | grep -q site/compose-override.yml && sudo cmp -s site/compose-override.yml /root/site/host-models.yml &&
+    ! sudo grep -qx TB_HOST_PROFILE=poc .env && ! sudo grep -q "^TB_REHEARSAL=" .env && sudo grep -E "^COMPOSE_FILE=" .env | grep -q site/compose-override.yml && sudo cmp -s site/compose-override.yml /root/site/host-models.yml &&
     ! sudo grep -E "^COMPOSE_FILE=" .env | grep -qi standin'
 }
 site_needs() { # what a PRODUCTION install refused without, as a site sets it (deploy/.env, deploy/site/hardening.conf)
@@ -146,8 +150,8 @@ take_secrets() { # the first administrator's password and code: the VM's root-on
 secret_values() { python3 -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1])).values()))' "$CREDS/admin.json"; }
 transcript_clean() { # G6 / RULINGS Q3: neither one-time value anywhere the install or this run wrote text; files root-only
   local onbox here rc
-  vm 'for f in /var/tmp/install.log /var/tmp/prompts.txt; do [ "$(sudo stat -c %a $f)" = 600 ] || { echo "$f is not 0600"; exit 1; }; done' || return 1
-  onbox=$(secret_values | vm 'sudo grep -rlF -f - /var/tmp/install.log /var/tmp/prompts.txt $(sudo find /opt/trialbox/deploy/site/box -type f 2> /dev/null); [ $? -le 1 ]') || { echo "the scan on the box failed"; return 1; }
+  vm 'for f in /var/tmp/install.log /var/tmp/prompts.txt /var/tmp/install.1.log /var/tmp/prompts.1.txt; do sudo test -f $f || continue; [ "$(sudo stat -c %a $f)" = 600 ] || { echo "$f is not 0600"; exit 1; }; done' || return 1
+  onbox=$(secret_values | vm 'sudo grep -rlF -f - /var/tmp/install.log /var/tmp/prompts.txt $(sudo ls /var/tmp/install.1.log /var/tmp/prompts.1.txt 2> /dev/null) $(sudo find /opt/trialbox/deploy/site/box -type f 2> /dev/null); [ $? -le 1 ]') || { echo "the scan on the box failed"; return 1; }
   here=$(secret_values | grep -rlF -f - "$OUT" --exclude-dir=creds)
   rc=$?
   [ $rc -le 1 ] || { echo "the scan of the run folder failed"; return 1; }
@@ -235,14 +239,20 @@ step $J "site kit at /root/site (answers, mapping, host baseline, model override
 step $J "synthetic hospital of $SIZE patients in the feed folder (tools/make_fixtures.py)" make_feed
 step $J "bootstrap signature verifies (runbook first command)" vm 'cd /media/usb && sudo openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig'
 if ! step $J "one-command install as PRODUCTION, the questions answered at a terminal ($SIZE patients declared)" install_once; then
+  keep_attempt
+  snapshot > "$M/config-preinstall.txt" 2> /dev/null # O-6: the box as the refused install left it (evidence)
   deviate site-needs "TB_AUDIT_ANCHOR_TARGETS, TB_BACKUP_TARGETS, TB_LOG_DIR, TB_BACKUP_ALERT_ROUTE=health-page, hardening.conf, EGRESS_EXTRA += llm-service/llm-verifier -> the host pair, deploy/network.sh apply (the install refused; runbook 01 names none of them)" site_needs
   step $J "one-command install again as PRODUCTION, the same command after the site's settings" install_once
 fi
-step $J "run conditions: TB_ENV=PRODUCTION, no poc profile, the site's model override and no stand-in in COMPOSE_FILE ($SIZE patients declared)" conditions
+step $J "run conditions: TB_ENV=PRODUCTION, no poc profile, no rehearsal setting, the site's model override and no stand-in in COMPOSE_FILE, GPU driver shim (no card in a VM), $SIZE patients declared" conditions
 (
   umask 077
   vm 'sudo cat /var/tmp/prompts.txt' > "$EV/install-prompts.txt" 2>&1
   vm 'sudo cat /var/tmp/install.log' > "$EV/install.log" 2>&1
+  if vm 'sudo test -f /var/tmp/install.1.log'; then
+    vm 'sudo cat /var/tmp/prompts.1.txt' > "$EV/install-prompts.1.txt" 2>&1
+    vm 'sudo cat /var/tmp/install.1.log' > "$EV/install.1.log" 2>&1
+  fi
 )
 step $J "the first password and enrolment code reach the harness only (creds, 0600)" take_secrets
 step $J "the kept transcript holds no one-time value and is root-only (G6)" transcript_clean
