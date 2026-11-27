@@ -40,6 +40,7 @@ SITE_A = ROOT / "tests/fixtures/synthetic_patients/site-a"
 MAPPING = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
 KEY = b"k" * 32
 GOOD, NEXT = "2026-11-01", "2026-11-02"
+MERGED = "19999999"  # a made-up chart number merged into a served one (review P-04-1)
 _MAP = itertools.count()  # one pid map per test: a test that accepts a correction writes the map's identity
 
 
@@ -268,12 +269,12 @@ def test_chart_numbers_a_merge_makes_one_patient_are_one_person(good: Any, tmp_p
     pid = pid_for_mrn(KEY, first["mrn"])
     pm = cfg.pidmap()
     try:
-        old, survivor = pm.merge(KEY, "19999999", first["mrn"], "synthetic merge", "SYN-1")
+        old, survivor = pm.merge(KEY, MERGED, first["mrn"], "synthetic merge", "SYN-1")
     finally:
         pm.close()
     assert survivor == pid
     rows = _rows(feed / "patient.csv")
-    other = {**_other_person(first), "mrn": "19999999"}
+    other = {**_other_person(first), "mrn": MERGED}
     _write(feed / "patient.csv", [*rows, other] if both else [other, *rows[1:]])
     rep = _night(cfg, feed, NEXT)
     text = " ".join(rep.errors)
