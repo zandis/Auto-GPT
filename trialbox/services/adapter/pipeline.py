@@ -27,7 +27,7 @@ from tb_common.site_profile import Profile as SiteProfile
 from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
 from tb_contracts import ConnectorReport, IngestReport, RebuildResult, ValidationSummary, dump
-from tb_contracts.landing import Severity
+from tb_contracts.landing import ControlTotals, Equation, Severity
 
 from adapter import governance
 from adapter.instants import to_site_offset
@@ -661,7 +661,7 @@ def _run_ingest(
     control_totals = (  # E2E P-25: read whenever the export ships the file, with or without data contracts
         governance.read_control_totals(Path(source_path)) if source_kind == "csv" and not since else None
     )
-    recon: list[governance.Equation] = []  # without contracts: the totals counted as the rows stream past
+    recon: list[Equation] = []  # without contracts: the totals counted as the rows stream past
     checks: list[governance.TableCheck] = []
     inputs: list[Path] = []
     gate_facts = governance.NightFacts(night=snap, current_before=current_before)
@@ -781,7 +781,7 @@ def _run_ingest(
             if contracts is not None:
                 got = _kept(got, raw)
             elif control_totals and (ct := control_totals.get(src_name)) is not None:
-                read_back: list[governance.ControlTotals] = []
+                read_back: list[ControlTotals] = []
                 got = governance.counted(got, ct.patient_column, ct.delta_column, read_back)
             others = [0]  # CGRD-A2 (D-813, lane E's hunk): rows of a shared source that are another table's
 
