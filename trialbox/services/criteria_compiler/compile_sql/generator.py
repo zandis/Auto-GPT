@@ -68,6 +68,11 @@ def lit(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
+def select_from(cols: str, tail: str) -> str:
+    """The one place a ``SELECT <cols> FROM <tail>`` is joined, so a new source or CTE adds no string-built query."""
+    return f"SELECT {cols} FROM {tail}"
+
+
 def qcol(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
@@ -217,7 +222,7 @@ class SqlGenerator:
         def src(match: Callable[[str, str, str], str], status: str = "") -> str:
             cond = " OR ".join(match(vsn, sc, cc) for sc, cc in cols)
             where = f"({cond}){status}" if status else cond  # a shipped atom's SQL stays byte for byte what it was
-            return f"SELECT pid, {rid_sel}, {d} AS d{visit} FROM {table} x WHERE {where}"
+            return select_from(f"pid, {rid_sel}, {d} AS d{visit}", f"{table} x WHERE {where}")
 
         # D-917: a condition atom with ``clinical_status`` counts a row whose status is listed or not recorded; a row
         # recorded with another status (resolved, in remission) cannot settle it and makes the answer unknown, as an
@@ -263,17 +268,17 @@ class SqlGenerator:
         reach = f"({u} > 0)" if quant != "count>=" else f"({n} + {u} >= {atom.count})"
         if visits:  # review INVJ5-1: one visit with a counted row and an undated or other-status one is still one
             r = f"{name}_r"
-            parts = [f"SELECT pid, visit, d, FALSE AS undated FROM ({src(self._vs_match, counted)})"]
+            parts = [select_from("pid, visit, d, FALSE AS undated", f"({src(self._vs_match, counted)})")]
             if statuses:
-                parts.append(f"SELECT pid, visit, d, FALSE FROM ({src(listed_or_family, other)})")
-            parts.append(f"SELECT pid, visit, d, TRUE FROM ({src(listed_or_family)})")
+                parts.append(select_from("pid, visit, d, FALSE", f"({src(listed_or_family, other)})"))
+            parts.append(select_from("pid, visit, d, TRUE", f"({src(listed_or_family)})"))
             union = "\n    UNION ALL ".join(parts)
-            ctes.append(
-                f"{r} AS (\n  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n\n"
-                f"  FROM base b JOIN ({union}) e\n"
-                f"    ON e.pid = b.pid AND ((e.undated AND e.d IS NULL) OR (NOT e.undated AND {in_window('e.d', w)}))\n"
-                f"  GROUP BY b.pid, b.index_date)"
+            reach_sel = select_from(
+                "b.pid, b.index_date, count(DISTINCT e.visit) AS n\n ",  # the space before FROM is the helper's
+                f"base b JOIN ({union}) e\n"
+                f"    ON e.pid = b.pid AND ((e.undated AND e.d IS NULL) OR (NOT e.undated AND {in_window('e.d', w)}))",
             )
+            ctes.append(f"{r} AS (\n  {reach_sel}\n  GROUP BY b.pid, b.index_date)")
             reach = f"(coalesce({r}.n, 0) >= {atom.count})"
         hit = "TRUE" if quant != "none" else "FALSE"
         miss = "FALSE" if quant != "none" else "TRUE"
