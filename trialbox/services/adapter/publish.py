@@ -585,11 +585,14 @@ def _refuse_other_point(cfg: AdapterConfig, d: Derived) -> None:
     with it or not), or the intent says the served night was checked and the ledger does not have that night
     finished (the lake restored ahead of it: ``trialbox backup`` dumps the databases, the FHIR store's included,
     before it copies the lake): the lake and the trial database are at different points. The store is owed by
-    :data:`LAKE_MISMATCH` and nothing is put back (the owner decides which point stands). A ledger that does not
-    answer refuses too, the intent untouched. Nothing to ask without a trial database, or a ledger without a FHIR
-    row."""
+    :data:`LAKE_MISMATCH` and nothing is put back (the owner decides which point stands), at every call after too
+    (the intent says so; a person ends it). A ledger that does not answer refuses too, the intent untouched.
+    Nothing to ask without a trial database, or a ledger without a FHIR row."""
     if d.intent.get("upgrade") or not (cfg.lake_dir / FHIR_STATE).is_file():
         return
+    said = str(d.intent.get("reason") or "")
+    if not d.intent.get("verified") and said.startswith(LAKE_MISMATCH):
+        raise _still_owed(cfg, _back_to(d, said), said)
     try:
         row = fhir_generation()
     except LedgerError as exc:
