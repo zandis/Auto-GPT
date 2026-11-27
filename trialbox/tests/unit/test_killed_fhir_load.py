@@ -1754,6 +1754,28 @@ def test_a_store_request_without_an_answer_in_time_is_refused_by_name(
     assert len(stub.log()) == sent
 
 
+def test_a_store_request_never_sent_is_put_back_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub: Stub
+) -> None:
+    """Review H4's refusal is for a request the store may have taken: one that never reached it (no connection) is
+    an ordinary failure. The store is owed by its type, and the next recovery puts it back and settles it."""
+    cfg, lakes = _stub_cfg(tmp_path, stub)
+    assert run_ingest(cfg, "csv", _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001"]), snapshot=N1,
+                      validate=False).passed  # fmt: skip
+    real = load_fhir.post_batches
+
+    def no_connection(*args: Any, **kwargs: Any) -> int:
+        raise httpx.ConnectError("no connection")
+
+    monkeypatch.setattr(load_fhir, "post_batches", no_connection)
+    rep = run_ingest(cfg, "csv", _night2(tmp_path), snapshot=N2, validate=False)
+    assert not rep.passed and lakes.lake.current() == N1
+    assert not _state(cfg)["reason"].startswith(publish_mod.UNFENCED), _state(cfg)
+    monkeypatch.setattr(load_fhir, "post_batches", real)
+    publish_mod.recover_all(cfg)
+    assert stub.held() == _hashes(snapshot_dir(cfg.lake_dir, N1)) and _clean_at(cfg, N1)
+
+
 def test_a_put_back_request_without_an_answer_in_time_is_refused_by_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub: Stub
 ) -> None:

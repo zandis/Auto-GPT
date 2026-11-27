@@ -31,7 +31,6 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
-from lake.store import SnapshotBuilding
 from pydantic import BaseModel, Field
 from tb_common import ids
 from tb_common import service_auth as sa
@@ -242,6 +241,8 @@ def run(req: IngestRequest) -> JSONResponse:
                 gate.release()
                 state.update(end)
             return
+        from lake.store import SnapshotBuilding
+
         try:
             report = run_ingest(
                 ac,
