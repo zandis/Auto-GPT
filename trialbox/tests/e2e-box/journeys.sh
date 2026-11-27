@@ -4,8 +4,9 @@
 # unblocks failed on the box as installed, so the failure is in the results first.
 PW=$HERE/pw.sh
 FEED=/var/tmp/feed
-SRC=/opt/trialbox/deploy/site/sample
-MAP=/opt/trialbox/deploy/site/mapping/tw_core/box_site.yaml
+SRC=/srv/his-export # the site's feed folder (data_source_host_dir of the kit's answers, run.sh put_kit)
+MAPREL=$(answer mapping)
+MAP=/opt/trialbox/deploy/site/$MAPREL
 
 j_accounts() { # the IT/admin journey: the first administrator, one account per role, the second-person rule
   local J=ROLE-admin spec u rc
@@ -26,7 +27,7 @@ j_accounts() { # the IT/admin journey: the first administrator, one account per 
 }
 
 mapcheck() {
-  vm "sudo docker run --rm --network none --user 0:0 -v /opt/trialbox/deploy/site/mapping:/app/deploy/site/mapping:ro -v $FEED:/export:ro trialbox-py:1.0.0 python tools/mapping_check.py --mapping deploy/site/mapping/tw_core/box_site.yaml --source csv --path /export > /tmp/mc.txt 2>&1; rc=\$?; tail -n 4 /tmp/mc.txt; exit \$rc"
+  vm "sudo docker run --rm --network none --user 0:0 -v /opt/trialbox/deploy/site/mapping:/app/deploy/site/mapping:ro -v $FEED:/export:ro trialbox-py:1.0.0 python tools/mapping_check.py --mapping deploy/site/$MAPREL --source csv --path /export > /tmp/mc.txt 2>&1; rc=\$?; tail -n 4 /tmp/mc.txt; exit \$rc"
 }
 declare_tables() { # P-09: the demo_his tables of the synthetic feed, declared in the site mapping
   vm "sudo cp -n $MAP $MAP.e2e-orig && sudo tee -a $MAP > /dev/null" << 'YY'
@@ -105,11 +106,29 @@ unpublished() { # P-03: a night that did not pass left nothing in the clinical s
 }
 oomed() { vm "sudo docker inspect -f '{{.State.OOMKilled}} {{.RestartCount}}' trialbox-adapter-1; sudo dmesg | grep -c 'Memory cgroup out of memory' || true"; }
 
+rc1_production() { # PASS when this release's rc1 table refuses none of what the journeys need on a PRODUCTION box
+  vm 'cd /opt/trialbox && sudo python3 -' << 'PY'
+import sys
+sys.path.insert(0, 'libs')
+from tb_common import rc1_refusals as r
+bad = [n for n in ('live_patient_lists', 'key_ceremonies') if r.refused(n, {'TB_ENV': 'PRODUCTION'})]
+print('refused on PRODUCTION:', ', '.join(bad) or 'none')
+sys.exit(1 if bad else 0)
+PY
+}
+to_validation() { envset TB_ENV VALIDATION && vm "$DC up -d --wait 2>&1 | tail -n 3"; }
+j_rc1() { # a PRODUCTION box this release refuses the night's backup key, the held-night accept and SCREEN on (rc1):
+  # the refusal is a row first; the rest of the run then goes on as VALIDATION, same host profile and models
+  if ! step OPS-rc1 "rc1 on PRODUCTION refuses no live patient list and no key ceremony" rc1_production; then
+    deviate env-validation "TB_ENV=VALIDATION, the stack re-created (site host profile and models kept): this release's rc1 table refuses the backup key, the held-night accept and SCREEN on PRODUCTION" to_validation
+  fi
+}
+
 j_nights() { # the patient data flow at the declared size: full, delta, cut (with and without totals), shrunken
   local J=DATA-night d1 d2 d3 d4 d5
   d1=$(day -6) d2=$(day -5) d3=$(day -4) d4=$(day -3) d5=$(day -2) # one date per night (identity: -1, disk full: 0)
   if ! step $J "mapping check of the installed site mapping (runbook 01 step 4)" mapcheck; then
-    deviate P09-mapping "the feed's 13 tables declared in the site mapping (the installed box_site.yaml maps none)" declare_tables
+    deviate P09-mapping "the feed's 13 tables declared in the site mapping (the installed $(basename "$MAP") failed its check)" declare_tables
     step $J "mapping check after declaring the tables" mapcheck
   fi
   step $J "restart the adapter (its mapping and source mount)" vm "$DC restart adapter > /dev/null 2>&1; for i in \$(seq 1 30); do sudo docker inspect -f '{{.State.Health.Status}}' trialbox-adapter-1 | grep -q '^healthy' && break; sleep 5; done; sudo docker inspect -f '{{.State.Health.Status}}' trialbox-adapter-1"
@@ -186,23 +205,6 @@ PY
   step $J "backup status (the hourly check)" vm 'cd /opt/trialbox && sudo trialbox backup-status --json 2>&1 | tail -c 600'
 }
 
-models_to_host() { # the judge and the verifier forwarded to the host's served pair; the box's key set to the pair's
-  local cf
-  vm "sudo tee /opt/trialbox/deploy/site/modelproxy.py > /dev/null" < "$HERE/modelproxy.py"
-  vm "sudo tee /opt/trialbox/deploy/site/e2e-models.yml > /dev/null" << YY
-services:
-  llm-service: {entrypoint: ["python", "/proxy/proxy.py", "http://10.0.2.2:$E2E_JUDGE_PORT"], volumes: ["./site/modelproxy.py:/proxy/proxy.py:ro"], networks: [hostroute]}
-  llm-verifier: {entrypoint: ["python", "/proxy/proxy.py", "http://10.0.2.2:$E2E_VERIFIER_PORT"], volumes: ["./site/modelproxy.py:/proxy/proxy.py:ro"], networks: [hostroute]}
-networks:
-  hostroute: {}
-YY
-  cf=$(vm "sudo sed -n 's/^COMPOSE_FILE=//p' /opt/trialbox/deploy/.env | tail -1")
-  envset COMPOSE_FILE "${cf:+$cf:}site/e2e-models.yml"
-  # the key goes on stdin, never on a command line or in a log
-  sed -n 's/^VLLM_API_KEY=//p' "$E2E_MODELS_ENV" | vm "set -e; f=/opt/trialbox/deploy/secrets/model/vllm.env; sudo test -f \$f; k=\$(cat); [ -n \"\$k\" ]; sudo sed -i '/^VLLM_API_KEY=/d' \$f; printf 'VLLM_API_KEY=%s\n' \"\$k\" | sudo tee -a \$f > /dev/null; sudo chmod 600 \$f" || return 1
-  vm "$DC up -d --wait --force-recreate llm-service llm-verifier gateway 2>&1 | tail -n 3"
-}
-
 j_ops() { # support bundle and its synthetic-identifier check, doctor (both forms), selftest, exports, mail
   local J=OPS-support rc
   step $J "support bundle (trialbox support-bundle)" vm 'sudo rm -rf /var/tmp/sb; sudo mkdir -p /var/tmp/sb; cd /opt/trialbox && sudo trialbox support-bundle --out /var/tmp/sb 2>&1 | tail -n 3 && ls /var/tmp/sb'
@@ -237,15 +239,9 @@ PY
   else
     skip $J "doctor --strict" "this release's doctor has no --strict (G2 not built)"
   fi
-  step $J "selftest (pair canary) on the box as installed" vm 'cd /opt/trialbox && sudo timeout 900 trialbox selftest > /var/tmp/e2e-selftest.txt 2>&1; rc=$?; tail -n 5 /var/tmp/e2e-selftest.txt | cut -c1-200; exit $rc'
+  step $J "selftest (pair canary) on the box as installed: the host's real pinned pair" vm 'cd /opt/trialbox && sudo timeout 900 trialbox selftest > /var/tmp/e2e-selftest.txt 2>&1; rc=$?; tail -n 5 /var/tmp/e2e-selftest.txt | cut -c1-200; exit $rc'
   vm 'sudo cat /var/tmp/e2e-selftest.txt' > "$EV/selftest-installed.txt" 2>&1
-  if [ -n "${E2E_MODELS_ENV:-}" ]; then
-    deviate models "COMPOSE_FILE += site/e2e-models.yml (modelproxy.py), vllm.env: the judge and the verifier forwarded to the host's served pair, the box's model key set to the pair's" models_to_host
-    step $J "selftest (pair canary) on the served pair" vm 'cd /opt/trialbox && sudo timeout 900 trialbox selftest > /var/tmp/e2e-selftest.txt 2>&1; rc=$?; tail -n 5 /var/tmp/e2e-selftest.txt | cut -c1-200; exit $rc'
-    vm 'sudo cat /var/tmp/e2e-selftest.txt' > "$EV/selftest.txt" 2>&1
-  else
-    skip $J "served models" "no host model pair given (E2E_MODELS_ENV): the box keeps its stand-ins"
-  fi
+  step $J "no answer came from a stand-in (selftest and doctor name none)" vm '! sudo grep -iE "answered by the rehearsal stand-in|REHEARSAL BOX" /var/tmp/e2e-selftest.txt /var/tmp/e2e-doctor.txt /var/tmp/e2e-doctor-env.txt'
   J=OPS-exports
   step $J "export ledger (trialbox exports)" vm 'cd /opt/trialbox && sudo trialbox exports 2>&1 | tail -n 8'
   step $J "mail outbox status (trialbox mail status)" vm 'cd /opt/trialbox && sudo trialbox mail status 2>&1 | tail -n 8'

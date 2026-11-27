@@ -29,6 +29,7 @@ def _load(name: str) -> ModuleType:
 ptyi = _load("ptyinstall")
 verdict = _load("verdict")
 actions = _load("actions")
+proxy = _load("modelproxy")
 
 
 def test_the_one_time_password_and_code_never_reach_the_transcript() -> None:
@@ -70,6 +71,16 @@ def test_the_passphrase_is_typed_but_never_shown_and_the_size_is_declared() -> N
     assert ptyi.answer("Type it again:", "pass-synthetic", "50000", True) == ("pass-synthetic", False)
     assert ptyi.answer("Type YES to confirm:", "pass-synthetic", "50000") == ("", True)  # not after a passphrase prompt
     assert ptyi.answer("How many patients does the hospital hold?", "x", "50000") == ("50000", True)
+
+
+def test_the_model_forward_takes_a_v1_call_only_with_the_box_s_own_key(tmp_path: Path) -> None:
+    assert proxy.allowed("/v1/chat/completions", "Bearer box-key", "box-key")
+    assert not proxy.allowed("/v1/chat/completions", "Bearer other", "box-key")
+    assert not proxy.allowed("/v1/models", "", "box-key")
+    assert not proxy.allowed("/v1/models", "Bearer ", "")  # a box with no key opens nothing
+    assert proxy.allowed("/health", "", "box-key")
+    (tmp_path / "hostkey").write_text("VLLM_API_KEY=host-synthetic\n")
+    assert proxy.host_key(str(tmp_path / "hostkey")) == "host-synthetic"
 
 
 def test_every_planned_action_has_a_row_and_a_lost_session_never_passes(

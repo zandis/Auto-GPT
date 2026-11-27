@@ -1,10 +1,11 @@
 #!/bin/bash
-# bundle.sh ID SEQ OUTDIR : the signed rehearsal bundle of a checkout's trialbox/ folder (TREE, default this one), as the
-# integration builds make it:
+# bundle.sh ID SEQ OUTDIR : the signed bundle of a checkout's trialbox/ folder (TREE, default this one), as the
+# integration builds make it (not a rehearsal bundle: the gate installs it as PRODUCTION with the real models):
 # the images built fresh, the release gates on them, make_bundle with the vendor key. Writes OUTDIR/trialbox-ID.tar,
 # the signed bootstrap beside it and vendor_ed25519.pub. Needs VENDOR_KEY (the signing key, never printed), MODELS_DIR
 # and REFDATA (a refdata tar); JAVA_HOME, mvn and docker on PATH. The images go to docker's own disk (about 25 GB at
-# the peak), the tar (about 60 GB) to OUTDIR.
+# the peak), the tar (about 60 GB) to OUTDIR. The bundler stages about 62 GB under TMPDIR: default a folder in /dev/shm,
+# never a host's shared /.
 set -u
 ID=${1:?bundle id, e.g. int-685faed0-p}
 SEQ=${2:?release seq}
@@ -13,6 +14,8 @@ T=$(cd "${TREE:-$(dirname "$0")/../..}" && pwd)
 cd "$T" || exit 2
 : "${VENDOR_KEY:?}" "${MODELS_DIR:?}" "${REFDATA:?}"
 mkdir -p "$OUTDIR"
+export TMPDIR=${TMPDIR_BUNDLE:-/dev/shm/e2e-box/tmp}
+mkdir -p "$TMPDIR" && chmod 0700 "$TMPDIR"
 L=$OUTDIR/build-$ID.log
 : > "$L"
 s=$(date +%s)
@@ -32,6 +35,6 @@ for i in "${imgs[@]}"; do
   docker image inspect "$i" > /dev/null 2>&1 || docker pull -q "$i" >> "$L" 2>&1 || fail "pull $i"
   case "$i" in trialbox-backup:*) ia+=(--job-image "$i") ;; *) ia+=(--image "$i") ;; esac
 done
-make release-bundle SC_LOCAL_IMAGES=1 SC_IMAGES="${imgs[*]}" BUNDLE_ARGS="--rehearsal --key $VENDOR_KEY --id $ID --release-seq $SEQ --out $OUTDIR/trialbox-$ID.tar --models $MODELS_DIR --refdata $REFDATA ${ia[*]}" >> "$L" 2>&1 || fail release-bundle
+make release-bundle SC_LOCAL_IMAGES=1 SC_IMAGES="${imgs[*]}" BUNDLE_ARGS="--key $VENDOR_KEY --id $ID --release-seq $SEQ --out $OUTDIR/trialbox-$ID.tar --models $MODELS_DIR --refdata $REFDATA ${ia[*]}" >> "$L" 2>&1 || fail release-bundle
 openssl pkey -in "$VENDOR_KEY" -pubout -out "$OUTDIR/vendor_ed25519.pub" 2>> "$L" || fail "public key"
 echo "bundle: $OUTDIR/trialbox-$ID.tar $(stat -c %s "$OUTDIR/trialbox-$ID.tar") bytes in $(($(date +%s) - s)) s" | tee -a "$L"

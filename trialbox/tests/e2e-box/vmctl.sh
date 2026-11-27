@@ -72,7 +72,7 @@ YY
       -drive "if=none,id=d1,format=raw,media=cdrom,readonly=on,file=$D/seed.iso" -device virtio-blk-pci,drive=d1 \
       -drive "if=none,id=d2,format=raw,readonly=on,cache=none,aio=io_uring,file=$(cat "$D/media")" -device virtio-blk-pci,drive=d2 \
       -drive "if=none,id=d3,format=raw,file=$D/docker.raw,cache=unsafe,aio=threads" -device virtio-blk-pci,drive=d3,iothread=io1 \
-      -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$base-:22,hostfwd=tcp:127.0.0.1:$((base + 1))-:443" -device virtio-net-pci,netdev=n0 \
+      -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$base-:22,hostfwd=tcp:127.0.0.1:$((base + 1))-:443${E2E_FWD:-}" -device virtio-net-pci,netdev=n0 \
       -device virtio-rng-pci -device pcie-root-port,id=hp1,chassis=9,slot=9
     echo "started $name pid $(cat "$D/pid")"
     ;;

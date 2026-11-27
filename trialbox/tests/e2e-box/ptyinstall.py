@@ -3,7 +3,8 @@
     ptyinstall.py BUNDLE PASSPHRASE_FILE PATIENTS        (root, in the VM; the media mounted at /media/usb)
 
 The site's size is declared the documented way (``TB_SITE_PATIENTS``, read by the installer's memory sizing) and
-given to any question about the number of patients. The transcript goes to /var/tmp/install.log and the prompts to
+given to any question about the number of patients. The box is installed as PRODUCTION from the site kit at
+/root/site (answers, mapping/, host-models.yml). The transcript goes to /var/tmp/install.log and the prompts to
 /var/tmp/prompts.txt, both 0600. The installer shows the first administrator's password and enrolment code once on
 the terminal: they are cut out of every line written (``<redacted>``) and kept only in /root/e2e-first-admin.json
 (0600), which the harness takes and removes. The exit status is the installer's.
@@ -75,10 +76,16 @@ def main(bundle: str, passphrase_file: str, patients: str) -> int:
         raise SystemExit(f"not a bundle file name: {bundle!r}")
     with open(passphrase_file, encoding="utf-8") as fh:
         passphrase = fh.read().strip()
-    env = {**os.environ, "TB_HOST_PROFILE": "poc", "TB_INSTALL_UP_TIMEOUT": "900", "TB_SITE_PATIENTS": str(int(patients)),
-           "TB_COMPOSE_OVERRIDE": "/opt/trialbox/tools/rehearse_box/standins.yml"}  # fmt: skip
-    argv = ["bash", "trialbox-bootstrap.sh", bundle, "--pub", "/root/vendor_ed25519.pub", "--", "--tier", "large", "--ctgov",
-            "offline", "--rehearsal"]  # fmt: skip
+    # PRODUCTION on the site host profile (no poc, no stand-ins): the runbook 01 command with the site kit at /root/site,
+    # its answers, mapping/ beside them and its own compose override, which forwards the box's two model servers to the
+    # host's served pinned pair (host-models.yml). No TPM in a VM: the installer's own instruction for such a host
+    # (TB_KEK_BACKEND=passphrase and the passphrase file), so the passphrase is never typed into the transcript.
+    env = {k: v for k, v in os.environ.items() if k not in ("TB_HOST_PROFILE", "TB_REHEARSAL")}
+    env.update({"TB_INSTALL_UP_TIMEOUT": "900", "TB_SITE_PATIENTS": str(int(patients)),
+                "TB_COMPOSE_OVERRIDE": "/root/site/host-models.yml", "TB_KEK_BACKEND": "passphrase"})  # fmt: skip
+    argv = ["bash", "trialbox-bootstrap.sh", bundle, "--pub", "/root/vendor_ed25519.pub", "--", "--tier", "large",
+            "--answers", "/root/site/site.yaml", "--environment", "PRODUCTION",
+            "--kek-passphrase-file", passphrase_file, "--keep-kek-passphrase-file"]  # fmt: skip
     pid, fd = pty.fork()
     if pid == 0:
         os.chdir("/media/usb")

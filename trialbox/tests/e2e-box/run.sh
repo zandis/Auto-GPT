@@ -3,10 +3,11 @@
 # answered at a terminal and the site's size declared, a synthetic hospital of that size, then every journey as a
 # script (one row per step, metrics every 20 s), and the verdict (verdict.py). See README.md.
 #   BUNDLE=/path/trialbox-<id>.tar [SIZE=50000] tests/e2e-box/run.sh
-# Beside the bundle: trialbox-bootstrap.sh, its .sig and vendor_ed25519.pub (or VENDOR_PUB). Optional: NEXT_IMG (the
-# next bundle's media, for the update journey), E2E_MODELS_ENV with E2E_JUDGE_PORT/E2E_VERIFIER_PORT (the host's
-# served pair), E2E_REDCAP_URL with E2E_REDCAP_TOKEN_FILE (the REDCap bench), BASELINE (the last run's journeys.csv),
-# KNOWN (default known.tsv), KEEP=1 (leave the VM running). Exit 0 only on a GREEN verdict.
+# Beside the bundle: trialbox-bootstrap.sh, its .sig and vendor_ed25519.pub (or VENDOR_PUB). Required: E2E_MODELS_ENV
+# with E2E_JUDGE_PORT/E2E_VERIFIER_PORT (the host's served pinned pair: the box is PRODUCTION and never runs on the
+# rehearsal stand-ins). Optional: NEXT_IMG (the next bundle's media, for the update journey), E2E_REDCAP_URL with
+# E2E_REDCAP_TOKEN_FILE (the REDCap bench), BASELINE (the last run's journeys.csv), KNOWN (default known.tsv), KEEP=1
+# (leave the VM running). Exit 0 only on a GREEN verdict.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
@@ -32,8 +33,8 @@ mkdir -p "$OUT" && chmod 0700 "$OUT"
 exec 9> "$E2E_VMS/$NAME.lock"
 flock -n 9 || { echo "another run holds $NAME" >&2; exit 2; }
 [ ! -e "$E2E_VMS/$NAME" ] || { echo "$E2E_VMS/$NAME exists: another VM of that name; nothing was changed" >&2; exit 2; }
-if [ -n "${E2E_MODELS_ENV:-}" ] && ! [[ ${E2E_JUDGE_PORT:-} =~ ^[0-9]+$ && ${E2E_VERIFIER_PORT:-} =~ ^[0-9]+$ && -s $E2E_MODELS_ENV ]]; then
-  echo "E2E_MODELS_ENV needs a readable key file and E2E_JUDGE_PORT, E2E_VERIFIER_PORT" >&2
+if ! [[ -s ${E2E_MODELS_ENV:-} && ${E2E_JUDGE_PORT:-} =~ ^[0-9]+$ && ${E2E_VERIFIER_PORT:-} =~ ^[0-9]+$ ]]; then
+  echo "the host's served pinned pair is required (E2E_MODELS_ENV key file, E2E_JUDGE_PORT, E2E_VERIFIER_PORT): the gate never runs on stand-ins" >&2
   exit 2
 fi
 # shellcheck source=lib.sh
@@ -64,7 +65,43 @@ make_feed() { # the synthetic hospital at the declared size (tools/make_fixtures
   (cd "$d/site-a" && tar -czf "$E2E_VMS/$NAME-feed.tgz" ./*.csv) && "$CTL" put "$NAME" "$E2E_VMS/$NAME-feed.tgz" /tmp/feed.tgz
   local rc=$?
   rm -f "$E2E_VMS/$NAME-feed.tgz"
-  [ $rc = 0 ] && vm "sudo rm -rf $FEED && sudo mkdir -p $FEED && sudo tar -xzf /tmp/feed.tgz -C $FEED && rm -f /tmp/feed.tgz && ls $FEED | wc -l"
+  [ $rc = 0 ] && vm "sudo rm -rf $FEED && sudo mkdir -p $FEED && sudo tar -xzf /tmp/feed.tgz -C $FEED && rm -f /tmp/feed.tgz &&
+    sudo mkdir -p $SRC && sudo cp -a $FEED/. $SRC/ && sudo chmod -R a+rX $SRC && ls $SRC | wc -l"
+}
+put_kit() { # the site kit at /root/site (runbook 01 "What the site brings"): the synthetic hospital A's answers with the
+  # feed folder $SRC and its mapping/, the host baseline, the site's model override with the host pair's ports, the
+  # forwarder and the pair's key (root only)
+  local k=$E2E_VMS/$NAME-kit rc
+  rm -rf "$k" "$k.tgz"
+  mkdir -p "$k"
+  sed "s#^data_source_host_dir: .*#data_source_host_dir: $SRC#" "$REPO/tools/rehearse_box/site_answers.yaml" > "$k/site.yaml"
+  grep -qx "data_source_host_dir: $SRC" "$k/site.yaml" || return 1
+  cp -r "$REPO/tools/rehearse_box/mapping" "$k/mapping" &&
+    sed -e "s/@JUDGE_PORT@/$E2E_JUDGE_PORT/" -e "s/@VERIFIER_PORT@/$E2E_VERIFIER_PORT/" "$HERE/site/host-models.yml" > "$k/host-models.yml" &&
+    cp "$HERE/site/hardening.conf" "$HERE/modelproxy.py" "$k/" &&
+    tar -czf "$k.tgz" -C "$k" . && "$CTL" put "$NAME" "$k.tgz" /tmp/kit.tgz && "$CTL" put "$NAME" "$E2E_MODELS_ENV" /tmp/hostkey
+  rc=$?
+  rm -rf "$k" "$k.tgz"
+  [ $rc = 0 ] || return 1
+  vm 'sudo bash -s' << 'SH'
+set -e
+mkdir -p /root/site && tar -xzf /tmp/kit.tgz -C /root/site && rm -f /tmp/kit.tgz
+install -m 0600 /tmp/hostkey /root/site/hostkey && rm -f /tmp/hostkey
+chown -R root:root /root/site && chmod 0644 /root/site/site.yaml /root/site/host-models.yml /root/site/modelproxy.py
+find /root/site -type f | sort | tr '\n' ' '
+SH
+}
+install_once() { # the runbook 01 command (ptyinstall.py answers at the terminal); the refusal lines, if any, as detail
+  vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; echo rc=\$rc prompts=\$(sudo grep -c '^PROMPT:' /var/tmp/prompts.txt); sudo grep -iE 'refus|stop|not qualified' /var/tmp/install.log | tail -n 4 | cut -c1-200; exit \$rc"
+}
+site_needs() { # what a PRODUCTION install refused without, as a site sets it (deploy/.env, deploy/site/hardening.conf)
+  # and the box's egress table for the two model servers' forward (EGRESS_EXTRA, then the product's network.sh apply)
+  envset TB_AUDIT_ANCHOR_TARGETS /srv/e2e-anchor && envset TB_BACKUP_TARGETS /srv/e2e-share &&
+    envset TB_LOG_DIR /var/log/trialbox-e2e && envset TB_BACKUP_ALERT_ROUTE health-page &&
+    envset EGRESS_EXTRA "llm-service=10.0.2.2:$E2E_JUDGE_PORT,llm-verifier=10.0.2.2:$E2E_VERIFIER_PORT" &&
+    vm 'sudo mkdir -p /srv/e2e-anchor /srv/e2e-share /var/log/trialbox-e2e && sudo chmod a+rx /srv/e2e-anchor &&
+      sudo install -m 0644 /root/site/hardening.conf /opt/trialbox/deploy/site/hardening.conf &&
+      cd /opt/trialbox && sudo deploy/network.sh apply --env deploy/.env 2>&1 | tail -n 3'
 }
 feed_picks() { # MRN for CASE, MRN for the opt-out, and the doctor with the most patients under the 20,000 death-check cap
   python3 - "$E2E_HOME/feed-$SIZE/site-a" << 'PY'
@@ -80,7 +117,8 @@ print(mrns[2], mrns[4], fit[-1][1])
 PY
 }
 vm_up() { "$CTL" new "$NAME" "$PORTBASE" "$MEDIA" "${VCPU:-24}" "${VMEM:-96G}" && "$CTL" start "$NAME"; }
-prepare() { # as hospital IT leaves the machine: the zone, swap off, the vendor key, the stick at /media/usb, the GPU stand-in
+prepare() { # as hospital IT leaves the machine: the zone, swap off, the vendor key, the stick at /media/usb, the GPU
+  # driver shim (no card in a VM; the models are the host's, host-models.yml)
   vm "sudo bash -s $SITE_TZ" << 'SH'
 set -e
 timedatectl set-timezone "$1"; echo "$1" > /etc/timezone; swapoff -a; sed -i '/ swap /d' /etc/fstab
@@ -185,9 +223,14 @@ step $J "vm ready: ssh, cloud-init done, docker active" waitfor 120 vm 'test -f 
 "$CTL" put "$NAME" "$REPO/tools/rehearse_box/shims/nvidia-smi" /tmp/nvidia-smi
 "$CTL" put "$NAME" "$VENDOR_PUB" /tmp/vendor_ed25519.pub
 step $J "zone, swap off, vendor key, the stick at /media/usb (as IT leaves it)" prepare
+step $J "site kit at /root/site (answers, mapping, host baseline, model override, the pair's key)" put_kit
+step $J "synthetic hospital of $SIZE patients in the feed folder (tools/make_fixtures.py)" make_feed
 step $J "bootstrap signature verifies (runbook first command)" vm 'cd /media/usb && sudo openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig'
-step $J "one-command install, the questions answered at a terminal ($SIZE patients declared)" vm "sudo python3 /tmp/ptyinstall.py trialbox-$ID.tar /root/e2e-kek.pass $SIZE > /dev/null 2>&1; rc=\$?; echo rc=\$rc prompts=\$(sudo grep -c '^PROMPT:' /var/tmp/prompts.txt); exit \$rc"
-rec $J "run conditions (as the VM matrix installs): TB_HOST_PROFILE=poc, rehearsal stand-ins, --tier large, --rehearsal, GPU stand-in, $SIZE patients declared" PASS 0 "bundle $ID"
+if ! step $J "one-command PRODUCTION install, the questions answered at a terminal ($SIZE patients declared)" install_once; then
+  deviate site-needs "TB_AUDIT_ANCHOR_TARGETS, TB_BACKUP_TARGETS, TB_LOG_DIR, TB_BACKUP_ALERT_ROUTE=health-page, hardening.conf, EGRESS_EXTRA += llm-service/llm-verifier -> the host pair, deploy/network.sh apply (the install refused; runbook 01 names none of them)" site_needs
+  step $J "one-command PRODUCTION install again, the same command after the site's settings" install_once
+fi
+rec $J "run conditions: TB_ENV=PRODUCTION, site host profile, the host's real pinned pair through the site's override (no stand-in), --tier large, GPU driver shim, $SIZE patients declared" PASS 0 "bundle $ID"
 (
   umask 077
   vm 'sudo cat /var/tmp/prompts.txt' > "$EV/install-prompts.txt" 2>&1
@@ -199,13 +242,13 @@ step $J "all box containers healthy" waitfor 60 healthy
 step $J "host check: exit 0 and no FAIL line" vm 'cd /opt/trialbox && sudo deploy/check_host.sh > /var/tmp/check_host.txt 2>&1; rc=$?; n=$(grep -c "^FAIL" /var/tmp/check_host.txt); echo "rc=$rc fail_lines=$n"; grep "^FAIL" /var/tmp/check_host.txt | cut -c1-150; [ $rc = 0 ] && [ "$n" = 0 ]'
 step $J "installed tree = release host list" vm 'cd /opt/trialbox && sudo python3 -m tools.host_tree status --base /opt/trialbox'
 snapshot > "$M/config-installed.txt" 2> /dev/null
-step $J "synthetic hospital of $SIZE patients on the box (tools/make_fixtures.py)" make_feed
 sampler > /dev/null 2>&1 &
 SAMPLER=$!
 
-if grep -q ",INSTALL,one-command install.*,PASS," "$STEPS"; then
+if grep -q ",INSTALL,all box containers healthy,PASS," "$STEPS"; then # an install that ended non-zero stays a FAIL row
   read -r MRN OPTMRN DOCTOR <<< "$(feed_picks)"
   j_accounts
+  j_rc1
   j_nights
   j_data_extra
   j_ops

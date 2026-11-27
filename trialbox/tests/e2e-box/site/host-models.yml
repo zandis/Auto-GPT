@@ -1,0 +1,18 @@
+# e2e-box test VM only: the site's own compose override (TB_COMPOSE_OVERRIDE). There is no GPU in the VM, so the box's
+# two model servers forward to the host's served pinned pair on card 0 (modelproxy.py). Not the rehearsal stand-in:
+# the answers are the real models'. run.sh fills in the two host ports and puts this file, modelproxy.py and the host
+# servers' key (hostkey, root only) in /root/site.
+services:
+  llm-service:
+    entrypoint: ["python3", "/proxy.py", "http://10.0.2.2:@JUDGE_PORT@"]
+    volumes: ["/root/site/modelproxy.py:/proxy.py:ro", "/root/site/hostkey:/hostkey:ro"]
+    deploy: !reset {}
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}, hostroute: {}}
+  llm-verifier:
+    entrypoint: ["python3", "/proxy.py", "http://10.0.2.2:@VERIFIER_PORT@"]
+    volumes: ["/root/site/modelproxy.py:/proxy.py:ro", "/root/site/hostkey:/hostkey:ro"]
+    deploy: !reset {}
+    networks: {model-backend-net: {aliases: [llm-verifier-vllm]}, hostroute: {}}
+
+networks:
+  hostroute: {}

@@ -68,7 +68,8 @@ envset() { # KEY VALUE : set one line of the box's deploy/.env (site configurati
 }
 answer() { sed -n "s/^$1: *['\"]\{0,1\}\([A-Za-z0-9_+\/.-]*\).*/\1/p" "$HERE/../../tools/rehearse_box/site_answers.yaml" | head -1; }
 SITE_TZ=$(answer tz)
-export SITE_TZ
+TB_HOSTNAME=${TB_HOSTNAME:-$(answer tls_hostname)} # the console answers only to its TLS name (pw.sh)
+export SITE_TZ TB_HOSTNAME
 today() { vm 'date +%F'; }
 day() { vm "date -d '$1 days' +%F"; } # day -4 : four days before the box's today
 pw() { "$HERE/pw.sh" "$@"; }         # a browser driver under pw/ (Playwright in its container)
