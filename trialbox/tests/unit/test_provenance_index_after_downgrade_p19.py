@@ -42,7 +42,7 @@ from tools import pglocal
 TZ = "Asia/Taipei"
 PID_A = "0ca5381cfa6bdf1c22961d65579f93b3"
 PID_B = "1afe78d42518132b113c5858cedcbb54"
-PID_C = "2b7e151628aed2a6abf7158809cf4f3c"
+PID_C = "7f3e9a1c5b2d48e6a0c4f81b39d76e25"
 _N = itertools.count()
 #: the journal's columns as the drain reads them (``audit_writer.JOURNAL_SQL`` without its roles and grants)
 JOURNAL = """CREATE SCHEMA audit;
