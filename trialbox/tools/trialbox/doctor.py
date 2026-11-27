@@ -2475,8 +2475,6 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
         )
     from tb_common.audit_writer import _dsn, _psycopg
 
-    from tools.trialbox.provenance import _erased
-
     try:
         con = _psycopg().connect(_dsn(url), autocommit=True, connect_timeout=10)
     except Exception as exc:
@@ -2486,7 +2484,7 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
             why = ("not installed: the role script creates provenance.model_calls and provenance.model_uses (D-989 "
                    "step 2c); until then the chain is written without the index")  # fmt: skip
             return Check("provenance_index", "WARN", why)
-        diff = idx.check(con, Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")), _erased(url))
+        diff = idx.check(con, Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")))
     finally:
         con.close()
     if not diff.ok:

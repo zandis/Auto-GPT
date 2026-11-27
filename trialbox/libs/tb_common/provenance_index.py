@@ -14,8 +14,15 @@ compare the index with the chain line by line. The chain is the one source of tr
 tables again from it, :func:`check` diffs them (the doctor runs it), and when the two disagree the chain wins.
 
 Erasure (D-989 point 5): at an opt-out the ``model_uses`` rows naming the patient are deleted (:func:`erase`); the
-chain keeps its events, as every other audit event does. :func:`rebuild` and :func:`check` skip the pseudonyms the
-register holds, so an erased row is neither written back nor reported missing.
+chain keeps its events, as every other audit event does. The opt-out register (``optout.optout_events``) is the one
+authority on what stays out, asked inside the database on every write (P-19): a trigger withholds a use row the
+register withholds, whoever inserts it (the drain, :func:`catch_up`, :func:`rebuild`, a hand-run SQL), and
+:func:`sweep` deletes the ones a restore put back. :func:`check` asks the same function, so an erased row is neither
+written back nor reported missing.
+
+The repair obligation after a restore, a downgrade or a failed write lives in ``<audit dir>/PROVENANCE_STATE``
+(:func:`read_state`, :func:`write_state`), the one store the restore does not roll back; :func:`search` refuses
+while it is not ``clean``.
 
 A connection here is a psycopg connection (``con.execute(sql, args)``), as the drain holds.
 """
@@ -23,8 +30,10 @@ A connection here is a psycopg connection (``con.execute(sql, args)``), as the d
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable, Iterator
+import os
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +75,61 @@ CREATE TABLE IF NOT EXISTS model_uses (
 CREATE INDEX IF NOT EXISTS model_uses_call ON model_uses (call_id);
 CREATE INDEX IF NOT EXISTS model_uses_pid ON model_uses (pid);
 RESET search_path;
+-- P-19: the opt-out register (optout.optout_events) is the one authority on which use rows stay out, asked inside
+-- the database on every insert. The role script gives the three functions to provenance_keeper, the one role that
+-- may read the register here, and grants EXECUTE (D-997's grants live there, as the tables' owner does).
+-- A use row of time p_at is withheld while the patient's opt-out is in force, and when its event is not after the
+-- latest lift (rows erased before a lift stay erased; a back-dated row falls on the withheld side). No register
+-- table yet: nobody has opted out (tb_common.optout.opted_out reads it the same way)
+CREATE OR REPLACE FUNCTION provenance.withheld(p_pid text, p_at timestamptz) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+DECLARE
+  last_action text;
+BEGIN
+  IF p_pid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                                  WHERE n.nspname = 'optout' AND c.relname = 'optout_events') THEN
+    RETURN false;
+  END IF;
+  SELECT e.action INTO last_action FROM optout.optout_events e WHERE e.pid = p_pid ORDER BY e.at DESC, e.id DESC
+    LIMIT 1;
+  IF last_action IS NULL THEN
+    RETURN false;
+  END IF;
+  RETURN last_action = 'opt_out' OR coalesce(p_at <= (SELECT max(e.at)::timestamptz FROM optout.optout_events e
+                                                       WHERE e.pid = p_pid AND e.action = 'lift'), true);
+END
+$fn$;
+-- the lock (apart from audit.append's 211394) orders an insert against the console's opt-out transaction
+CREATE OR REPLACE FUNCTION provenance.withhold() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+BEGIN
+  PERFORM pg_advisory_xact_lock(211989);
+  IF NEW.pid IS NOT NULL AND provenance.withheld(NEW.pid, NEW.at) THEN
+    RETURN NULL;
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+CREATE OR REPLACE TRIGGER model_uses_withhold BEFORE INSERT ON provenance.model_uses
+  FOR EACH ROW EXECUTE FUNCTION provenance.withhold();
+-- what pg_restore loaded before the trigger existed, and what slipped in before a register row committed
+CREATE OR REPLACE FUNCTION provenance.sweep() RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+DECLARE
+  n integer := 0;
+BEGIN
+  PERFORM pg_advisory_xact_lock(211989);
+  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'optout' AND c.relname = 'optout_events') THEN
+    DELETE FROM provenance.model_uses u
+      WHERE u.pid IN (SELECT e.pid FROM optout.optout_events e) AND provenance.withheld(u.pid, u.at);
+    GET DIAGNOSTICS n = ROW_COUNT;
+  END IF;
+  RETURN n;
+END
+$fn$;
+REVOKE ALL ON FUNCTION provenance.withheld(text, timestamptz), provenance.withhold(), provenance.sweep()
+  FROM PUBLIC;
 """
 TABLES = ("provenance.model_calls", "provenance.model_uses")
 #: each table's statements written out whole (no SQL is built from a name)
@@ -89,6 +153,39 @@ _SEARCH = (
     "ORDER BY u.at DESC LIMIT %(limit)s"
 )
 _EVENT = {USED: "used", CONFIRMED: "confirmed"}
+#: P-19: the repair obligation, a file in the audit directory (the one store a restore does not put back), written
+#: by the drain alone
+STATE = "PROVENANCE_STATE"
+CLEAN, REQUIRED, REPAIRING = "clean", "repair-required", "repairing"
+
+
+class ProvenanceUnderRepair(RuntimeError):
+    """The index is being put back after a restore: it may still hold rows the register withholds."""
+
+
+def read_state(directory: Path) -> dict[str, Any]:
+    """The repair obligation; a missing file is owed (an upgraded box repairs once)."""
+    try:
+        return dict(json.loads((directory / STATE).read_text(encoding="utf-8")))
+    except (FileNotFoundError, ValueError):
+        return {"state": REQUIRED, "reason": "start", "attempts": 0}
+
+
+def write_state(directory: Path, **fields: Any) -> None:
+    """Replace the marker whole: a temporary file, fsync, rename, fsync the directory."""
+    # ponytail: same body as P03's _write_state; lift both into tb_common when the second copy lands
+    body = {"version": 1, **fields, "updated_at": datetime.now(UTC).isoformat(timespec="seconds")}
+    tmp = directory / f".{STATE}.tmp"
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(body, fh, sort_keys=True)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, directory / STATE)
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 @dataclass(frozen=True)
@@ -172,75 +269,69 @@ def chain_records(directory: Path) -> Iterator[dict[str, Any]]:
 
 
 def installed(con: Any) -> bool:
-    """Whether both tables exist (the role script creates them; until then the drain writes no index)."""
-    return all(con.execute("SELECT to_regclass(%s)", (t,)).fetchone()[0] is not None for t in TABLES)
+    """Whether both tables exist and the register's trigger is on them (the role script creates them; until then
+    the drain writes no index, and never one the register does not filter)."""
+    return all(con.execute("SELECT to_regclass(%s)", (t,)).fetchone()[0] is not None for t in TABLES) and (
+        con.execute("SELECT tgrelid FROM pg_trigger WHERE tgname = 'model_uses_withhold'").fetchone() is not None
+    )
 
 
-def add(con: Any, rec: dict[str, Any], erased: Callable[[str], bool] = lambda _pid: False) -> int:
-    """Write one chain record's rows (a line already indexed is a no-op); the number of rows the record gives."""
+def add(con: Any, rec: dict[str, Any]) -> int:
+    """Write one chain record's rows (a line already indexed is a no-op); the number of rows the record gives. The
+    line's rows are written whole or not at all, so a line hash in the index means the whole line is there (P-19);
+    the register's trigger withholds an opted-out patient's use rows."""
     calls, uses = rows_of(rec)
-    for c in calls:
-        con.execute(
-            "INSERT INTO provenance.model_calls (rec_hash, call_id, model, build_sha, prompt_id, prompt_version, "
-            "prompt_sha, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (c.rec_hash, c.call_id, c.model, c.build_sha, c.prompt_id, c.prompt_version, c.prompt_sha, c.at),
-        )
-    for u in uses:
-        if u.pid and erased(u.pid):
-            continue
-        con.execute(
-            "INSERT INTO provenance.model_uses (rec_hash, call_id, event, record_kind, record_ref, pid, decision, "
-            "by_whom, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (u.rec_hash, u.call_id, u.event, u.record_kind, u.record_ref, u.pid, u.decision, u.by_whom, u.at),
-        )
+    if not calls and not uses:
+        return 0
+    with con.transaction():
+        for c in calls:
+            con.execute(
+                "INSERT INTO provenance.model_calls (rec_hash, call_id, model, build_sha, prompt_id, prompt_version, "
+                "prompt_sha, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                (c.rec_hash, c.call_id, c.model, c.build_sha, c.prompt_id, c.prompt_version, c.prompt_sha, c.at),
+            )
+        for u in uses:
+            con.execute(
+                "INSERT INTO provenance.model_uses (rec_hash, call_id, event, record_kind, record_ref, pid, decision, "
+                "by_whom, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                (u.rec_hash, u.call_id, u.event, u.record_kind, u.record_ref, u.pid, u.decision, u.by_whom, u.at),
+            )
     return len(calls) + len(uses)
 
 
-#: the console's record of an opt-out: the pseudonym under ``detail`` (``services/console/team.py``). The chain keeps
-#: it when a downgrade puts the register back to a point before it (P19-04)
+def sweep(con: Any) -> int:
+    """Delete every use row the register withholds (a restore's, or one written before a register row committed);
+    the rows deleted."""
+    return int(con.execute("SELECT provenance.sweep()").fetchone()[0])
+
+
+#: the console's record of an opt-out (``services/console/team.py``): after a batch that drained one the drain
+#: sweeps, by then the register row that came before the journal row is committed
 OPT_OUT = "console.opt_out"
-#: the drain's record that it found the database put back to an older point (``audit_writer.Drain.open``)
-RESYNC = "audit.journal_resync"
 
 
 def catch_up(con: Any, directory: Path) -> int:
-    """P-19: write the rows of the chain's lines that the database lost when it was put back to an older point (an
-    update's downgrade or rollback, a restore); the rows the lines give. A line written twice is a no-op.
-
-    The lost lines are the ones after the newest line the index still holds and before the chain's last
-    ``audit.journal_resync``: the index is written in chain order, and lines after the resync are written as they
-    are drained. So neither the journal's times nor a row journaled before the dump and drained after it can move
-    the point (review P19-R2, R3, R5), and a catch-up cut part way is done again from where it stopped (R4).
-
-    A patient's use rows are not written when the chain holds an opt-out of the patient (R1): the register went back
-    with the database and the drain's role cannot read it anyway. Lines older than that point are never written
-    here: their rows are in the index, or were taken out at an opt-out, and only ``trialbox provenance --rebuild``
-    reads the register that says which."""
-    have = {str(r[0]) for t in TABLES for r in con.execute(_KEYS[t]).fetchall()}  # ponytail: in memory, as check()
-    todo: list[dict[str, Any]] = []
-    lost: list[dict[str, Any]] = []
-    gone: set[str] = set()
+    """P-19: write the rows of every row-bearing chain line the index does not hold (a restore, a downgrade, a write
+    that failed); the rows the lines give. A line written twice is a no-op and the register's trigger withholds
+    what it must, so it is safe at every start and a retry finds every hole, old and new (review P19-D3, D4)."""
+    # ponytail: whole-chain diff; a day-file lower bound from the marker when the chain is years long
+    have = {str(r[0]) for t in TABLES for r in con.execute(_KEYS[t]).fetchall()}
+    n = 0
     for rec in chain_records(directory):
-        event, detail = rec.get("event"), rec.get("detail")
-        if event == OPT_OUT and isinstance(detail, dict) and detail.get("action") == "opt_out" and detail.get("pid"):
-            # ponytail: a later lift is not read; the row stays out and the check names it until a rebuild
-            gone.add(str(detail["pid"]))
-        if event == RESYNC:
-            lost = list(todo)
-        elif str(rec.get("hash") or "") in have:
-            todo = []
-        elif any(rows_of(rec)):
-            todo.append(rec)
-    return sum(add(con, rec, gone.__contains__) for rec in lost)
+        if str(rec.get("hash") or "") in have:
+            continue
+        if any(rows_of(rec)):
+            n += add(con, rec)
+    return n
 
 
-def rebuild(con: Any, directory: Path, erased: Iterable[str] = ()) -> tuple[int, int]:
+def rebuild(con: Any, directory: Path) -> tuple[int, int]:
     """Empty both tables and write them again from the chain; (calls, uses) written. Opted-out patients stay out."""
-    gone = frozenset(erased)
     con.execute("DELETE FROM provenance.model_uses")
     con.execute("DELETE FROM provenance.model_calls")
     for rec in chain_records(directory):
-        add(con, rec, gone.__contains__)
+        add(con, rec)
+    sweep(con)
     return _count(con, "provenance.model_calls"), _count(con, "provenance.model_uses")
 
 
@@ -260,14 +351,25 @@ class Diff:
         return not self.missing and not self.extra
 
 
-def check(con: Any, directory: Path, erased: Iterable[str] = ()) -> Diff:
-    """The index against the chain, row for row (an opted-out patient's use rows are expected gone)."""
-    gone = frozenset(erased)
+def check(con: Any, directory: Path) -> Diff:
+    """The index against the chain, row for row (a use row the register withholds is expected gone: the same
+    function the trigger asks, so the doctor and the writer agree)."""
     want: dict[str, set[tuple[str, str]]] = {t: set() for t in TABLES}
+    every: list[Use] = []
     for rec in chain_records(directory):
         calls, uses = rows_of(rec)
         want["provenance.model_calls"] |= {(c.rec_hash, c.call_id) for c in calls}
-        want["provenance.model_uses"] |= {(u.rec_hash, u.call_id) for u in uses if not (u.pid and u.pid in gone)}
+        every += uses
+    asked = sorted({(u.pid, u.at) for u in every if u.pid})
+    gone: set[tuple[str | None, str]] = set()
+    if asked:
+        got = con.execute(
+            "SELECT i FROM unnest(%s::text[], %s::timestamptz[]) WITH ORDINALITY AS t(pid, at, i) "
+            "WHERE provenance.withheld(pid, at)",
+            ([p for p, _ in asked], [a for _, a in asked]),
+        ).fetchall()
+        gone = {asked[int(r[0]) - 1] for r in got}
+    want["provenance.model_uses"] |= {(u.rec_hash, u.call_id) for u in every if (u.pid, u.at) not in gone}
     out = Diff()
     for t in TABLES:
         have = {(str(a), str(b)) for a, b in con.execute(_KEYS[t]).fetchall()}
@@ -277,7 +379,9 @@ def check(con: Any, directory: Path, erased: Iterable[str] = ()) -> Diff:
 
 
 def erase(con: Any, pids: Iterable[str]) -> int:
-    """D-989 point 5: delete the use rows naming these patients (the chain keeps its events). Rows deleted."""
+    """D-989 point 5: delete the use rows naming these patients (the chain keeps its events). Rows deleted. The
+    register is the authority (its trigger and :func:`sweep`); this is the console's immediate removal, in its
+    opt-out transaction under the trigger's lock 211989."""
     got = sorted(set(pids))
     if not got:
         return 0
@@ -294,9 +398,15 @@ def search(
     prompt_id: str | None = None,
     prompt_version: str | None = None,
     limit: int = 1000,
+    directory: Path | None = None,
 ) -> list[dict[str, Any]]:
     """The records the calls matching every given filter touched, newest first: one indexed join. At least one
-    filter is required (an unfiltered search would list every record a model ever touched)."""
+    filter is required (an unfiltered search would list every record a model ever touched). ``directory`` (the
+    audit directory): refused while the repair obligation there is not ``clean`` (P-19)."""
+    if directory is not None and read_state(directory).get("state") != CLEAN:
+        raise ProvenanceUnderRepair(
+            "the provenance index is being put back after a restore; try again when the audit writer reports it clean"
+        )
     filters = {"model": model, "build_sha": build_sha, "prompt_sha": prompt_sha, "prompt_id": prompt_id,
                "prompt_version": prompt_version}  # fmt: skip
     if not any(filters.values()):

@@ -28,21 +28,6 @@ def _connect(url: str) -> Any:
     return _psycopg().connect(_dsn(url), autocommit=True, connect_timeout=10)
 
 
-def _erased(url: str) -> frozenset[str]:
-    """The pseudonyms opted out now, read through the decision context as every caller outside a job reads them."""
-    from orchestrator.decision_context import register_now
-
-    before = os.environ.get("TB_DB_URL")
-    os.environ["TB_DB_URL"] = url
-    try:
-        return register_now()
-    finally:
-        if before is None:
-            os.environ.pop("TB_DB_URL", None)
-        else:
-            os.environ["TB_DB_URL"] = before
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     from tb_common import provenance_index as idx
 
@@ -85,13 +70,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(f"{r['at']}  {r['record_kind']:<9} {ref}  {r['event']}{how}  call {r['call_id']}")
                 print(f"{len(rows)} record(s)")
             return 0
-        erased = _erased(a.db_url)
         audit = Path(a.audit_dir)
         if a.rebuild:
-            calls, uses = idx.rebuild(con, audit, erased)
+            calls, uses = idx.rebuild(con, audit)
             print(f"provenance index rebuilt from {audit}: {calls} call(s), {uses} use(s)")
             return 0
-        diff = idx.check(con, audit, erased)
+        diff = idx.check(con, audit)
         if diff.ok:
             print("provenance index: equal to the chain")
             return 0

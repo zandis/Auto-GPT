@@ -11,7 +11,7 @@
    "claim": "after a downgrade or rollback restored the database, the drain recorded the journal resync but never wrote back the index rows of the lines drained since the rollback point, so they stayed missing until a rebuild by hand",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed"
   },
   {
    "id": "P19-02",
@@ -19,7 +19,7 @@
    "claim": "the drain decided once at its start whether the index was installed, so tables made by the role script on a running box were not written until the drain restarted",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed"
   },
   {
    "id": "P19-03",
