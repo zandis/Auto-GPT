@@ -1666,18 +1666,18 @@ def test_a_lake_restored_behind_the_generation_ledger_is_refused(tmp_path: Path,
         (cfg.lake_dir / "FHIR_STATE").write_bytes(intent)
         sent = len(stub.log())
         for _ in range(2):
-            with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_BEHIND):
+            with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_MISMATCH):
                 publish_mod.recover_all(cfg)
         st = _state(cfg)
-        assert st["verified"] is False and st["reason"].startswith(publish_mod.LAKE_BEHIND) and st["want"] == N1
+        assert st["verified"] is False and st["reason"].startswith(publish_mod.LAKE_MISMATCH) and st["want"] == N1
         assert stub.held() == held and len(stub.log()) == sent and _generation() == (N2, "finished")
         lakes.calls.clear()
-        with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_BEHIND):
+        with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_MISMATCH):
             run_ingest(cfg, "csv", _night(tmp_path, "n3", [_row("D3", "2026-09-03")], ["10000001"]), snapshot=N3,
                        validate=False)  # fmt: skip
         assert lakes.calls == [] and lakes.lake.current() == N1 and len(stub.log()) == sent
         gate = _gate(cfg)
-        assert gate.status == "FAIL" and publish_mod.LAKE_BEHIND in gate.detail, gate
+        assert gate.status == "FAIL" and publish_mod.LAKE_MISMATCH in gate.detail, gate
 
 
 def test_a_lake_restored_ahead_of_the_generation_ledger_is_refused(tmp_path: Path, stub: Stub) -> None:
@@ -1701,17 +1701,17 @@ def test_a_lake_restored_ahead_of_the_generation_ledger_is_refused(tmp_path: Pat
         assert _generation() == (night, "finished" if finished else "building")
         assert publish_mod.derive(cfg).clean  # the lake's own files alone say clean
         sent = len(stub.log())
-        with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_BEHIND):
+        with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_MISMATCH):
             publish_mod.recover_all(cfg)
         st = _state(cfg)
-        assert st["verified"] is False and st["reason"].startswith(publish_mod.LAKE_BEHIND) and st["want"] == N2
+        assert st["verified"] is False and st["reason"].startswith(publish_mod.LAKE_MISMATCH) and st["want"] == N2
         lakes.calls.clear()
-        with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_BEHIND):
+        with pytest.raises(publish_mod.FhirRestoreOutstanding, match=publish_mod.LAKE_MISMATCH):
             run_ingest(cfg, "csv", _night(tmp_path, "n3", [_row("D3", "2026-09-03")], ["10000001"]), snapshot=N3,
                        validate=False)  # fmt: skip
         assert lakes.calls == [] and lakes.lake.current() == N2 and len(stub.log()) == sent
         gate = _gate(cfg)
-        assert gate.status == "FAIL" and publish_mod.LAKE_BEHIND in gate.detail, gate
+        assert gate.status == "FAIL" and publish_mod.LAKE_MISMATCH in gate.detail, gate
 
 
 def _killed_with_a_transaction_out(tmp_path: Path, cfg: Any, mp: pytest.MonkeyPatch) -> None:

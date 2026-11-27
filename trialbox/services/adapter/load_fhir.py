@@ -225,10 +225,10 @@ def finish_load(name: str, ledger: Path, ids: dict[str, set[str]]) -> None:
         raise LedgerError(f"the generation ledger did not answer ({type(exc).__name__})") from exc
 
 
-def finished_after(name: str) -> str | None:
-    """The night the generation ledger has the FHIR store's load finished from, when it is newer than ``name`` (""
-    for no night); None when it is not, or there is no trial database to ask. A ledger that does not answer raises
-    :class:`LedgerError` (E2E P-03, review G2: a lake restored behind the trial database)."""
+def fhir_generation() -> tuple[str, bool] | None:
+    """The generation ledger's FHIR row: ``(night, finished)``; None when it has none, or there is no trial database
+    to ask. A ledger that does not answer raises :class:`LedgerError` (E2E P-03, review G2: the lake and the trial
+    database restored to different points)."""
     if not os.environ.get("TB_DB_URL"):
         return None
     from tb_common.generation import FINISHED
@@ -240,9 +240,7 @@ def finished_after(name: str) -> str | None:
             st = book.state("fhir")
     except Exception as exc:
         raise LedgerError(f"the generation ledger did not answer ({type(exc).__name__})") from exc
-    if st is None or st[1] != FINISHED or st[0].snapshot <= name:
-        return None
-    return st[0].snapshot
+    return None if st is None else (st[0].snapshot, st[1] == FINISHED)
 
 
 def upgrade_put_back(name: str) -> None:

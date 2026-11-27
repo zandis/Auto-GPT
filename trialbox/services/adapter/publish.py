@@ -34,7 +34,7 @@ is clean again only once a put-back was checked against the store (:func:`settle
 published (:class:`FhirRestoreOutstanding`). The FHIR store and the lake are published together or not at all
 (:func:`refuse_split`). Two owed states are never put back by the box itself, only refused by name until a person
 acts (the known limitations): a store transaction that may still commit after its loader is gone (:data:`UNFENCED`)
-and a lake restored behind the trial database's generation ledger (:data:`LAKE_BEHIND`).
+and a lake restored to another point than the trial database's generation ledger (:data:`LAKE_MISMATCH`).
 
 **What the lake serves is read, not remembered.** ``Published.promoted`` is ``CURRENT == night`` on every way out,
 so a publish that failed after the promotion (the pid map's step, an answer of the lake that was lost) never says
@@ -80,8 +80,8 @@ from tb_contracts import RebuildResult
 
 from adapter.load_fhir import (
     LedgerError,
+    fhir_generation,
     finish_load,
-    finished_after,
     snapshot_ids,
     sync_snapshot,
     upgrade_put_back,
@@ -105,7 +105,7 @@ FHIR_LOCK = "fhir.lock"  # beside CURRENT: held across every FHIR write and ever
 FHIR_BUSY_ERROR = "fhir store busy: another publish or recovery holds it (nothing was written)"
 # the two refusals that only a person ends (E2E P-03 known limitations; ``tools/trialbox/doctor.py`` fails by them)
 UNFENCED = "fhir_write_unfenced"  # review H4: a store transaction may still commit after its loader is gone
-LAKE_BEHIND = "lake_behind_generation_ledger"  # review G2: the lake restored to another point than the trial database
+LAKE_MISMATCH = "lake_generation_mismatch"  # review G2: the lake restored to another point than the trial database
 _PROCESS_START = datetime.now(UTC).isoformat(timespec="seconds")  # diagnostic only (FHIR_STATE ``by``)
 
 
@@ -518,8 +518,8 @@ def restore(cfg: AdapterConfig, reason: str = "") -> None:
     a box that never had a store publishes its lake alone: :func:`refuse_split`). The caller holds ``fhir.lock``.
 
     Two states are refused by name and never put back, until a person acts (the known limitations): a store
-    transaction that may still commit (:data:`UNFENCED`, review H4) and a lake behind the generation ledger
-    (:data:`LAKE_BEHIND`, review G2). A box without ``FHIR_STATE`` whose generation ledger has a newer night
+    transaction that may still commit (:data:`UNFENCED`, review H4) and a lake at another point than the generation
+    ledger (:data:`LAKE_MISMATCH`, review G2). A box without ``FHIR_STATE`` whose generation ledger has a newer night
     finished (the loader before this record finished at its last resource) takes the ledger back to the served
     night first (review H5: :func:`load_fhir.upgrade_put_back`)."""
     from lake.store import building
@@ -527,7 +527,7 @@ def restore(cfg: AdapterConfig, reason: str = "") -> None:
     if not cfg.fhir_base_url:
         return
     d = derive(cfg)
-    _refuse_behind(cfg, d)
+    _refuse_other_point(cfg, d)
     if d.clean:
         return
     unfenced = _unfenced(cfg, d.intent, reason)
@@ -539,7 +539,7 @@ def restore(cfg: AdapterConfig, reason: str = "") -> None:
             d = derive(cfg)  # CURRENT read again under the build's lock: the build may have promoted before it
         served, intent = d.served, _back_to(d, reason or d.reason)
         try:
-            if d.intent.get("upgrade") and served and finished_after(served):
+            if d.intent.get("upgrade") and served and _newer_finished(served):
                 upgrade_put_back(served)  # before W2: until W2 is on disk the box still reads as an upgrade
             intent = _write_intent(cfg, intent)  # W2, before the put-back's first store write
             target = snapshot_dir(cfg.lake_dir, served) if served else _empty_night(cfg)
@@ -570,24 +570,41 @@ def _back_to(d: Derived, reason: str) -> dict[str, Any]:
             "undoing": prior["want"] if moved and prior["want"] else prior.get("undoing", "")}  # fmt: skip
 
 
-def _refuse_behind(cfg: AdapterConfig, d: Derived) -> None:
-    """Review G2 (detect and refuse): on a box with this version's ``FHIR_STATE``, the generation ledger has the
-    FHIR store finished at a night newer than the one the lake serves. Only ``settle`` finishes a load, after the
-    lake served it, so the lake was restored to another point than the trial database (with its ``FHIR_STATE`` or
-    without): the store is owed by :data:`LAKE_BEHIND` and nothing is put back (the owner decides which point
-    stands). A ledger that does not answer refuses too, the intent untouched. Nothing to ask without a trial
-    database."""
+def _newer_finished(served: str | None) -> str:
+    """The night the generation ledger has the FHIR store finished at when it is newer than ``served`` ("")."""
+    row = fhir_generation()
+    return row[0] if row is not None and row[1] and row[0] > (served or "") else ""
+
+
+def _refuse_other_point(cfg: AdapterConfig, d: Derived) -> None:
+    """Review G2 (detect and refuse): on a box with this version's ``FHIR_STATE``, only ``settle`` finishes a load in
+    the generation ledger, after the lake served it and right before the intent says ``verified``. So the ledger has
+    a newer night finished than the lake serves (the lake restored behind the trial database, its ``FHIR_STATE``
+    with it or not), or the intent says the served night was checked and the ledger does not have that night
+    finished (the lake restored ahead of it: ``trialbox backup`` dumps the databases, the FHIR store's included,
+    before it copies the lake): the lake and the trial database are at different points. The store is owed by
+    :data:`LAKE_MISMATCH` and nothing is put back (the owner decides which point stands). A ledger that does not
+    answer refuses too, the intent untouched. Nothing to ask without a trial database, or a ledger without a FHIR
+    row."""
     if d.intent.get("upgrade") or not (cfg.lake_dir / FHIR_STATE).is_file():
         return
     try:
-        newer = finished_after(d.served or "")
+        row = fhir_generation()
     except LedgerError as exc:
         raise FhirRestoreOutstanding(f"fhir_restore_outstanding: {exc}; nothing is published until it answers") from exc
-    if newer:
-        why = (f"{LAKE_BEHIND}: the generation ledger has the FHIR store finished at {newer}, the lake serves "
-               f"{d.served or 'nothing'} (the lake was restored to another point than the trial database: a known "
-               "limitation, the owner decides)")  # fmt: skip
-        raise _still_owed(cfg, _back_to(d, why), why)
+    if row is None:
+        return
+    night, finished = row
+    if finished and night > (d.served or ""):
+        why = f"the generation ledger has the FHIR store finished at {night}, the lake serves {d.served or 'nothing'}"
+    elif d.clean and d.served and row != (d.served, True):
+        why = (f"the lake says the store was checked for {d.served}, the generation ledger has it "
+               f"{'finished' if finished else 'building'} at {night}")  # fmt: skip
+    else:
+        return
+    why = (f"{LAKE_MISMATCH}: {why} (the lake was restored to another point than the trial database: a known "
+           "limitation, the owner decides)")  # fmt: skip
+    raise _still_owed(cfg, _back_to(d, why), why)
 
 
 def _unfenced_words(night: str) -> str:

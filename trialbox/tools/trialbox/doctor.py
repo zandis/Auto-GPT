@@ -29,7 +29,7 @@ closed). Checks:
   PRODUCTION and VALIDATION, WARN elsewhere;
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known; FAIL while
   the FHIR store is refused by one of its two named known limitations (E2E P-03: ``fhir_write_unfenced``,
-  ``lake_behind_generation_ledger`` in ``<lake>/FHIR_STATE``), which only a person ends;
+  ``lake_generation_mismatch`` in ``<lake>/FHIR_STATE``), which only a person ends;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
   or ``LLM_VERIFIER_BASE_URL``) and ``TB_SCREEN_JUDGE`` other than ``single``; otherwise the box runs single-model
   and SCREEN falls back to ``never`` (a note answer may send a patient to review, never out: D-97). WARN in
@@ -700,14 +700,14 @@ def check_publish_gate(inp: DoctorInputs) -> Check:
 
 def _fhir_refused(lake: Path) -> str:
     """E2E P-03: the reason in the FHIR store's intent (``<lake>/FHIR_STATE``, ``adapter.publish``) when it is one
-    of the two refusals only a person ends (``UNFENCED``, ``LAKE_BEHIND`` there); "" otherwise. Read as a file:
+    of the two refusals only a person ends (``UNFENCED``, ``LAKE_MISMATCH`` there); "" otherwise. Read as a file:
     the doctor runs where the adapter's code is not."""
     try:
         st = json.loads((lake / "FHIR_STATE").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return ""  # none, or one the next recovery puts back by itself
     why = str(st.get("reason") or "") if isinstance(st, dict) and st.get("verified") is False else ""
-    return why if why.startswith(("fhir_write_unfenced:", "lake_behind_generation_ledger:")) else ""
+    return why if why.startswith(("fhir_write_unfenced:", "lake_generation_mismatch:")) else ""
 
 
 def _override(inp: DoctorInputs) -> Path:
