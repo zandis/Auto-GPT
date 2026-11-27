@@ -1,4 +1,4 @@
-# The database's access model and posture
+# 14. The database's access model and posture
 
 The box runs one PostgreSQL server (`db` in `deploy/docker-compose.yml`). This page states who may reach it, how, and
 what is recorded. It answers finding P2-06 of the 2026-11-27 audit and items D3/D4 of its assessment addendum, as the

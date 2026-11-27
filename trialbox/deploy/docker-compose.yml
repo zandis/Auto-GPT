@@ -105,7 +105,7 @@ services:
       # P2-06 (D3/D4): the access file and its peer map (deploy/docker/pg_hba.conf: no trust), the socket 0770, TLS,
       # and a log line per connection and per disconnection (who and from where; never a statement or a value).
       # pgaudit is not in the image (D-204's extensions are pgvector and PGroonga): the application's audit chain
-      # stays the record of what was read and changed (docs/security/db-access-model.md).
+      # stays the record of what was read and changed (docs/security/14-db-access-model.md).
       - -c
       - hba_file=/etc/trialbox/pg/pg_hba.conf
       - -c

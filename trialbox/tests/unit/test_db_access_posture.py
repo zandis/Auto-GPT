@@ -14,6 +14,7 @@ box starts with (no Docker here; the start itself was run on the db image, see t
 from __future__ import annotations
 
 import re
+from typing import Any
 
 import pytest
 
@@ -21,7 +22,7 @@ from tests.unit.test_compose_limits import BASE, DEPLOY, _merge
 from tests.unit.test_container_hardening import HARDENING_STACKS
 
 DOCKER = DEPLOY / "docker"
-DOC = DEPLOY.parent / "docs" / "security" / "db-access-model.md"
+DOC = DEPLOY.parent / "docs" / "security" / "14-db-access-model.md"
 
 
 def _rules(name: str) -> list[list[str]]:
@@ -29,7 +30,7 @@ def _rules(name: str) -> list[list[str]]:
     return [x.split() for x in lines if x.strip() and not x.lstrip().startswith("#")]
 
 
-def _settings(db: dict) -> dict[str, str]:
+def _settings(db: dict[str, Any]) -> dict[str, str]:
     cmd = [str(x) for x in db["command"]]
     return dict(cmd[i + 1].split("=", 1) for i, x in enumerate(cmd) if x == "-c")
 
