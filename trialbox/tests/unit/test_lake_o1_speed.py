@@ -129,6 +129,26 @@ def test_the_coded_values_come_back_in_one_order_whatever_the_rows_order() -> No
     assert [repr(r) for r in after] == [repr(r) for r in before]
 
 
+ARROW = r"""
+import lake.store  # noqa: F401  the lake's start: pandas is marked absent
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+# what the lake's rebuild and the readers of its results do with Arrow after the mark
+t = pa.Table.from_pylist([{"pid": "p1", "n": 1}], schema=pa.schema([("pid", pa.string()), ("n", pa.int64())]))
+assert pa.array(["a", None]).to_pylist() == ["a", None] and pa.Table.from_pydict({"a": [1]}).num_rows == 1
+print(t.num_rows, t.to_pylist()[0]["pid"])
+"""
+
+
+def test_arrow_still_converts_python_values_once_pandas_is_marked_absent() -> None:
+    """The first form of the stop-gap, ``sys.modules["pandas"] = None`` alone, made ``pa.Table.from_pylist`` fail on
+    ``None.__version__`` (pyarrow's pandas shim): the lake's rebuild and every golden died on it."""
+    env = {**os.environ, "PYTHONPATH": "libs:services:."}
+    out = subprocess.run([sys.executable, "-c", ARROW], check=False, cwd=ROOT, env=env, capture_output=True, text=True)
+    assert out.returncode == 0 and out.stdout.split() == ["1", "p1"], out.stderr[-600:]
+
+
 # a fresh interpreter, as in the lake image (no pandas); the best of three binds of 100,000 pids after the lake starts
 BIND = r"""
 import time

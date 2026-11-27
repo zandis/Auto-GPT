@@ -47,5 +47,5 @@ def test_a_pid_list_parameter_never_looks_for_pandas_once_the_lake_has_started()
     env = {**os.environ, "PYTHONPATH": "libs:services:."}
     out = subprocess.run([sys.executable, "-c", PROBE], cwd=ROOT, env=env, capture_output=True, text=True, check=True)
     at_start, during = (int(x) for x in out.stdout.split())
-    assert at_start <= 1, out.stdout  # one look when the lake starts
+    assert at_start <= 2, out.stdout  # the lake starts with pyarrow's own two looks (it must see pandas absent first)
     assert during == 0, f"{during} looks for pandas while binding 5,000 pids (two per element before the stop-gap)"
