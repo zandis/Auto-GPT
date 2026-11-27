@@ -2012,7 +2012,12 @@
         "index",
         "event",
         "screening",
-        "randomization"
+        "randomization",
+        "enrollment",
+        "consent",
+        "first_dose",
+        "last_dose",
+        "end_of_study"
        ],
        "type": "string"
       },

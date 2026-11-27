@@ -33,8 +33,8 @@ from typing import Any, Literal
 
 from tb_common.derived import COMPONENTS, DEFAULT_WINDOW_DAYS
 from tb_contracts import Atom, BoolExpr, CriterionIR
+from tb_contracts.criterion_ir import STUDY_ANCHORS, CriterionIRv3, NotV1Expressible, downgrade_to_v1, upgrade_v1
 from tb_contracts.criterion_ir import Atom as Atom3
-from tb_contracts.criterion_ir import CriterionIRv3, NotV1Expressible, downgrade_to_v1, upgrade_v1
 
 UNBOUNDED_PAST = "1900-01-01"
 #: the evidence token of a ``value.ref`` comparison that has no bound: the result carries no reference range of its
@@ -127,16 +127,35 @@ class SiteRefRanges:
         return sorted(got, key=lambda rb: rb[0].sex is None)  # stable: the table's order within each group
 
 
+MAX_WINDOW_DAYS = 3650  # OPT-1 W3 (iv)
+MAX_WINDOW_HOURS = 72
+
+
 def window(atom: Atom) -> Window:
     if atom.derived and atom.window is None:
         return Window(-DEFAULT_WINDOW_DAYS[atom.derived], 0)
     if atom.window is None:
         return Window(None, 0)
     if atom.window.anchor not in (None, "index"):
-        raise CompileError("window anchor 'event' is not supported in v1.0 (use index-relative windows)")
+        raise CompileError(
+            f"window anchor {atom.window.anchor!r} is not supported in v1.0 (use index-relative windows)"
+        )
     to_days = 0 if atom.window.to_days is None else atom.window.to_days
     if atom.window.from_days is not None and atom.window.from_days > to_days:
         raise CompileError(f"empty window [{atom.window.from_days}, {to_days}]")
+    # OPT-1 W3 (iv): a window of more than ten years is a unit slip ("5 years" read as days, a lifetime as 99999)
+    reach = max(abs(x) for x in (atom.window.from_days, to_days) if x is not None)
+    if reach > MAX_WINDOW_DAYS:
+        raise CompileError(f"window of {reach} days is over {MAX_WINDOW_DAYS} (ten years); a person reads it")
+    # OPT-1 W3 (v): one length said twice, as the window and as the duration ("stable for 3 months" given both
+    # -90..0 and 90 days); a course of N days inside a longer window is the medication duration (module doc)
+    if (
+        atom.duration is not None
+        and atom.duration.min_days is not None
+        and atom.window.from_days is not None
+        and to_days - atom.window.from_days == atom.duration.min_days
+    ):
+        raise CompileError("the same length is a window and a duration; a time limit is a window, a duration a length")
     return Window(atom.window.from_days, to_days)
 
 
@@ -251,7 +270,11 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
         if a.attribute or a.change or a.aggregate or a.lot or a.diagnosis_role:
             raise CompileError(f"atom {a.id}: unsupported v3 qualifier")
         if a.window and a.window.unit == "h":
+            if max(abs(x) for x in (a.window.from_days, a.window.to_days, 0) if x is not None) > MAX_WINDOW_HOURS:
+                raise CompileError(f"atom {a.id}: a window of more than {MAX_WINDOW_HOURS} hours; is it days?")
             raise CompileError(f"atom {a.id}: a window counted in hours is not compiled")
+        if a.window and a.window.anchor in STUDY_ANCHORS:
+            raise CompileError(f"atom {a.id}: window anchor {a.window.anchor!r} is not compiled; a person reads it")
         data = a.model_dump(exclude_none=True)
         data.pop("on_hit", None)
         if "window" in data:

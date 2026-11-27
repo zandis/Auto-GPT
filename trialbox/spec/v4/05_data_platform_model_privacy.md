@@ -800,7 +800,7 @@ IR 3.0.0 is a strict superset of IR 2.0.0 (v3 §5.2). Every IR 2 field and seman
 | `domain` | IR 2 domains plus `line_of_therapy`, `registry`, `specimen`, `genomic` | `genomic` atoms read `condition_attribute` rows with `biomarker:` paths (HGVS or local codes); no genomic file ingest in v4 |
 | `attribute` on **any** domain | `path`, `op`, `codes`/`num`, `source_priority[]`, `conflict: highest_priority | most_recent | any_pass | all_pass`, `max_age_days` | Sources are tried in priority order. The first source with a value in the window decides under `highest_priority`. Every value read is logged as evidence with `resolved_from`. No value in any source → `unknown` (data gap). A lower-priority value that contradicts a higher one is reported as a conflict in the candidate. Source kinds: `registry`, `structured_pathology`, `structured_form`, `report_span` (structured extraction from reports, §10), `note` (S3 question). |
 | `value.ref` | `{"kind": "uln | lln", "multiple": 2.5}` | Compared with the observation's own reference range (`Observation.referenceRange`, OBX-7). If it is absent, the versioned site default table is used. If neither exists → `unknown`. |
-| `window.anchor` | `index | event | screening | randomization` | See §6.2.4 |
+| `window.anchor` | `index | event | screening | randomization | enrollment | consent | first_dose | last_dose | end_of_study` | See §6.2.4 |
 | `derived` | `{"calc": "<calc_id>@<semver>", "op", "num", "inputs_window_days"}` | Pinned calculator version (§6.2.3). Any missing input → `unknown`. Comparisons are unrounded (v1 D-17). |
 
 #### 6.2.2 Line of therapy (regimen model)
@@ -844,6 +844,7 @@ Calculators live in `libs/tb_common/calculators/` (one module per calculator plu
 - `index`: the run's index date (v1 rule, `run_date | month_end`).
 - `event`: per matching event of another atom (v3 rule, `event_pick: first | last | each`).
 - `screening` and `randomization`: **future** dates supplied at run time. The default is the patient's next appointment in the study clinic, plus the study's `planned_randomization_offset_days` for `randomization`. Both are recorded in the candidate.
+- `enrollment`, `consent`, `first_dose`, `last_dose`, `end_of_study` (3.x, additive): the study's own events, as a protocol writes a window ("within 30 days of the last dose"). The window rules of the extraction step read them, the model does not; they have no v1 form (`downgrade_to_v1` refuses them by name) and are not compiled yet: the compiler refuses the atom, so a person reads it.
 
 For a future anchor, the part of the window that lies in the past is evaluated on recorded data. The part that lies in the future is not observable:
 

@@ -132,7 +132,11 @@ class ConditionalValue(_Model):
     value: Value
 
 
-Anchor = Literal["index", "event", "screening", "randomization"]
+Anchor = Literal[
+    "index", "event", "screening", "randomization", "enrollment", "consent", "first_dose", "last_dose", "end_of_study"
+]
+#: the 3.x additions (OPT-1 W3): written in a protocol, not compiled yet (``semantics.one`` refuses them), no v1 form
+STUDY_ANCHORS = ("enrollment", "consent", "first_dose", "last_dose", "end_of_study")
 
 
 class Window(_Model):
@@ -571,6 +575,10 @@ def _v1_atom(a: Atom) -> dict[str, Any]:
         raise NotV1Expressible(f"atom {a.id}: value.ref has no v1 form")
     if a.window is not None:
         w = a.window.model_dump(exclude_unset=True)
+        if w.get("anchor") in STUDY_ANCHORS:
+            raise NotV1Expressible(
+                f"atom {a.id}: window anchor {w['anchor']!r} has no v1 form (v1 knows index and event)"
+            )
         if set(w) - set(_V1_WINDOW_KEYS) or w.get("anchor") not in (None, "index", "event"):
             raise NotV1Expressible(f"atom {a.id}: window {w} has no v1 form")
     out = {k: v for k, v in d.items() if k in _V1_ATOM_KEYS}
