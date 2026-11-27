@@ -435,24 +435,25 @@ def _value_as_age(n: dict[str, Any], text: str) -> dict[str, Any] | None:
     return age
 
 
-#: a look-back period a line writes ("within the last 6 months", "過去6か月", "3か月以内"): its number (whole: never the
-#: tail of "1,090") and unit; the days a unit may be read as. A line that turns the period round ("more than 3 months
-#: ago", "for at least 3 months") or negates it is never read (Codex review R1, R2)
+#: a look-back period a line writes ("within the last 6 months", "過去6か月"): its number (whole: never the tail of
+#: "1,090") and unit; the days a unit may be read as. Only a period with a word that says "back" is one: a bare "within
+#: 3 months" / "3か月以内" may as well look forward. A line that turns the period round ("more than 3 months ago", "for
+#: at least 3 months", "within 3 months after"), holds it ("for the past 3 months", "continuously", 継続) or negates
+#: it is never read (Codex review R1, R2; PR review R1, F1, F2)
 _UNIT = r"(days?|weeks?|wks?|months?|mos?|years?|yrs?)\b"
 _CJK_UNIT = r"(日|天|週|か月|ヵ月|ヶ月|カ月|個月|个月|年)"
 _LOOKBACK = (
     re.compile(
-        r"\b(?:within\s+(?:the\s+)?(?:(?:last|past|previous|preceding|prior)\s+)?|(?:in|during|over)\s+the\s+"
-        r"(?:last|past|previous|preceding|prior)\s+|(?:last|past|previous|preceding|prior)\s+)(\d+(?:\.\d+)?)\s*"
-        + _UNIT,
+        r"\b(?:last|past|previous|preceding|prior)\s+(\d+(?:\.\d+)?)\s*" + _UNIT,
         re.I,
     ),
     re.compile(r"(?:過去|最近|近)\s*(\d+)\s*" + _CJK_UNIT),
-    re.compile(r"(?<![\d.,])(\d+)\s*" + _CJK_UNIT + r"\s*(?:以内|以內|内|內)"),
 )
 _TURNED = re.compile(
     r"\bago\b|\bmore\s+than\b|\blonger\s+than\b|\bat\s+least\b|\bbefore\b|\bearlier\s+than\b|\bor\s+(?:more|longer)\b"
-    r"|以前|より前|以上|前に",
+    r"|\bafter\b|\bfollowing\b|\bsince\b|\bfrom\b|\bnext\b|\bplanned\b|\bexpected\b|\bthroughout\b|\bstable\b"
+    r"|\bcontinu(?:ous(?:ly)?|ed|ing)\b|\bconsecutive(?:ly)?\b|\bfor\s+(?:the\s+)?(?:last|past|previous|preceding|prior)\b"
+    r"|以前|より前|以上|前に|以後|以降|之後|後に|継続|繼續|继续|持續|持续|連続|連續|连续",
     re.I,
 )
 _UNIT_DAYS = (
@@ -468,8 +469,10 @@ def _duration_as_window(n: dict[str, Any], text: str) -> dict[str, Any] | None:
     ``duration: {min_days: -180}``. A duration of at most 0 days is met by everyone (D-914: ``kind`` refuses it and the
     line goes to a person); a bare window says only "relative to the index". Together they mean the window from -N to
     0, read so only when the line writes that period as a look-back one (N = a number it writes after "within", "in
-    the last", "過去" ..., times its unit's days) and has no word that turns it round or negates it. A window with
-    bounds of its own, no window, or any other line: None (D-914's refusal stands)."""
+    the last", "過去" ..., times its unit's days), writes no other such period, and has no word that turns it round,
+    holds it or negates it. A duration with any other bound (PR review F3), a window with bounds of its own, no window,
+    or any other line: None (D-914's refusal stands). The caller reads only a line whose logic is one atom: on a
+    compound line the period cannot be tied to its atom (PR review R2, F4)."""
     d, w = n.get("duration"), n.get("window")
     if (
         not isinstance(d, dict)
@@ -479,16 +482,19 @@ def _duration_as_window(n: dict[str, Any], text: str) -> dict[str, Any] | None:
     ):
         return None
     m = d.get("min_days")
-    if not isinstance(m, int) or m >= 0 or _TURNED.search(text) or _NEGATION.search(text):
+    if (
+        not isinstance(m, int)
+        or m >= 0
+        # the extract schema fills gap_days 30 into every duration: only another gap is a bound the line set
+        or {k for k, v in d.items() if v is not None and (k, v) != ("gap_days", 30)} != {"min_days"}
+        or _TURNED.search(text)
+        or _NEGATION.search(text)
+    ):
         return None
-    said = {
-        round(float(x) * k)
-        for lb in _LOOKBACK
-        for x, u in lb.findall(text)
-        for rx, days in _UNIT_DAYS
-        if rx.match(u)
-        for k in days
-    }
+    periods = [p for lb in _LOOKBACK for p in lb.findall(text)]
+    if len(periods) != 1:
+        return None
+    said = {round(float(x) * k) for x, u in periods for rx, days in _UNIT_DAYS if rx.match(u) for k in days}
     return {**w, "from_days": m, "to_days": 0} if -m in said else None
 
 
@@ -509,6 +515,11 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
       window beside a negative duration is read as the window it means (``duration_read_as_window``,
       :func:`_duration_as_window`)."""
     flags: list[str] = []
+
+    def atoms(n: Any) -> int:
+        return sum(map(atoms, n["args"] or [])) if isinstance(n, dict) and "op" in n and "args" in n else 1
+
+    one_atom = atoms(node) == 1
 
     def walk(n: Any) -> Any:
         if not isinstance(n, dict):
@@ -537,7 +548,7 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
                 out.pop("age")
                 flags.append("stray_field")
             # else the line writes it without an age word ("<36 weeks gestation"): left as it was, for D-947
-        window = _duration_as_window(out, text)
+        window = _duration_as_window(out, text) if one_atom else None
         if window is not None:
             out["window"] = window
             out.pop("duration")
