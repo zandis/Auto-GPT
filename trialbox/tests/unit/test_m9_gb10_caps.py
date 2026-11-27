@@ -24,6 +24,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -129,14 +130,14 @@ def test_doctor_judges_the_orchestrator_cap_by_the_profile_default(tmp_path: Pat
     assert caps["TB_MEM_ORCH"] is None  # the tool's own value under the profile's default: removed
 
 
-def _gb10_total_gib(profile: dict, peaks: list, n: int) -> float:
+def _gb10_total_gib(profile: dict[str, Any], peaks: list[tuple[int, dict[str, float]]], n: int) -> float:
     """Every container's cap on the Spark for a hospital of ``n`` patients (the models' limits included), plus the OS
     reserve: each measured service holds the larger of its profile limit and 1.5 x its measured peak."""
     limits = td.memory_limits(profile)
     for svc, var in {**memcaps.CAPS, memcaps.ORCH: memcaps.ORCH_VAR}.items():
         derived = math.ceil(memcaps.HEADROOM * memcaps.peak_mib(peaks, var, n)) / 1024
         limits[svc] = max(limits[svc], derived)
-    return sum(v for k, v in limits.items() if k != "link") + profile["device"]["os_reserve_gib"]
+    return sum(v for k, v in limits.items() if k != "link") + float(profile["device"]["os_reserve_gib"])
 
 
 def test_the_gb10_caps_for_its_declared_site_size_fit_its_unified_memory() -> None:
