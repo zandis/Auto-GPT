@@ -29,8 +29,9 @@ from tb_contracts import Atom, BoolExpr, CodedValue, CriterionIR, CriterionVerdi
 SHOWN = 3  # records shown per criterion: the latest first
 DOMAINS = ("observation", "condition", "medication", "procedure", "report", "encounter", "claim")
 
-# one row per record id: the record's own value, unit, date and code; $1 pids, $2 record ids, $3 to $5 the ATC, NHI
-# drug and department code systems
+# one row per record id, in a fixed order (O1: the record attach keeps for an id that two domains share does not
+# depend on the order DuckDB happens to return): the record's own value, unit, date and code; $1 pids, $2 record ids,
+# $3 to $5 the ATC, NHI drug and department code systems
 SQL = """
 SELECT 'observation' AS domain, oid AS rid, code, system, CAST(effective AS DATE) AS d, value_num, unit, value_code,
        value_cmp
@@ -55,6 +56,7 @@ FROM encounter WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND eid IN (S
 UNION ALL
 SELECT 'claim', kid, product, CAST($4 AS VARCHAR), created, NULL, NULL, NULL, NULL
 FROM claim WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND kid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
+ORDER BY domain, rid, d, code, system, value_num, unit, value_code, value_cmp
 """
 CODE_SYSTEMS = (SYSTEMS["atc"], SYSTEMS["nhi_drug"], SYSTEMS["department"])
 PATIENTS = "SELECT pid, birth_date, sex FROM patient WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[])))"

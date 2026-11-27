@@ -8,7 +8,7 @@ params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
 base AS (
   SELECT p.pid, p.birth_date, p.sex, i.index_date FROM patient p CROSS JOIN idx i
-  WHERE ((SELECT pids FROM params) IS NULL OR list_contains((SELECT pids FROM params), p.pid))
+  WHERE ((SELECT pids FROM params) IS NULL OR p.pid IN (SELECT unnest(pids) FROM params))
     AND (p.deceased_date IS NULL OR p.deceased_date > i.index_date)
     AND (p.deceased_date IS NOT NULL OR p.deceased IS NOT TRUE)
     AND (p.birth_date IS NULL OR p.birth_date <= i.index_date)),

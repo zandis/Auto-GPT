@@ -24,8 +24,11 @@ from tb_contracts import CriterionIR
 from matching.carried import DOMAINS, _atoms
 
 NO_RECORD = Reason.NO_RECORD_OF_KIND.value
-#: one query a domain, written out: the patients of a list who have any row of it
-QUERIES = {table: f"SELECT DISTINCT pid FROM {table} WHERE pid = ANY(?)" for table in DOMAINS}
+#: one query for every domain, written out (O1, CODED-PROFILE R3: seven round trips, each carrying the whole scope,
+#: became one): the patients of the list ($1) who have any row of a domain, the domain in its own column
+QUERY = "WITH scope AS (SELECT unnest(CAST($1 AS VARCHAR[])) AS pid)\n" + "\nUNION ALL\n".join(
+    f"SELECT DISTINCT '{table}' AS domain, pid FROM {table} WHERE pid IN (SELECT pid FROM scope)" for table in DOMAINS
+)
 
 
 def is_index_criterion(c: CriterionIR) -> bool:
@@ -49,10 +52,9 @@ class Recorded:
         ids = sorted(set(pids))
         out: dict[str, set[str]] = {p: set() for p in ids}
         if ids:
-            for table, sql in QUERIES.items():  # no SQL is put together from data
-                rows = lake.query(sql, [ids], snapshot).to_pylist()
-                for r in rows:
-                    out.setdefault(str(r["pid"]), set()).add(table)
+            # no SQL is put together from data
+            for r in lake.query(QUERY, [ids], snapshot).to_pylist():
+                out.setdefault(str(r["pid"]), set()).add(str(r["domain"]))
         return cls({p: frozenset(d) for p, d in out.items()}, True)
 
     @classmethod
@@ -94,4 +96,4 @@ class Recorded:
         return []
 
 
-__all__ = ["NO_RECORD", "QUERIES", "Recorded"]
+__all__ = ["NO_RECORD", "QUERY", "Recorded"]
