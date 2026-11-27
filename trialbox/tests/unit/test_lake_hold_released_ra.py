@@ -174,3 +174,49 @@ def test_a_start_that_met_a_lake_not_up_releases_the_holds_once_it_is(
         assert again.workers_alive() == (0, 0)  # the sweep is not a worker: the health line stays as it was
     finally:
         again.stop()
+
+
+def test_a_database_error_in_the_hold_sweep_keeps_the_holds_and_the_sweep_tries_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex R-A-2: the lake answers but the lookup of a holder fails: the start still goes on, every hold stays, and
+    the retry (not a dead thread) releases the ended job's hold once the database answers."""
+    monkeypatch.setattr(core, "HOLD_SWEEP_RETRY", 0.05)
+    lake_dir = _lake(tmp_path)
+
+    def scenario(ctx: Ctx) -> Outcome:
+        return Outcome(summary_md="ok")
+
+    db = JobDB()
+    orch = _orch(tmp_path, scenario, lake_dir, db)
+    ended = orch.create(JobCreate(type="FEAS", ruleset="GZQO", requested_by="scheduler"), notify=False)
+    orch.set_state(ended, "failed", error=JobError(step="running", message="killed"))
+    waiting = orch.create(JobCreate(type="FEAS", ruleset="RA-JAK", requested_by="scheduler"), notify=False)
+    for holder in (ended.job_id, waiting.job_id, "sitesetup-publish"):
+        Lake(lake_dir, TZ).hold(NIGHT, holder, pin=True)
+
+    again = _orch(tmp_path, scenario, lake_dir, db)
+    real_get, lookups, up = db.get, [0], threading.Event()
+
+    def flaky_get(job_id: str) -> Any:
+        lookups[0] += 1
+        if not up.is_set():
+            raise RuntimeError("database is locked")
+        return real_get(job_id)
+
+    monkeypatch.setattr(db, "get", flaky_get)
+    again.start()  # must not raise: the failed lookup does not stop the start
+    try:
+        deadline = time.monotonic() + 5
+        while lookups[0] < 6 and time.monotonic() < deadline:  # three holders, swept at least twice
+            time.sleep(0.01)
+        assert lookups[0] >= 6, "the sweep was not tried again after the lookup failed"
+        assert set(Lake(lake_dir, TZ).holds()) == {ended.job_id, waiting.job_id, "sitesetup-publish"}
+        up.set()
+        while ended.job_id in Lake(lake_dir, TZ).holds() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        left = Lake(lake_dir, TZ).holds()
+        assert ended.job_id not in left, "the retry did not release the ended job's hold"
+        assert set(left) == {waiting.job_id, "sitesetup-publish"}
+    finally:
+        again.stop()

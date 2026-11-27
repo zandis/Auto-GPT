@@ -770,7 +770,8 @@ class Orchestrator:
         process that died between a job's end and its release (or a failure that never reached it) left the hold,
         which blocked the night's rebuild of that snapshot for HOLD_TTL_SECONDS (14 days). A holder that is not a
         job, or a job that has not ended (it runs again and keeps its generation), keeps its hold. False: the lake
-        did not answer (the holds stay; :meth:`start` tries again, :meth:`_sweep_holds_until_read`)."""
+        did not answer, or a holder could not be looked up (the holds stay; :meth:`start` tries again,
+        :meth:`_sweep_holds_until_read`)."""
         holds = getattr(self.services.lake, "holds", None)
         if holds is None:
             return True
@@ -779,12 +780,18 @@ class Orchestrator:
         except Exception as exc:  # a lake not up yet
             log.warning("lake holds not read (%s): the ended jobs keep theirs for now", type(exc).__name__)
             return False
+        read = True
         for holder in held:
-            job = self.db.get(holder)
+            try:
+                job = self.db.get(holder)
+            except Exception as exc:  # a database error: when unsure keep the hold, and try the sweep again
+                log.warning("job %s not read (%s): its lake hold is kept for now", holder, type(exc).__name__)
+                read = False
+                continue
             if job is not None and job.state in TERMINAL:
                 log.info("job %s ended (%s): its lake hold is released", holder, job.state)
                 release_hold(self.services, holder)
-        return True
+        return read
 
     def _sweep_holds_until_read(self) -> None:
         """R-A (Codex R-A-1): the start's sweep again every HOLD_SWEEP_RETRY seconds until the lake answers, so an
