@@ -26,7 +26,7 @@ from tb_common.generation import Generation, site_today
 from tb_common.site_profile import Profile as SiteProfile
 from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
-from tb_contracts import ConnectorReport, IngestReport, RebuildResult, ValidationSummary, dump
+from tb_contracts import ConnectorReport, IngestReport, RebuildResult, StageTimes, ValidationSummary, dump
 from tb_contracts.landing import ControlTotals, Equation, Severity
 
 from adapter import governance
@@ -45,6 +45,7 @@ from adapter.ndjson import (
 )
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
+from adapter.stage_times import Stages
 from adapter.validate.validator import (
     Hl7Validator,
     Sampler,
@@ -514,7 +515,7 @@ def run_ingest(
     """One night's ingest. Any exception on the way (an unreadable source, a mapping error, a full disk) writes one
     ``ingest.failed`` audit event with the error's type, the step and the table, then propagates (T-615b, DATA-003).
     The event holds no message text: a parser's message can quote a cell."""
-    at: dict[str, str | None] = {"step": "start", "table": None}
+    at = Stages("start")  # OPT-1 §6: the stage dict, which also times each stage
     try:
         with contextlib.ExitStack() as cleanup:  # T-692: the night's spool goes, whatever happens
             return _run_ingest(
@@ -564,7 +565,7 @@ def _run_ingest(
     cfg: AdapterConfig,
     source_kind: str,
     source_path: str,
-    at: dict[str, str | None],
+    at: Stages,
     *,
     since: str | None,
     snapshot: str | None,
@@ -1189,6 +1190,9 @@ def _run_ingest(
     at["step"] = "report"
     passed = not errors
     ended = datetime.now(zone)
+    # OPT-1 §6: seconds and peak memory per stage. The report carries its own stages, so the report stage ends here:
+    # it excludes serialising and writing the report, the gate, the pruning and the ledger event
+    stages = at.summary()
     # NEW-B-20 (D-661): how long the night took, for the host's doctor (the Windows update window is placed outside
     # it). ``finished``: it ended published, the whole of a night; a held or failed night measures only its part
     from adapter import night_runs
@@ -1220,6 +1224,7 @@ def _run_ingest(
         omop=omop_load,
         fhir_unread=night.unread.result(),  # T-616: the inbound contract, what each resource carries unread
         connector=ConnectorReport.model_validate(read_times.summary(source_kind)),  # 10E-9: per message, per table
+        stages={k: StageTimes.model_validate(v) for k, v in stages.items()},  # OPT-1 §6
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
@@ -1281,6 +1286,7 @@ def _run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
+                "stages": stages,  # OPT-1 §6: seconds and peak memory per stage, as in the report
                 "publish": publish_steps,  # T-723: each publish step's state (None: the night was held at the gate)
                 "unit_defaults_applied": defaulted,
                 "site_profile": profile_said,  # 10B-6 (D-1233): id, version, digest and the coverage counts
