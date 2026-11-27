@@ -17,8 +17,8 @@ EN: dict[str, str] = {
     "request.mailbox": "The mailbox {mailbox} may not start {kind}. Ask the administrator to give your account its own "
     "mailbox, or to allow this one.",
     # E2E P-35: an investigator on no study log opens the week page: it says why and what next (status stays 403)
-    "problem.h.week.no_log": "No study log is assigned to you",
-    "week.no_log": "You are not on the delegation log of study {rs}, so its weekly list is closed to you.",
+    "problem.h.week.no_log": "No screening assignment on this study",
+    "week.no_log": "You have no screening assignment on study {rs}, so its weekly list is closed to you.",
     "problem.why.week.no_log": 'The study\'s PI adds you to the log and ticks "screen" for you. Ask the PI or the '
     "TrialBox administrator, then sign in again.",
     "week.no_log.request": "Go to the request page",
@@ -58,8 +58,8 @@ JA: dict[str, str] = {
     "アカウントに本人のメールアドレスを設定するか、"
     "このアドレスを許可するよう管理者に依頼してください。",
     # E2E P-35: an investigator on no study log opens the week page: it says why and what next (status stays 403)
-    "problem.h.week.no_log": "この試験の治験分担医師・治験協力者リストに登録されていません",
-    "week.no_log": "あなたは試験 {rs} の治験分担医師・治験協力者リストに載っていないため、週間リストを開けません。",
+    "problem.h.week.no_log": "この試験のスクリーニング担当に割り当てられていません",
+    "week.no_log": "あなたは試験 {rs} のスクリーニング担当に割り当てられていないため、週間リストを開けません。",
     "problem.why.week.no_log": "試験の責任医師があなたをリストに登録し「スクリーニング」にチェックを入れます。"
     "責任医師か TrialBox の管理者に依頼し、完了後にログインし直してください。",
     "week.no_log.request": "リクエストのページへ",
@@ -91,8 +91,8 @@ ZH: dict[str, str] = {
     "problem.h.request.mailbox": "此電子郵件無法啟動此作業",
     "request.mailbox": "電子郵件 {mailbox} 無法啟動 {kind}。請管理員為您的帳號設定您自己的電子郵件，或允許此地址。",
     # E2E P-35: an investigator on no study log opens the week page: it says why and what next (status stays 403)
-    "problem.h.week.no_log": "您尚未被指派到此試驗的授權紀錄表",
-    "week.no_log": "您不在試驗 {rs} 的授權紀錄表上，因此無法開啟其每週名單。",
+    "problem.h.week.no_log": "您尚未被指派此試驗的篩選工作",
+    "week.no_log": "您未被指派試驗 {rs} 的篩選工作，因此無法開啟其每週名單。",
     "problem.why.week.no_log": "請試驗主持人把您加入授權紀錄表並勾選「篩選」，"
     "或聯絡 TrialBox 管理者；完成後請重新登入。",
     "week.no_log.request": "前往請求頁面",

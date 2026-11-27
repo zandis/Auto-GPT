@@ -7,6 +7,7 @@ next step (who assigns one, the request page). The study's PI is still sent stra
 from __future__ import annotations
 
 import html
+import re
 from typing import Any
 
 import pytest
@@ -47,5 +48,9 @@ def test_an_investigator_on_no_log_gets_a_403_page_that_says_why_and_what_next(l
     assert cat["week.no_log"].format(rs="GZQO") in text
     assert cat["problem.why.week.no_log"] in text  # who assigns one: the PI, or the administrator
     assert 'href="/pilot/request?ruleset=GZQO"' in text and cat["week.no_log.request"] in text
+    link = re.search(r'href="(/pilot/request\?ruleset=GZQO)"', text)
+    assert link  # the rendered link leads somewhere that opens: not a second 403/404
+    page = c.get(link.group(1))
+    assert page.status_code == 200 and "GZQO" in html.unescape(page.text), (page.status_code, page.url)
     assert 'data-testid="problem-home"' in text  # the way out of it is still there
     assert cat["forbidden"] not in text  # no longer the bare role refusal
