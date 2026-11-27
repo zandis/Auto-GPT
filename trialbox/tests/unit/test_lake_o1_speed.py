@@ -40,11 +40,12 @@ def lake() -> duckdb.DuckDBPyConnection:
 def test_one_recorded_query_reads_the_domains_the_seven_read(lake: duckdb.DuckDBPyConnection) -> None:
     from lake.sqlguard import check_select
     from matching import recorded
+    from matching.carried import DOMAINS
 
     check_select(recorded.QUERY)
     for ls in (v for v in LISTS.values() if v is not None):
         old: set[tuple[str, str]] = set()
-        for table in recorded.DOMAINS:
+        for table in DOMAINS:
             old |= {
                 (table, r[0])
                 for r in lake.execute(f"SELECT DISTINCT pid FROM {table} WHERE pid = ANY(?)", [ls]).fetchall()
@@ -55,6 +56,7 @@ def test_one_recorded_query_reads_the_domains_the_seven_read(lake: duckdb.DuckDB
 
 def test_recorded_load_gives_each_patient_the_domains_of_their_rows(lake: duckdb.DuckDBPyConnection) -> None:
     from matching import recorded
+    from matching.carried import DOMAINS
 
     class _Rows:
         def __init__(self, rows: list[dict[str, Any]]) -> None:
@@ -79,7 +81,7 @@ def test_recorded_load_gives_each_patient_the_domains_of_their_rows(lake: duckdb
     for pid in ids:
         want = {
             t
-            for t in recorded.DOMAINS
+            for t in DOMAINS
             if lake.execute(f"SELECT count(*) FROM {t} WHERE pid = ?", [pid]).fetchone()[0]  # type: ignore[index]
         }
         assert got.domains[pid] == want

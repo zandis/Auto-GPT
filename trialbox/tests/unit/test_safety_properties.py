@@ -335,7 +335,7 @@ class _FakeLake:
             return _Rows([{"domain": d, "system": sy} for d in carried_mod.DOMAINS for sy in sorted(systems)])
         if sql == recorded_mod.QUERY:  # D-914: every patient has records of every kind
             self.queries.append("recorded")
-            return _Rows([{"domain": d, "pid": p} for d in recorded_mod.DOMAINS for p in params[0]])
+            return _Rows([{"domain": d, "pid": p} for d in carried_mod.DOMAINS for p in params[0]])
         if sql == proposed_mod.SQL:
             self.queries.append("proposed")
             return _Rows([r for r in self.facts if params[0] is None or r["pid"] in params[0]])
