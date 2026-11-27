@@ -3,11 +3,21 @@
 
 Runtime parameters (positional, in this order): ``index_dates`` (DATE[] / ISO strings) and ``pids`` (VARCHAR[] or
 NULL for every living patient). ValueSet codes are inlined as a ``vs`` VALUES CTE so the SQL file is self-contained.
+
+V3 study windows additionally read ``criterion_anchors(ruleset, pid, index_date,
+screening_date, randomization_date)``: at most one row per ruleset/patient/index.
+Absent rows or dates mean UNKNOWN. This relation is supplied by the caller.
+V3 reference ranges and medication details read the same snapshot's OMOP
+``measurement`` / ``drug_exposure``, ``tb_record`` and ``tb_id_map`` relations.
+Legacy queries require none of these additional inputs. Route strings name OMOP
+route concept ids. Cumulative dose is quantity per exposure; daily dose is that
+quantity divided by positive days_supply, in the exact dose_unit_source_value.
+Single administration dose is not inferred from an exposure total.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import ClassVar
 
 from tb_common.derived import (
@@ -27,17 +37,20 @@ from tb_common.derived import (
 )
 from tb_common.labunit import NOT_ACTIVE, ORDER_DATES, UNIT_MISMATCH, value_sql
 from tb_contracts import Atom, BoolExpr, CriterionIR
+from tb_contracts.criterion_ir import CriterionIRv3
 
+from criteria_compiler.compile_sql.ir3 import AnchoredWindow, detail, medication_source, sql_template
 from criteria_compiler.semantics import (
+    FILTERED,
     CompileError,
     Kind,
     Window,
     atoms,
     check_bool,
-    compiled,
     fmt_num,
     ident,
     kind,
+    lower,
     window,
 )
 from criteria_compiler.terminology.mapper import SYSTEMS, YJ_STEM, ValueSets
@@ -72,8 +85,8 @@ def qcol(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def date_bound(days: int) -> str:
-    return "b.index_date" if days == 0 else f"(b.index_date + {days})"
+def date_bound(days: int, anchor: str = "b.index_date") -> str:
+    return anchor if days == 0 else f"({anchor} + {days})"
 
 
 def domain_sql(comp: str, conv: str) -> str:
@@ -90,13 +103,14 @@ def domain_sql(comp: str, conv: str) -> str:
 
 
 def in_window(col: str, w: Window) -> str:
-    hi = date_bound(w.to_days)
+    anchor = getattr(w, "anchor", "b.index_date")
+    hi = date_bound(w.to_days, anchor)
     if w.from_days is None:
         return f"{col} <= {hi}"
-    return f"{col} BETWEEN {date_bound(w.from_days)} AND {hi}"
+    return f"{col} BETWEEN {date_bound(w.from_days, anchor)} AND {hi}"
 
 
-def cmp_sql(atom: Atom, value: str = "o.value_num", code: str = "o.value_code") -> str:
+def cmp_sql(atom: Atom, value: str = "o.value_num", code: str = "o.value_code", threshold: str | None = None) -> str:
     v = atom.value
     assert v is not None and v.op is not None
     if v.op == "in":
@@ -106,7 +120,7 @@ def cmp_sql(atom: Atom, value: str = "o.value_num", code: str = "o.value_code") 
         return f"({value} BETWEEN {fmt_num(v.num)} AND {fmt_num(v.num2)})"
     assert v.num is not None
     op = "=" if v.op == "=" else v.op
-    return f"({value} {op} {fmt_num(v.num)})"
+    return f"({value} {op} {threshold if threshold is not None else fmt_num(v.num)})"
 
 
 # D-142 (review B-01): a censored result ("<0.3": the true value is at most the bound, ">1000": at least) decides a
@@ -129,16 +143,16 @@ _CENSORED: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
-def obs_cmp_sql(atom: Atom) -> str:
+def obs_cmp_sql(atom: Atom, threshold: str | None = None) -> str:
     """The comparison of one observation row: exact values as :func:`cmp_sql`; censored ones (``value_cmp``) only
     when decidable; no number (text, a coded answer) is NULL, never FALSE."""
     v = atom.value
     assert v is not None and v.op is not None
-    plain = cmp_sql(atom)
+    plain = cmp_sql(atom, threshold=threshold)
     if v.op == "in":
         return plain
     assert v.num is not None
-    n, n2 = fmt_num(v.num), fmt_num(v.num2) if v.num2 is not None else ""
+    n, n2 = threshold if threshold is not None else fmt_num(v.num), fmt_num(v.num2) if v.num2 is not None else ""
     side: dict[str, str] = {}
     for s in ("below", "above"):
         cond, answer = _CENSORED[(s, v.op)]
@@ -279,13 +293,21 @@ class SqlGenerator:
         )
         return ctes, expr, with_status(f"coalesce({name}.ev, {off}.ev, {nd}.ev)", off)
 
-    def _obs_source(self, atom: Atom, w: Window) -> str:
+    def _obs_source(self, atom: Atom, w: Window, ref_kind: str | None = None) -> str:
         """The rows of a value comparison. D-275 (review S-1): ``value_num`` is the row's number in the criterion's
         unit, NULL when the row's unit is another one that cannot be converted, or is missing (``unit_bad``): such a
         row is never compared as a bare number."""
         v = atom.value
         assert v is not None
-        if v.op == "in":  # a coded answer has no unit
+        extra, join = "", ""
+        if ref_kind:
+            bound = "range_high" if ref_kind == "uln" else "range_low"
+            join = "\n  " + detail(
+                "measurement", "o", "oid", {"value_num": "m.value_as_number", "ref_bound": f"m.{bound}"}
+            )
+            num, bad = "d.detail.value_num", "FALSE"
+            extra = ", d.detail.ref_bound AS ref_bound"
+        elif v.op == "in":  # a coded answer has no unit
             num, bad = "o.value_num", "FALSE"
         else:
             num = value_sql("o.value_num", "o.unit", "o.system", "o.code", v.unit)
@@ -294,21 +316,23 @@ class SqlGenerator:
         # system's import) comes along, marked, as the presence atom's undated records do (DUMP-01)
         return (
             f"SELECT b.pid, b.index_date, o.oid, o.effective, {num} AS value_num, o.value_cmp, o.value_code,\n"
-            f"         {bad} AS unit_bad, o.effective IS NULL AS undated\n"
+            f"         {bad} AS unit_bad, o.effective IS NULL AS undated{extra}\n"
             f"  FROM base b JOIN observation o ON o.pid = b.pid\n"
-            f"   AND ({in_window('o.effective::DATE', w)} OR o.effective IS NULL)\n"
+            f"   AND ({in_window('o.effective::DATE', w)} OR o.effective IS NULL){join}\n"
             f"  WHERE {self._vs_match(atom.valueset, 'o.system', 'o.code')}"
         )
 
-    def _obs_value(self, name: str, atom: Atom, w: Window) -> tuple[list[str], str, str]:
+    def _obs_value(
+        self, name: str, atom: Atom, w: Window, source: str | None = None, comparison: str | None = None
+    ) -> tuple[list[str], str, str]:
         """A value comparison over the rows in the window. SCR-03: an undated row cannot be placed in the window (nor,
         for ``latest``, before or after the dated ones). The dated rows' answer stands only when every undated row,
         inside the window or not, newest or not, leaves it the same; otherwise the answer is unknown (NULL) and the
         undated rows are its evidence. With no dated row the answer is unknown, as it was."""
         quant = atom.quantifier or "any"
-        src = self._obs_source(atom, w)
+        src = source if source is not None else self._obs_source(atom, w)
         ref = "o.oid || '|' || coalesce(strftime(o.effective, '%Y-%m-%d'), '')"
-        c = obs_cmp_sql(atom)
+        c = comparison if comparison is not None else obs_cmp_sql(atom)
         undated_refs = f"string_agg(CASE WHEN o.undated THEN {ref} END, ';' ORDER BY o.oid)"
         if quant == "latest":
             # the newest dated row; an undated row that could give another answer (or none) leaves it unknown
@@ -517,8 +541,9 @@ class SqlGenerator:
     def _med_duration(self, name: str, atom: Atom, w: Window) -> tuple[list[str], str, str]:
         assert atom.duration is not None and atom.duration.min_days is not None
         gap = 30 if atom.duration.gap_days is None else atom.duration.gap_days
-        lo = "DATE '1900-01-01'" if w.from_days is None else date_bound(w.from_days)
-        hi = date_bound(w.to_days)
+        anchor = getattr(w, "anchor", "b.index_date")
+        lo = "DATE '1900-01-01'" if w.from_days is None else date_bound(w.from_days, anchor)
+        hi = date_bound(w.to_days, anchor)
         match = (
             f"({self._vs_match(atom.valueset, lit(SYSTEMS['atc']), 'm.atc')} OR "
             f"{self._vs_match(atom.valueset, lit(SYSTEMS['nhi_drug']), 'm.nhi_code')}"
@@ -599,12 +624,16 @@ class SqlGenerator:
             return f"(NOT {parts[0]})"
         return "(" + f" {expr.op.upper()} ".join(parts) + ")"
 
-    def render(self, criteria: list[CriterionIR]) -> str:
+    def render(self, criteria: Sequence[CriterionIR | CriterionIRv3]) -> str:
         ctes: list[str] = []
         selects: list[str] = []
         final_joins: list[str] = []
         used_vs: set[str] = set()
-        for c in compiled(criteria):
+        anchor_names: set[str] = set()
+        for original in criteria:
+            if original.class_ not in FILTERED:
+                continue
+            c, extensions = lower(original)
             check_bool(c.logic)
             names: dict[int, str] = {}
             evs: list[str] = []
@@ -612,8 +641,28 @@ class SqlGenerator:
             for n, atom in enumerate(atoms(c.logic), start=1):
                 k = kind(atom)
                 w = window(atom)
+                extension = extensions.get(id(atom))
+                anchor = None
+                if extension and extension.window and extension.window.anchor in ("screening", "randomization"):
+                    anchor = extension.window.anchor + "_date"
+                    anchor_names.add(anchor)
+                    w = AnchoredWindow(w.from_days, w.to_days, "b." + anchor)
                 aname = f"a_{ident(c.id)}_{n}".lower()
-                if k is Kind.PRESENCE:
+                if extension and extension.medication:
+                    cs, expr, ev = self._obs_value(aname, atom, w, medication_source(self, extension, w), "o.row_match")
+                    if atom.quantifier not in ("latest", "all"):
+                        empty = "TRUE" if atom.quantifier == "none" else "FALSE"
+                        expr = f"(CASE WHEN {aname}.pid IS NULL THEN {empty} ELSE {expr} END)"
+                elif extension and extension.value and extension.value.ref:
+                    ref = extension.value.ref
+                    cs, expr, ev = self._obs_value(
+                        aname,
+                        atom,
+                        w,
+                        self._obs_source(atom, w, ref.kind),
+                        obs_cmp_sql(atom, f"(o.ref_bound * {fmt_num(ref.multiple)})"),
+                    )
+                elif k is Kind.PRESENCE:
                     cs, expr, ev = self._presence(aname, atom, w)
                 elif k is Kind.OBS_VALUE:
                     cs, expr, ev = self._obs_value(aname, atom, w)
@@ -623,6 +672,10 @@ class SqlGenerator:
                     cs, expr, ev = self._med_duration(aname, atom, w)
                 else:
                     cs, expr, ev = self._demographic(atom)
+                    if anchor:
+                        expr = expr.replace("b.index_date", "b." + anchor)
+                if anchor:
+                    expr = f"(CASE WHEN b.{anchor} IS NULL THEN NULL ELSE {expr} END)"
                 if atom.domain != "demographic" and atom.derived is None:
                     used_vs.add(atom.valueset)
                 ctes.extend(cs)
@@ -658,6 +711,9 @@ class SqlGenerator:
             for v in sorted(used_vs)
             for system, prefix in self.vs.families(v)
         ]
+        anchor_columns = "".join(
+            sql_template("anchor", column=a, ruleset=lit(self.ruleset)) for a in sorted(anchor_names)
+        )
         prelude = [
             "params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids)",
             "idx AS (SELECT unnest(idx_dates) AS index_date FROM params)",
@@ -670,6 +726,8 @@ class SqlGenerator:
             ),
             "vs(vs_id, system, code) AS (VALUES\n  " + ",\n  ".join(vs_rows) + ")",
         ]
+        if anchor_columns:
+            prelude[2] = prelude[2].replace("i.index_date FROM", f"i.index_date{anchor_columns} FROM")
         if fam_rows:
             prelude.append("vsf(vs_id, system, prefix) AS (VALUES\n  " + ",\n  ".join(fam_rows) + ")")
         body = ",\n".join(prelude + ctes)

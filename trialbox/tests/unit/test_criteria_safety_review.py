@@ -8,6 +8,7 @@ Every patient named "was" here was excluded, or met an exclusion, before the fix
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -258,7 +259,7 @@ def test_a_criterion_the_guard_cannot_render_is_unknown_alone(tmp_path: Path, mo
     calls: list[list[str]] = []
 
     class Refusing(SqlGenerator):
-        def render(self, criteria: list[Any]) -> str:
+        def render(self, criteria: Sequence[Any]) -> str:
             calls.append([c.id for c in criteria])
             if any(c.id == GLP1_EXC.id for c in criteria):
                 raise CompileError("refused")
