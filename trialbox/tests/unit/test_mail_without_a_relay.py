@@ -249,3 +249,42 @@ def test_filling_the_relay_on_the_page_wakes_the_production_hold(
     assert after.wake() == 1
     after.drain()
     assert _mr._row(after, "k-prod").state == "sent" and len(mta.sent) == 1
+
+
+def test_a_production_hold_kept_before_the_reason_code_goes_after_the_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review M-1: a notice held for the site information under V3 has no ``hold_reason``. The upgrade gives it WAITS, so
+    the restart with the relay wakes it; a notice that failed for an ordinary reason keeps its retry time."""
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    monkeypatch.setenv("SMTP_HOST", "relay.hospa.test")
+    mta = _mr.MTA()
+    before = _mr._gw(tmp_path, mta)
+    before.deliver(_mr._req("k-fail"))  # relay given, the relay refuses: back-off, the try counted
+    failed = _mr._row(before, "k-fail")
+    assert failed.state == "queued" and failed.attempts == 1 and failed.next_at
+    monkeypatch.delenv("SMTP_HOST")
+    before.relay = False
+    before.deliver(_mr._req("k-prod"))
+    assert _mr._row(before, "k-prod").attempts == 0 and "mail relay" in (_mr._row(before, "k-prod").last_error or "")
+    db = before.db.db  # the store as V3 left it: no reason column, versions 4 and up not applied
+    db.execute("ALTER TABLE send_keys DROP COLUMN hold_reason")
+    db.execute("DELETE FROM _schema_version WHERE version > 3")
+    monkeypatch.setenv("SMTP_HOST", "relay.hospa.test")  # IT filled mail_relay; the new start
+    mta.cause = None
+    after = _mr._gw(tmp_path, mta)  # migrates to this release
+    assert after.wake() == 1
+    after.drain()
+    assert _mr._row(after, "k-prod").state == "sent" and len(mta.sent) == 1
+    kept = _mr._row(after, "k-fail")
+    assert kept.state == "queued" and kept.next_at == failed.next_at and kept.attempts == 1
+
+
+def test_a_mailbox_without_a_server_is_neither_polled_nor_audited(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review M-2: an IMAP user, no IMAP host and an unverified IMAP mode: the poller stays off, and the start's TLS
+    audit does not tell IT the gateway speaks to a server it never contacts."""
+    _no_mail_env(monkeypatch)
+    monkeypatch.setenv("IMAP_USER", "tb")
+    monkeypatch.setenv("IMAP_TLS_VERIFY", "false")
+    assert _polled(monkeypatch) is False
+    assert not [e for e, d in _start(monkeypatch)["events"] if d["server"] == "imap"]
