@@ -45,6 +45,9 @@ COPY --chown=tb:tb docs/validation/model-change-protocol.md /app/docs/validation
 COPY --chown=tb:tb eval/qualification/schema_probes.yaml /app/eval/qualification/schema_probes.yaml
 COPY --chown=tb:tb eval/injection /app/eval/injection
 COPY --chown=tb:tb pyproject.toml /app/pyproject.toml
+# P2-02: the third-party notices the console serves at /about (services/console/about.py reads /app/NOTICE); the
+# images built on this one (embed, jvm, backup) inherit it. tests/unit/test_notice_in_every_image.py
+COPY --chown=tb:tb NOTICE /app/NOTICE
 # admin console state (accounts, sessions, pilot runs): a named volume takes this owner on first use
 RUN install -d -o tb -g tb -m 0750 /data/console
 WORKDIR /app
