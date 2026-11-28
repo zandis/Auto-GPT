@@ -47,6 +47,7 @@ LANGS = ("en", "ja", "zh-TW")
 
 EN: dict[str, str] = {
     "brand": "TrialBox console",
+    "nav.label": "main",  # the menu's name for a screen reader
     "nav.overview": "Overview",
     "nav.request": "New request",
     "nav.protocol": "Protocol",
@@ -428,6 +429,7 @@ EN: dict[str, str] = {
 
 JA: dict[str, str] = {
     "brand": "TrialBox コンソール",
+    "nav.label": "メインメニュー",  # the menu's name for a screen reader
     "nav.overview": "概要",
     "nav.request": "新規リクエスト",
     "nav.protocol": "プロトコル",
@@ -791,6 +793,7 @@ JA: dict[str, str] = {
 
 ZH: dict[str, str] = {
     "brand": "TrialBox 主控台",
+    "nav.label": "主選單",  # the menu's name for a screen reader
     "nav.overview": "總覽",
     "nav.request": "新請求",
     "nav.protocol": "計畫書",

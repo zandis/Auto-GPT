@@ -61,6 +61,17 @@ EN: dict[str, str] = {
     "egress.unchecked": "sent unchecked (development)",
     "egress.refusal": "refused",
     "problem.h.egress.refused": "The file was refused",
+    "egress.rule.mask": "identifiers masked; what cannot be masked is refused",
+    "egress.rule.refuse": "identifiers refused",
+    "egress.rule.exception": "exception: {role}, audited",
+    "egress.rule.unread": "not looked at: {door} is not here to read (rule: {rule})",
+    "egress.rule.unwired": "no masking: {door} does not go through the egress edge",
+    "egress.rule.tripwire_on": "the tripwire is on",
+    "egress.rule.tripwire_off": "the tripwire is off (TB_GATEWAY_PHI_TRIPWIRE): calls to a model off the box are not "
+    "checked; turn it on and restart the gateway",
+    "egress.state.PASS": "OK",
+    "egress.state.WARN": "Check",
+    "egress.state.FAIL": "Fix",
 }
 JA: dict[str, str] = {
     "egress.title": "このボックスから出たもの",
@@ -121,6 +132,17 @@ JA: dict[str, str] = {
     "egress.unchecked": "確認なしで送信（開発用）",
     "egress.refusal": "拒否",
     "problem.h.egress.refused": "ファイルは拒否されました",
+    "egress.rule.mask": "識別情報は伏せ字にします。伏せられないものは出しません",
+    "egress.rule.refuse": "識別情報を含むものは出しません",
+    "egress.rule.exception": "例外：{role}、記録あり",
+    "egress.rule.unread": "確認できません：{door} がここにないため読めません（規則：{rule}）",
+    "egress.rule.unwired": "伏せ字なし：{door} は持ち出しの確認を通っていません",
+    "egress.rule.tripwire_on": "監視は有効です",
+    "egress.rule.tripwire_off": "監視が無効です（TB_GATEWAY_PHI_TRIPWIRE）。"
+    "ボックス外のモデルへの呼び出しは確認されません。有効にして、ゲートウェイを再起動してください",
+    "egress.state.PASS": "問題なし",
+    "egress.state.WARN": "要確認",
+    "egress.state.FAIL": "要対応",
 }
 ZH: dict[str, str] = {
     "egress.title": "離開本機的資料",
@@ -180,4 +202,15 @@ ZH: dict[str, str] = {
     "egress.unchecked": "未檢查即傳出（開發用）",
     "egress.refusal": "已拒絕",
     "problem.h.egress.refused": "檔案已被拒絕",
+    "egress.rule.mask": "識別資訊會遮蔽；無法遮蔽的不外送",
+    "egress.rule.refuse": "含識別資訊者不外送",
+    "egress.rule.exception": "例外：{role}，留有記錄",
+    "egress.rule.unread": "無法確認：此處沒有 {door} 可供讀取（規則：{rule}）",
+    "egress.rule.unwired": "未遮蔽：{door} 未經外送檢查",
+    "egress.rule.tripwire_on": "監控已啟用",
+    "egress.rule.tripwire_off": "監控未啟用（TB_GATEWAY_PHI_TRIPWIRE）："
+    "對本機外模型的呼叫不會被檢查；請啟用並重新啟動閘道",
+    "egress.state.PASS": "正常",
+    "egress.state.WARN": "請確認",
+    "egress.state.FAIL": "需處理",
 }
