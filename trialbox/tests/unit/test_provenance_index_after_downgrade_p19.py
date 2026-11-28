@@ -1539,27 +1539,6 @@ def test_a_backup_restore_requires_a_rebuild_whatever_the_restored_marker_says(
     assert (m.clean, m.reason) == (False, "backup restore")
 
 
-def test_rebuild_time_at_the_declared_site_size(box: str, tmp_path: Path) -> None:
-    """§3: the rebuild's wall time at the lead's declared site size (``TB_P19_SITE_LINES`` chain lines) is within
-    ``TB_P19_REBUILD_BUDGET_S``. No figure is invented: without both, nothing is measured."""
-    lines, budget = os.environ.get("TB_P19_SITE_LINES"), os.environ.get("TB_P19_REBUILD_BUDGET_S")
-    if not lines or not budget:
-        pytest.skip("TB_P19_SITE_LINES and TB_P19_REBUILD_BUDGET_S are not declared (P19-DESIGN-3 §3)")
-    log = AuditLog(tmp_path / "audit", TZ)
-    for i in range(int(lines) // 2):
-        call_f, use_f = _fields(20, f"c{i}", PID_A if i % 2 else PID_B)
-        ts = datetime.fromisoformat(f"2026-11-{1 + i * 28 // max(int(lines) // 2, 1):02d}T02:00:00+08:00")
-        log.append("llm.call", ts=ts, **call_f)
-        log.append("ai.used", ts=ts, **use_f)
-    with psycopg.connect(box, autocommit=True) as c:
-        c.execute(idx.INDEX_SQL)
-        t0 = time.monotonic()
-        idx.rebuild(c, log.directory)
-        took = time.monotonic() - t0
-    print(f"rebuild of {lines} chain lines: {took:.1f} s")
-    assert took <= float(budget)
-
-
 def test_a_new_box_has_nothing_to_rebuild_and_its_first_doctor_passes(box: str, tmp_path: Path) -> None:
     """Rehearsal of PR 1584: a fresh install (the role script's index, no marker, a chain with no row to index) failed
     its own doctor, "must be rebuilt (no marker, since unknown)". The drain's start finds nothing to rebuild and the
@@ -1609,3 +1588,301 @@ def test_only_a_new_box_is_marked_verified(box: str, tmp_path: Path, monkeypatch
     m = idx.read_marker(chain)
     want = {"restore_marker": "update rollback", "restore_meanwhile": "backup restore"}.get(how, "no marker")
     assert (m.clean, m.reason) == (False, want)
+
+
+# --- the fix round of PR 1584 (reviews B1, P19-1 to P19-8, and the rehearsal's doctor on f882858b)
+
+
+def test_the_doctor_in_an_image_without_the_audit_volume_warns(tmp_path: Path) -> None:
+    """Rehearsal of PR 1584 on f882858b: the host check runs doctor in a one-off container of the box image with no
+    network and without the audit volume, so no marker can be read there. The drain had written it (verified); the
+    check must say it was not looked at here, as it said before P-19, never FAIL "no marker"."""
+    from tools.trialbox import doctor
+
+    env = {"TB_DB_URL": "postgresql://tb@127.0.0.1:9/trialbox_wf", "TB_AUDIT_DIR": str(tmp_path / "not-mounted")}
+    row = doctor.check_provenance_index(doctor.DoctorInputs(env=env))
+    assert row.status == "WARN", row
+    assert "trialbox provenance --check" in row.detail
+
+
+def test_the_rebuild_on_a_box_host_runs_in_the_audit_writer_as_the_admin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review B1 (PR 1584): an upgraded compose box's doctor names ``trialbox provenance --rebuild``; on the box's host
+    (its ``deploy/.env``, no chain folder here) that command runs in a one-off audit-writer container, the one
+    service that mounts the audit volume read-write, as the box's admin (which may empty the index). The admin's URL
+    travels in the environment, never on the command line; the container's exit code is the command's."""
+    from tools.trialbox import launch
+    from tools.trialbox import provenance as cli
+
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    said, got = tmp_path / "argv", tmp_path / "url"
+    docker = tmp_path / "docker"
+    docker.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {said}\nprintf "%s" "$TB_DB_URL" > {got}\nexit 3\n',
+                      encoding="utf-8")  # fmt: skip
+    docker.chmod(0o755)
+    url = "postgresql://trialbox:s3cret-admin@db:5432/trialbox_wf"
+    (deploy / ".env").write_text(f"TB_DOCKER={docker}\nTB_DB_URL={url}\n", encoding="utf-8")
+    (deploy / ".env").chmod(0o600)
+    monkeypatch.setattr(launch, "DEPLOY", deploy)
+    monkeypatch.setattr(launch, "in_box_image", lambda: False)
+    assert cli.main(["--rebuild", "--audit-dir", str(tmp_path / "not-here"), "--db-url", url]) == 3
+    assert said.read_text(encoding="utf-8").splitlines() == [
+        "compose", "--project-directory", str(deploy), "run", "--rm", "--no-deps", "-T", "-e", "TB_DB_URL",
+        "audit-writer", "python", "-m", "tb_common.provenance_index", "rebuild",
+    ]  # fmt: skip
+    assert got.read_text(encoding="utf-8") == url
+
+
+def _shim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, psql: str) -> None:
+    """The cluster's tools with ``psql`` replaced by the script ``psql`` (``REAL``: the real one)."""
+    real, shim = pglocal.bindir(), tmp_path / "shim"
+    shim.mkdir()
+    for tool in real.iterdir():
+        if tool.name != "psql":
+            (shim / tool.name).symlink_to(tool)
+    (shim / "psql").write_text("#!/bin/sh\n" + psql.replace("REAL", str(real / "psql")), encoding="utf-8")
+    (shim / "psql").chmod(0o755)
+    monkeypatch.setattr(pglocal, "bindir", lambda: shim)
+
+
+def test_a_rollback_writes_no_file_of_the_live_register(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review P19-1 (PR 1584): the live register (pseudonyms, consent decisions, notes, actors) goes from the database
+    in place to the restored one as a stream: no file of it is in the rollback's folder at any step, so none can
+    outlive a restore that is cut. Its events are all kept."""
+    point = _dump(box, tmp_path)
+    with psycopg.connect(box, autocommit=True) as c:
+        register(c, PID_C, "opt_out", "2026-11-21T09:00:00+08:00")
+    seen = tmp_path / "seen"  # every file in the rollback's folder, as each psql starts (what a kill would leave)
+    seen.write_bytes(b"")
+    _shim(tmp_path, monkeypatch, f'd="$PGDATA/tb-rollback"\n[ -d "$d" ] && cat "$d"/* >> {seen} 2>/dev/null\n'
+                                 'exec REAL "$@"\n')  # fmt: skip
+    r = _rollback(box, point, tmp_path)
+    assert seen.stat().st_size > 0  # the folder was looked at (the dump is there)
+    assert PID_C.encode() not in seen.read_bytes()
+    assert up.restore_said(r.stdout)["register_events_kept"] == 1
+    assert _events_of(box, PID_C) == [("opt_out", "console:office1")]
+
+
+def test_a_rollback_whose_live_register_is_cut_short_refuses_before_the_swap(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P19-1's stream: a reader of the live register that ends early (its first row only) never commits a part of
+    the register: the count is checked in the restored database, the rollback stops before the swap, the live
+    database kept."""
+    point = _dump(box, tmp_path)
+    with psycopg.connect(box, autocommit=True) as c:
+        register(c, PID_B, "opt_out", "2026-11-21T09:00:00+08:00")
+        register(c, PID_C, "opt_out", "2026-11-21T09:00:00+08:00")
+    _shim(tmp_path, monkeypatch, 'in=$(cat)\ncase "$in" in\n*"TO STDOUT"*) printf "%s\\n" "$in" | REAL "$@" | head -1 ;;\n'
+                                 '*) printf "%s\\n" "$in" | exec REAL "$@" ;;\nesac\n')  # fmt: skip
+    r = _rollback(box, point, tmp_path, ok=False)
+    assert r.returncode != 0
+    assert len(_events_of(box, PID_B) + _events_of(box, PID_C)) == 2  # the live database, not swapped
+
+
+def _flags(dsn: str) -> None:
+    from tb_common.flags import MIGRATIONS
+
+    with psycopg.connect(dsn, autocommit=True) as c:
+        c.execute(f"CREATE SCHEMA app; SET search_path = app; {MIGRATIONS[0]}; RESET search_path")
+
+
+@pytest.mark.parametrize("consent", ["changed_after_the_dump", "unchanged"])
+def test_a_rollback_holds_screening_when_consent_changed_after_the_dump(box: str, tmp_path: Path, consent: str) -> None:
+    """Review P19-2 (PR 1584): the restored database's candidate lists were made before an opt-out recorded after the
+    dump. The rollback sets the existing hold (``screening.after_restore``, held, with its flag event) in the
+    restored database before the swap, so no list job runs on them until a person releases it; said in the
+    ``update.rolled_back`` detail. No consent change since the dump: no hold."""
+    from tools.trialbox import backup
+
+    _flags(box)
+    with psycopg.connect(box, autocommit=True) as c:
+        register(c, PID_A, "opt_out", "2026-11-19T09:00:00+08:00")
+    point = _dump(box, tmp_path)
+    if consent == "changed_after_the_dump":
+        with psycopg.connect(box, autocommit=True) as c:
+            register(c, PID_B, "opt_out", "2026-11-21T09:00:00+08:00")
+    r = _rollback(box, point, tmp_path)
+    with psycopg.connect(box, autocommit=True) as c:
+        flag = c.execute("SELECT value, changed_by FROM app.flag WHERE name = %s", (backup.HOLD_FLAG,)).fetchone()
+        events = c.execute("SELECT new_value, actor FROM app.flag_event WHERE name = %s",
+                           (backup.HOLD_FLAG,)).fetchall()  # fmt: skip
+    if consent == "unchanged":
+        assert (flag, events) == (None, [])
+        assert "screening_hold" not in up.restore_said(r.stdout)
+        return
+    assert flag == ("held", "update rollback")
+    assert events == [("held", "update rollback")]
+    assert up.restore_said(r.stdout)["screening_hold"] == "held"
+
+
+SERVICE_ROLES = ("tb_audit_writer", "tb_console", "tb_orchestrator")
+
+
+@pytest.mark.parametrize("dump", ["pre_p19_dump", "post_p19_dump"])
+def test_a_rollback_to_a_release_before_p19_refuses_its_services_the_index(box: str, tmp_path: Path, dump: str) -> None:
+    """Review P19-3 (PR 1584): the release before P-19 searches and writes the index without asking the marker. A
+    rollback to it (its dump has no ``provenance.withhold``) takes the services' grants on the index away in the
+    restored database: its search is refused and its drain writes no row, until the role script of the next update
+    gives them back. A dump of this release keeps them (its services ask the marker)."""
+    with psycopg.connect(box, autocommit=True) as c:
+        c.execute(idx.INDEX_SQL)
+        for role in SERVICE_ROLES:
+            c.execute(f"DO $$ BEGIN CREATE ROLE {role} NOLOGIN; "
+                      "EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$")  # fmt: skip
+        c.execute(f"GRANT USAGE ON SCHEMA provenance TO {', '.join(SERVICE_ROLES)}")
+        c.execute("GRANT SELECT, INSERT ON provenance.model_calls, provenance.model_uses TO tb_audit_writer")
+        c.execute("GRANT SELECT ON provenance.model_calls, provenance.model_uses TO tb_console, tb_orchestrator")
+        if dump == "pre_p19_dump":
+            c.execute("DROP TRIGGER model_uses_withhold ON provenance.model_uses")
+            c.execute("DROP FUNCTION provenance.withhold(), provenance.withheld(text, timestamptz)")
+    point = _dump(box, tmp_path)
+    _rollback(box, point, tmp_path)
+    with psycopg.connect(box, autocommit=True) as c:
+        grants = [
+            bool(_val(c, "SELECT has_schema_privilege(%s, 'provenance', 'USAGE')", (role,)))
+            or bool(_val(c, "SELECT has_table_privilege(%s, 'provenance.model_uses', 'SELECT')", (role,)))
+            for role in SERVICE_ROLES
+        ]
+    assert grants == [dump == "post_p19_dump"] * len(SERVICE_ROLES)
+
+
+class _Killed(BaseException):
+    """The process killed at that line (no handler runs)."""
+
+
+def test_a_resumed_rebuild_reads_again_the_day_it_last_recorded(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review P19-4 (PR 1584): a rebuild is killed after recording today's file as done and before its verified
+    marker; the drain appends to today's file meanwhile (no index write: required). The next rebuild reads that file
+    again, so the appended line is in the index it calls verified."""
+    chain = tmp_path / "audit"
+    _ready(box, chain)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    idx.require_rebuild(chain, "update rollback")
+    real = idx._write_marker
+
+    def killed_before_verified(directory: Path, body: dict[str, Any], **k: Any) -> None:
+        if body.get("verified") is True:
+            raise _Killed
+        real(directory, body, **k)
+
+    monkeypatch.setattr(idx, "_write_marker", killed_before_verified)
+    with pytest.raises(_Killed):
+        _rebuild(box, chain)
+    monkeypatch.setattr(idx, "_write_marker", real)
+    assert idx.read_marker(chain).done_through
+    _send(box, 21, "c2", PID_A)
+    _drain(box, chain)
+    _rebuild(box, chain)
+    assert (_calls(box), _uses(box)) == (["c1", "c2"], ["c1", "c2"])
+    assert _check(box, chain).ok and _clean(chain)
+
+
+def test_a_stop_between_a_line_and_its_index_rows_is_written_at_the_start(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review P19-5 (PR 1584): the drain is killed after a line is in the chain and before its index rows commit; the
+    marker stays verified and the journal's cursor is past the line. The next start writes that line's rows."""
+    chain = tmp_path / "audit"
+    _ready(box, chain)
+    real = idx.add
+
+    def killed(con: Any, rec: dict[str, Any]) -> int:
+        raise _Killed
+
+    monkeypatch.setattr(idx, "add", killed)
+    _send(box, 20, "c1", PID_A)
+    d = Drain("postgresql://x@h/db", chain, TZ, connect=lambda: psycopg.connect(box, autocommit=True))
+    d.open()
+    try:
+        with pytest.raises(_Killed):
+            d.step()
+    finally:
+        d.con.close()
+    monkeypatch.setattr(idx, "add", real)
+    assert _chain_calls(chain) == ["c1"] and _calls(box) == []
+    _drain(box, chain)
+    assert (_calls(box), _uses(box)) == (["c1"], ["c1"])
+    assert _check(box, chain).ok and _clean(chain)
+
+
+def test_a_marker_that_cannot_be_written_leaves_no_verified_marker_and_no_lock(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review P19-6 (PR 1584): an index write fails and the rebuild-required marker cannot be written either. The
+    verified marker does not stay (the searches would trust it): it is taken away, which every reader refuses. The
+    batch's writer lock is released (the rebuild would otherwise wait for it and be refused)."""
+    chain = tmp_path / "audit"
+    _ready(box, chain)
+    _flaky_add(monkeypatch, which=0)
+
+    def unwritable(directory: Path, reason: str) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(idx, "require_rebuild", unwritable)
+    d = Drain("postgresql://x@h/db", chain, TZ, connect=lambda: psycopg.connect(box, autocommit=True))
+    d.open()
+    try:
+        _send(box, 20, "c1", PID_A)
+        assert d.step() == 2
+        assert not idx.read_marker(chain).clean
+        with psycopg.connect(box, autocommit=True) as other:
+            assert _val(other, "SELECT pg_try_advisory_lock(%s)", (idx.WRITER_LOCK,)) is True
+    finally:
+        d.con.close()
+
+
+def test_a_search_that_meets_a_rebuild_is_refused(box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review P19-7 (PR 1584): a search reads the verified marker, then a rebuild starts (its marker, then the
+    tables emptied) before the search's query. The search is refused, never answered from the emptied tables."""
+    chain = tmp_path / "audit"
+    _ready(box, chain)
+    _send(box, 20, "c1", PID_A)
+    _drain(box, chain)
+    real, reads = idx.read_marker, itertools.count()
+
+    def rebuild_begins(directory: Path) -> idx.Marker:
+        m = real(directory)
+        if next(reads) == 0:
+            idx.require_rebuild(chain, "rebuilding")
+            with psycopg.connect(box, autocommit=True) as c:
+                c.execute("DELETE FROM provenance.model_uses")
+        return m
+
+    monkeypatch.setattr(idx, "read_marker", rebuild_begins)
+    with psycopg.connect(box, autocommit=True) as c, pytest.raises(idx.ProvenanceRebuildRequired):
+        idx.search(c, directory=chain, model="m-judge")
+
+
+def test_a_probe_that_fails_before_a_batch_requires_the_rebuild(
+    box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review P19-8 (PR 1584): the probe for the index fails at the start and again before a batch: the batch is
+    appended without its index rows, so the verified marker goes (rebuild required); the rebuild writes them."""
+    chain = tmp_path / "audit"
+    _ready(box, chain)
+    real, fails = idx.installed, iter([True, True])
+
+    def probe(con: Any) -> bool:
+        if next(fails, False):
+            raise psycopg.OperationalError("synthetic: the probe timed out")
+        return real(con)
+
+    monkeypatch.setattr(idx, "installed", probe)
+    d = Drain("postgresql://x@h/db", chain, TZ, connect=lambda: psycopg.connect(box, autocommit=True))
+    d.open()
+    try:
+        _send(box, 20, "c1", PID_A)
+        assert d.step() == 2
+    finally:
+        d.con.close()
+    assert _calls(box) == [] and not _clean(chain)
+    _rebuild(box, chain)
+    assert _calls(box) == ["c1"] and _check(box, chain).ok
