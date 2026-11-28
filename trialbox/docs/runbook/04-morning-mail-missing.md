@@ -14,7 +14,7 @@ sent by `mail resolve` once it is back (`tests/unit/test_mail_resolve.py`).
 | 1. Is the box up? | the console's login page; the Operations page (§15) | if not: §4 table, then §21 |
 | 2. Did the console's timers run? | `TB_ENV` is VALIDATION or PRODUCTION, or `TB_CONSOLE_TIMERS=on` (§2); `docker compose logs console --since 12h` names the timer runs | a DEV or TEST box sends no notices on its own: set the variable, `docker compose up -d console` |
 | 3. Was a notice sent? | the audit has `notice.sent` for this morning | not sent: go to 4. Sent: go to 5 |
-| 4. Did the night's jobs finish? | the Jobs page; `selftest.failed` in the audit (the canary failed, so the model jobs did not run and there is little to tell) | fix the cause (§4 table: "Notes never exclude"); the users get the next morning's mail |
+| 4. Did the night's jobs finish? | the Jobs page; `selftest.failed` in the audit (the canary failed, so the model jobs did not run and there is little to tell) | fix the cause (§4 table: "Note answers are not final"); the users get the next morning's mail |
 | 5. Did the mail leave the box? | `docker compose --project-directory deploy exec mail-gateway python -m tools.trialbox mail status` (T-108c: every send not yet out, with its last error); `docker compose logs mail-gateway --since 12h` | a refused relay, a password change at the mail server (§5 Secrets), the recipient's daily limit (`TB_MAIL_PER_RECIPIENT_PER_DAY`, default 200). See "The mail outbox" below |
 | 6. Did the mail reach the person? | the hospital mail server's log for the box's sender | spam filter, a full mailbox, a changed address on **Users** |
 | 7. One person only | their notice settings (`/settings/notices`) | they turned it off, or are not a recipient of the study |

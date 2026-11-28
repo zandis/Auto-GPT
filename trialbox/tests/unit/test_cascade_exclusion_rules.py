@@ -3,8 +3,8 @@
 The review removed each of these rules in turn and every test stayed green: the stub judge always answers at
 confidence 0.9 with a quote that verifies, the same under every model name. Here a scripted judge
 (``tests/judge_kit.py``) gives the contested answers, on a small lake, with no database. Each test has a positive
-control (the same patient *is* excluded when the answer is clean), so it fails when the rule is removed and also
-when exclusion stops working.
+control (the same patient's answer *is* decided when it is clean: a "not met" for review since ring 0, D-1072, which
+excluded before), so it fails when the rule is removed and also when a clean answer stops being decided.
 
 Rule -> test (the mutation table is in the pull request of D-276):
 
@@ -21,6 +21,7 @@ Rule -> test (the mutation table is in the pull request of D-276):
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from typing import Any
 
@@ -31,6 +32,7 @@ from lake.client import LakeLocal
 from matching.cascade import engine
 from matching.cascade.engine import EXCERPT_TOKENS, CascadeConfig, CascadeResult, run_cascade
 from matching.cascade.judge import JudgeReply, expected_tokens
+from matching.note_answer import NOTES_SUGGEST_REASON
 from orchestrator.scenarios.screen_cascade import verdicts_of
 from tb_common.reasons import code_of
 from tb_common.ruleset import Ruleset
@@ -91,7 +93,17 @@ def _run(lake: Any, rs: Ruleset, pids: list[str], judge: Any, embedder: Any = "h
     return run_cascade(lake, rs, cfg, judge=judge, embedder=emb, reviewer=None)
 
 
+def _stated_at_s3(res: CascadeResult, pid: str, cid: str) -> bool:
+    """D-1072 (ring 0): a clean, sure note exclusion on a stated quote no longer excludes at S3: the reading stands
+    (a soft "not met" with the reason code), the patient stays for review."""
+    t = res.traces[pid]
+    o = t.outcomes[cid]
+    soft = (o.status, o.hard, o.reason) == ("fail", False, NOTES_SUGGEST_REASON)
+    return t.exit_stage is None and t.tier == "potential:uncertain" and soft
+
+
 def _excluded_at_s3(res: CascadeResult, pid: str, cid: str) -> bool:
+    """The patient left the cascade at S3, excluded on a hard fail of ``cid`` (BENCH-2 §2 asserts this never holds)."""
     t = res.traces[pid]
     return t.exit_stage == "S3" and t.tier == "excluded" and t.outcomes[cid].hard and t.exit_criterion == cid
 
@@ -102,10 +114,11 @@ def _kept_for_review(res: CascadeResult, pid: str, cid: str) -> bool:
     return t.exit_stage is None and t.tier == "potential:uncertain" and o.status == "unknown" and not o.hard
 
 
-def _excludes_on_a_stated_flare(lake: Any, **kw: Any) -> bool:
-    """The control: a clean, sure note answer that excludes (an exclusion whose quote states its condition)."""
+def _reviews_a_stated_flare(lake: Any, **kw: Any) -> bool:
+    """The control: a clean, sure note answer (an exclusion whose quote states its condition) is decided, a "not met"
+    for review since ring 0 (D-1072; before it, it excluded), never the rule's unknown."""
     res = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], ScriptedJudge(quoting("pass", FLARE)), **kw)
-    return _excluded_at_s3(res, "P-HIT", EXC_FLARE.id)
+    return _stated_at_s3(res, "P-HIT", EXC_FLARE.id)
 
 
 def _inclusion_not_met_reviewed(res: CascadeResult, rs: Ruleset, pid: str = "P-HIT") -> bool:
@@ -128,7 +141,7 @@ class Orthogonal:
 # ------------------------------------------------------------------------------------------------ _map
 def test_a_not_met_below_the_confidence_floor_is_unknown(lake: LakeLocal) -> None:
     rs = ruleset([INC])
-    assert _excludes_on_a_stated_flare(lake, confidence_floor=0.75)  # control: a clean, confident answer does exclude
+    assert _reviews_a_stated_flare(lake, confidence_floor=0.75)  # control: a clean, confident answer is decided
     sure = _run(lake, rs, ["P-HIT"], ScriptedJudge(quoting("fail", FLARE, 0.95)), confidence_floor=0.75)
     assert _inclusion_not_met_reviewed(sure, rs)
     unsure = _run(lake, rs, ["P-HIT"], ScriptedJudge(quoting("fail", FLARE, 0.74)), confidence_floor=0.75)
@@ -147,7 +160,7 @@ def test_a_not_met_below_the_confidence_floor_is_unknown(lake: LakeLocal) -> Non
 )
 def test_a_not_met_whose_quote_does_not_verify_is_unknown(lake: LakeLocal, quote: str | None, quote_date: str | None) -> None:  # fmt: skip
     rs = ruleset([INC])
-    assert _excludes_on_a_stated_flare(lake)  # control
+    assert _reviews_a_stated_flare(lake)  # control
     assert _inclusion_not_met_reviewed(_run(lake, rs, ["P-HIT"], ScriptedJudge(quoting("fail", FLARE))), rs)
     res = _run(lake, rs, ["P-HIT"], ScriptedJudge(lambda role, kw: reply("fail", 0.95, quote, quote_date)))
     assert _kept_for_review(res, "P-HIT", INC.id)
@@ -176,7 +189,7 @@ def test_no_note_in_the_window_is_a_data_gap_never_an_exclusion(lake: LakeLocal)
     rs = ruleset([INC])
     judge = ScriptedJudge(quoting("fail", FLARE))
     res = _run(lake, rs, ["P-HIT", "P-NONE"], judge)
-    assert _excludes_on_a_stated_flare(lake)  # control
+    assert _reviews_a_stated_flare(lake)  # control
     assert _inclusion_not_met_reviewed(res, rs)
     t = res.traces["P-NONE"]
     o = t.outcomes[INC.id]
@@ -329,7 +342,7 @@ def test_not_met_is_not_final_when_the_budget_left_evidence_out(lake: LakeLocal)
         return quoting("fail", FLARE)(role, kw)
 
     res = _run(lake, rs, ["P-HIT", "P-MANY"], ScriptedJudge(fail))
-    assert _excludes_on_a_stated_flare(lake)  # control: every evidence note was shown
+    assert _reviews_a_stated_flare(lake)  # control: every evidence note was shown
     assert _inclusion_not_met_reviewed(res, rs)
     assert sorted(seen) == [1, 2]  # P-MANY: two of six notes
     assert _kept_for_review(res, "P-MANY", INC.id)
@@ -349,5 +362,53 @@ def test_an_exclusion_criterion_met_on_part_of_the_evidence_is_not_final_either(
     rs = ruleset([exc])
     kw: dict[str, Any] = {"lexicon": {exc.id: ["flare"]}}
     res = _run(lake, rs, ["P-HIT", "P-MANY"], ScriptedJudge(quoting("pass", FLARE)), **kw)
-    assert _excluded_at_s3(res, "P-HIT", exc.id)
+    assert _stated_at_s3(res, "P-HIT", exc.id)  # D-1072: review, no longer excluded
     assert _kept_for_review(res, "P-MANY", exc.id)
+
+
+# ------------------------------------------------------------------------------- BENCH-2 §2: a demoter, never a veto
+def _disputed(kept: str) -> Any:
+    """The product pair's reply when the verifier answered otherwise: the plain rule's unknown, carrying the judge's
+    own (never affirmed) answer as ``kept``."""
+
+    def script(role: str, kw: dict[str, Any]) -> JudgeReply:
+        k = quoting(kept, FLARE)(role, kw)
+        ops = [{"role": "judge", "verdict": kept, "quote": k.quote, "quote_date": k.quote_date},
+               {"role": "verifier", "verdict": "unknown", "quote": None, "quote_date": None}]  # fmt: skip
+        return replace(reply("unknown", 0.0), reason="disagree", opinions=ops, kept=replace(k, affirmed=False))
+
+    return script
+
+
+def test_bench2_the_cascade_keeps_a_disputed_keep_flagged_and_never_excludes_on_a_disputed_answer(lake: Any) -> None:
+    met = _run(lake, ruleset([INC]), ["P-HIT"], ScriptedJudge(_disputed("pass"))).traces["P-HIT"].outcomes[INC.id]
+    assert met.status == "pass" and met.reason == "second_opinion_differs"
+    assert [o["role"] for o in met.evidence[-1]["opinions"]] == ["judge", "verifier"]
+    res = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], ScriptedJudge(_disputed("pass")))  # "present": not a keep
+    o = res.traces["P-HIT"].outcomes[EXC_FLARE.id]
+    assert o.status == "unknown" and o.reason == "disagree" and not _excluded_at_s3(res, "P-HIT", EXC_FLARE.id)
+
+
+def test_bench2_the_cascade_labels_an_unmentioned_exclusion_not_documented_and_only_that(lake: Any) -> None:
+    def said(reason: str) -> Any:
+        return ScriptedJudge(lambda role, kw: replace(reply("unknown", 0.0), reason=reason))
+
+    exc = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("abstained")).traces["P-HIT"]
+    assert exc.outcomes[EXC_FLARE.id].status == "unknown" and exc.outcomes[EXC_FLARE.id].reason == "not_documented"
+    assert exc.tier != "excluded"
+    inc = _run(lake, ruleset([INC]), ["P-HIT"], said("abstained")).traces["P-HIT"].outcomes[INC.id]
+    assert inc.status == "unknown" and inc.reason == "abstained"  # inclusion absence: never relabelled
+    odd = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("scripted")).traces["P-HIT"].outcomes[EXC_FLARE.id]
+    assert odd.reason == "abstained"  # only the models' own abstention reads not documented (review)
+
+
+def test_bench2_a_reply_carrying_not_documented_is_stored_abstained_unless_the_check_holds(lake: Any) -> None:
+    def said(quote: str | None) -> Any:
+        return ScriptedJudge(lambda role, kw: replace(reply("unknown", 0.0), reason="not_documented", quote=quote))
+
+    inc = _run(lake, ruleset([INC]), ["P-HIT"], said(None)).traces["P-HIT"].outcomes[INC.id]
+    assert inc.status == "unknown" and inc.reason == "abstained"  # the label is derived, never taken from a reply
+    quoted = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("flare in March")).traces["P-HIT"]
+    assert quoted.outcomes[EXC_FLARE.id].reason == "abstained"
+    bare = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said(None)).traces["P-HIT"]
+    assert bare.outcomes[EXC_FLARE.id].reason == "abstained"  # reply reason is not "abstained": the check fails

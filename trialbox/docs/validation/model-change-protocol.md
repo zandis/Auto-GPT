@@ -16,8 +16,8 @@ the change ids, the step names and every number in the threshold table.
 ## 1. What a change is
 
 A model change is any change that can alter what the judge or the verifier answers for the same input. The pair is
-the judge (Gemma 4 26B-A4B) and the verifier (Qwen3.5-9B) behind `tb-gateway`. A note answer excludes a patient only
-when both say "fail". The coded filters and FEAS have no model, and the goldens cover them
+the judge and the verifier of `models/registry.yaml`, behind `tb-gateway`. A note answer is final only when both say
+"fail", and it never excludes a patient (D-1072). The coded filters and FEAS have no model, and the goldens cover them
 (`docs/VALIDATION.md` §1).
 
 A build in `models/registry.yaml` is immutable (MOD-7). New weights, a new revision or a new quantisation make a new

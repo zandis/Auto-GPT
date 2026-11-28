@@ -16,7 +16,9 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_common.config import environment_name
-from tb_common.verdict_word import shown_of
+from tb_common.rank_key import coded_counts, stored_rank_key
+from tb_common.reasons import Reason
+from tb_common.verdict_word import flagged_last, notes_against, shown_of
 from tb_contracts import Job
 
 from console import coded_view
@@ -263,6 +265,8 @@ def feas_report(
         }
         for s in result.get("sensitivity") or []
     ]
+    for r in funnel_rows:  # lane K: each attrition row opens its own threshold variants (the what-if toggle)
+        r["variants"] = [s for s in sens if s["criterion"] == r["id"]]
     potential = next(
         (s.get("remaining") for s in result.get("sensitivity") or [] if s.get("variant") == "unknown_as_pass"), None
     )
@@ -385,11 +389,21 @@ class Fit:
     open: list[str] = field(default_factory=list)  # unknown labels
     not_met: list[str] = field(default_factory=list)  # inclusion criteria a note or record says are not met
     person: list[str] = field(default_factory=list)  # pending_human labels
+    against: list[str] = field(
+        default_factory=list
+    )  # labels a note may speak against (INT-S-B): still open, not excluded
     todo_words: dict[str, str] = field(default_factory=dict)  # a run's to-do -> its words in the page language (D-309)
 
 
-def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta]) -> Fit:
-    fit = Fit(todo_words={m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original})
+def todo_words_of(crit: Mapping[str, CriterionMeta]) -> dict[str, str]:
+    return {m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original}
+
+
+def fit_facts(
+    criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta], todo_words: dict[str, str] | None = None
+) -> Fit:
+    """``todo_words``: :func:`todo_words_of` ``crit``, when the caller made it once for many rows (MVP-B)."""
+    fit = Fit(todo_words=todo_words_of(crit) if todo_words is None else todo_words)
     for v in criteria:
         cid = str(v.get("id"))
         meta = crit.get(cid)
@@ -414,6 +428,8 @@ def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Criterio
                 fit.note_exclusion.append(
                     {"id": cid, "label": label, "date": ev.get("quote_date"), "quote": ev.get("quote")}
                 )
+        if notes_against(v):
+            fit.against.append(label)
         if word == "unknown":
             fit.open.append(label)
         elif word == "pending_human":
@@ -421,6 +437,19 @@ def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Criterio
     # prefer facts with a date or a quote: they are what a PI can check
     fit.key.sort(key=lambda k: (not (k.get("date") or k.get("quote")),))
     return fit
+
+
+def kept_fit(
+    r: Mapping[str, Any], crit: Mapping[str, CriterionMeta], todo: dict[str, str], fits: dict[str, tuple[Any, Fit]]
+) -> Fit:
+    """MVP-B: the row's :func:`fit_facts`, made once while the row's own criteria list is the one kept (``is``: a row
+    sent back or laid over gets a new list, so a new fit). Shared between views: a page that adds to it replaces it
+    with its own copy (``home.others_of``), never changes it in place."""
+    pid, src = str(r.get("pid") or ""), r.get("criteria")
+    got = fits.get(pid)
+    if got is None or got[0] is not src:
+        got = fits[pid] = (src, fit_facts(list(src or []), crit, todo))
+    return got[1]
 
 
 def weekly_rows(
@@ -434,11 +463,17 @@ def weekly_rows(
     *,
     include_closed: bool = False,
     today: date | None = None,
+    fits: dict[str, tuple[Any, Fit]] | None = None,
+    fired: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled,
+    """``fits``: kept fits of this list and ``crit`` (:func:`kept_fit`), for a caller that views it again.
+    ``fired``: pid -> ``at`` of the mark whose watch fired on an earlier view (``SiteStore.watch_fired``).
+
+    Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled,
     closed or set aside, sorted by next visit (none last), then tier, then pseudonym. A "Not now, re-check on <date>"
     mark hides the patient until that date (``today``); from then on the patient is back with the mark shown."""
     names = dict(practitioners or {})
+    todo = todo_words_of(crit)  # read only (the page's to-do words), so one for every row
     rows = []
     for r in (cl or {}).get("rows") or []:
         tier = r.get("tier")
@@ -447,13 +482,14 @@ def weekly_rows(
         pid = str(r.get("pid") or "")
         mk = marks.get(pid)
         mval = mk.mark if mk else None
-        if mval == "not_now" and today is not None and recheck_due(mk, today):
-            mval = None  # the re-check date has come: back on the list
+        crits = list(r.get("criteria") or [])
+        watch = watch_state(mk, r, job_id, (fired or {}).get(pid)) if mval == "not_now" else None
+        if mval == "not_now" and today is not None and (recheck_due(mk, today) or (watch and watch["fired"])):
+            mval = None  # the re-check date has come, or the watched criterion has another answer: back on the list
         status = derive_status(tier, registry.get(pid), mval, seen.get(pid) == job_id)
         if not include_closed and status in ("closed", "enrolled", "set_aside"):
             continue
-        crits = list(r.get("criteria") or [])
-        fit = fit_facts(crits, crit)
+        fit = fit_facts(crits, crit, todo) if fits is None else kept_fit(r, crit, todo, fits)
         nxt = r.get("next_appointment") or ""
         when = None
         if nxt:
@@ -478,11 +514,21 @@ def weekly_rows(
                 "changed": list(r.get("changed") or []),
                 "mark": mk,
                 "criteria": crits,
+                "watch": watch,
             }
         )
     order = {"high": 0, "review": 1}
-    rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2), x["pid"]))
-    return rows
+    rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2),
+                             second_opinion_differs(x["criteria"]), x["pid"]))  # fmt: skip
+    return flagged_last(
+        rows, lambda x: x["visit_text"][:10], lambda x: x["tier"] == "review", lambda x: bool(x["fit"].against)
+    )
+
+
+def second_opinion_differs(crits: Sequence[Mapping[str, Any]]) -> bool:
+    """A criterion of the row stands on the judge's answer that the second model did not confirm (BENCH-2 §2): the
+    row sorts below the unflagged ones of its tier, never off the list."""
+    return any((c.get("evidence") or {}).get("reason") == Reason.SECOND_OPINION_DIFFERS.value for c in crits)
 
 
 # ---------------------------------------------------------------------------------------------- amendment re-screen
@@ -634,6 +680,68 @@ def recheck_due(mk: Any, today: date) -> bool:
         return True
 
 
+WATCH = " watch:"  # a "Not now" reason: "<re-check date> watch:<criterion id>=<its answer when marked>"
+
+
+WATCH_VERDICTS = ("pass", "fail", "unknown", "pending_human")
+
+
+def not_now_reason(when: date, watch: str, row: Mapping[str, Any]) -> str:
+    """The stored reason of a "Not now" mark (lane K watch, H3-PROD §2 row 2): the re-check date first, so every
+    reader of the date (:func:`recheck_due`, the person state) reads it as before; with ``watch`` also the criterion
+    the PI waits on and its answer. ``watch`` is ``<criterion id>=<answer>`` as the page showed it (so a run that
+    lands between the view and the mark is not taken as what the PI saw), or a bare criterion id (the answer on the
+    list the mark is made from). A criterion not on the row, or an answer that is no verdict, is refused."""
+    if not watch:
+        return when.isoformat()
+    cid, eq, shown = watch.partition("=")
+    was = next((str(c.get("verdict") or "") for c in row.get("criteria") or [] if str(c.get("id")) == cid), None)
+    if not was or (eq and shown not in WATCH_VERDICTS):
+        raise ValueError("the watched criterion is not on this patient's list row")
+    return f"{when.isoformat()}{WATCH}{cid}={shown if eq else was}"
+
+
+def watch_of(mk: Any) -> tuple[str, str] | None:
+    """(criterion id, answer when marked) of a watch mark, else None."""
+    _, sep, rest = str(getattr(mk, "reason", "") or "").partition(WATCH)
+    cid, eq, was = rest.partition("=")
+    return (cid, was) if sep and eq and cid else None
+
+
+def watch_state(mk: Any, row: Mapping[str, Any], job_id: str, fired_at: str | None = None) -> dict[str, Any] | None:
+    """A watch mark against this list's row: ``fired`` when the criterion has another answer now (a criterion no
+    longer on the row has no answer: fired too, so a changed protocol never hides the patient for good), or when a
+    run after the mark changed it (``changed``), so an answer that changed and changed back in that run still shows.
+    Two runs between two looks that change it and change it back leave the patient set aside until the re-check
+    date (ponytail: no stored watch history). Once fired it stays fired (``fired_at``: the ``at`` of the mark it fired
+    for, ``SiteStore.watch_fired``): a later run that reads the first answer again does not take the patient off
+    before the PI acts; a replaced or withdrawn mark has another ``at`` or none."""
+    w = watch_of(mk)
+    if w is None:
+        return None
+    now = next((str(c.get("verdict") or "") for c in row.get("criteria") or [] if str(c.get("id")) == w[0]), "")
+    rerun = w[0] in (row.get("changed") or []) and getattr(mk, "job_id", None) != job_id
+    return {"cid": w[0], "was": w[1], "now": now, "fired": now != w[1] or rerun or fired_at == mk.at}
+
+
+def new_firings(rows: Sequence[Mapping[str, Any]], marks: Mapping[str, Any], kept: Mapping[str, str]) -> dict[str, str]:
+    """pid -> ``at`` of the current mark, for each row whose watch fires now and whose kept firing is not that mark's
+    (none kept, or one of a mark the PI has since replaced); the one helper both candidate pages keep firings with."""
+    return {
+        r["pid"]: marks[r["pid"]].at
+        for r in rows
+        if (r.get("watch") or {}).get("fired") and kept.get(r["pid"]) != marks[r["pid"]].at
+    }
+
+
+def worklists_for(rows: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    """The worklists a study's page offers: no clinic list when no listed patient has a visit (the site exports no
+    appointment view), so nobody reads an empty visit list as "nobody is coming"."""
+    if any(r.get("visit") is not None for r in rows):
+        return WORKLISTS
+    return tuple(k for k in WORKLISTS if k != "clinic")
+
+
 def week_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     out = {s: 0 for s in STATUS_ORDER}
     for r in rows:
@@ -645,7 +753,7 @@ def week_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
 
 def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta]) -> list[dict[str, Any]]:
     """Every criterion of one patient for the patient page: protocol text, result, verbatim dated evidence, source."""
-    out = []
+    out: list[dict[str, Any]] = []
     order = {c: i for i, c in enumerate(crit)}
     for v in sorted(criteria, key=lambda v: order.get(str(v.get("id")), 10_000)):
         cid = str(v.get("id"))
@@ -665,6 +773,8 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
                 "reason": ev.get("reason"),
+                "against": notes_against(v),  # INT-S-B: the page says "a note may speak against", with the quotes below
+                "needs": ev.get("needs"),  # H-7: the view, field and concept the site must supply for an open answer
                 # both quotes (D-120); each says where it came from: the test model, a recorded run or a synthetic
                 # example (T-515)
                 "opinions": [view(o, test_model_in_use()) for o in ev.get("opinions") or [] if o.get("quote")],
@@ -675,6 +785,38 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
         )
         verdicts = {o.get("verdict") for o in ev.get("opinions") or [] if o.get("quote")}
         out[-1]["disagree"] = len(verdicts) > 1  # the two checks differ (T-515)
+        out[-1]["sides"] = evidence_sides(v, out[-1]["coded"], out[-1]["opinions"])
+    return out
+
+
+def evidence_sides(
+    v: Mapping[str, Any], coded: Mapping[str, Any], opinions: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """The evidence of one criterion as two lists, **for** and **against** eligibility (MATCH-ARCH 1(f)); each keeps the
+    coded records and the quotes from the notes apart, newest first. "For" is the side of ``pass`` (an inclusion met,
+    an exclusion not present) and "against" the side of ``fail``, whatever the criterion's kind. The coded records stand
+    on the side of the criterion's own verdict; a criterion with no answer has records that decide nothing and they stay
+    in the evidence column, not on a side. Each model's quote stands on its own side (``opinions``), else the verdict's
+    quote on the verdict's. A held-back "not met" (one model's, or given while notes could not exclude) is still shown
+    on the against side: it is evidence, and it excludes nobody. ``conflict``: both sides hold evidence."""
+    word = str(v.get("verdict") or "")
+    ev = v.get("evidence") or {}
+    side_of = {"pass": "for", "fail": "against"}
+    out: dict[str, Any] = {s: {"coded": [], "notes": []} for s in ("for", "against")}
+    if word in side_of:
+        out[side_of[word]]["coded"] = list(coded.get("lines") or [])
+    if opinions:
+        for o in opinions:
+            if o.get("quote") and o.get("verdict") in side_of:
+                out[side_of[str(o["verdict"])]]["notes"].append(
+                    {"quote": o["quote"], "date": o.get("quote_date") or "", "role": o.get("role") or ""}
+                )
+    elif ev.get("quote") and word in side_of:
+        out[side_of[word]]["notes"].append({"quote": ev["quote"], "date": ev.get("quote_date") or "", "role": ""})
+    for s in ("for", "against"):
+        out[s]["notes"].sort(key=lambda n: n["date"], reverse=True)  # newest first, undated last
+    out["any"] = any(out[s][k] for s in ("for", "against") for k in ("coded", "notes"))
+    out["conflict"] = all(out[s]["coded"] or out[s]["notes"] for s in ("for", "against"))
     return out
 
 
@@ -690,12 +832,43 @@ def n_open(row: Mapping[str, Any]) -> int:
     return len(getattr(fit, "open", []) or [])
 
 
+def closeness_key(row: Mapping[str, Any], crit: Mapping[str, CriterionMeta]) -> tuple[Any, ...]:
+    """The "closest to eligible" order of one list row (MATCH-ARCH 1(e), :mod:`tb_common.rank_key`): tier, open
+    criteria fewest first, how hard they are to close, evidence for, then the visit and the pseudonym. An order, not a
+    probability; it drops nobody."""
+    return stored_rank_key(
+        row.get("tier"),
+        row.get("criteria") or [],
+        {cid: m.cls for cid, m in crit.items()},
+        row.get("visit_text"),
+        str(row.get("pid") or ""),
+    )
+
+
+def coded_complete(row: Mapping[str, Any], crit: Mapping[str, CriterionMeta]) -> tuple[int, int]:
+    """``(answered, total)`` of the criteria the records answer, for the row header (F17 5b): a count, never a tier.
+    The total is the study's structured criteria, so one the row holds no verdict for is still one of them."""
+    verdicts = row.get("criteria") or []
+    classes = {cid: m.cls for cid, m in crit.items()}
+    answered, _ = coded_counts(verdicts, classes)
+    return answered, sum(c == "structured" for c in classes.values())
+
+
+def n_not_documented(row: Mapping[str, Any]) -> int:
+    """How many criteria of the row are exclusions the notes do not mention (BENCH-2 §2): still open, but sorted as
+    lighter than a real unknown, below the fully decided rows."""
+    return sum(1 for c in row.get("criteria") or [] if (c.get("evidence") or {}).get("reason") == "not_documented")
+
+
 def worklist_sorted(rows: Sequence[dict[str, Any]], key: str) -> list[dict[str, Any]]:
     """The clinic list stays in visit order; every other list puts the fewest unknowns first (the patients closest
     to a decision), then the visit (none last), then the pseudonym (D-120)."""
     if key == "clinic":
         return list(rows)
-    return sorted(rows, key=lambda r: (n_open(r), r["visit"] is None, r["visit_text"] or "9", r["pid"]))
+    return sorted(rows, key=lambda r: (n_open(r) - min(n_not_documented(r), n_open(r)),
+                                       min(n_not_documented(r), n_open(r)),
+                                       second_opinion_differs(r.get("criteria") or []),
+                                       r["visit"] is None, r["visit_text"] or "9", r["pid"]))  # fmt: skip
 
 
 def paged(rows: Sequence[dict[str, Any]], page: int, size: int = PAGE_SIZE) -> tuple[list[dict[str, Any]], int, int]:

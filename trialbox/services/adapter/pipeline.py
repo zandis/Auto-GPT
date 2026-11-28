@@ -22,11 +22,12 @@ from tb_common import chartno, feedguard, labvalue, refdata, site_needs
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.generation import Generation, site_today
 from tb_common.site_profile import Profile as SiteProfile
 from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
-from tb_contracts import ConnectorReport, IngestReport, RebuildResult, ValidationSummary, dump
-from tb_contracts.landing import Severity
+from tb_contracts import ConnectorReport, IngestReport, RebuildResult, StageTimes, ValidationSummary, dump
+from tb_contracts.landing import ControlTotals, Equation, Severity
 
 from adapter import governance
 from adapter.instants import to_site_offset
@@ -44,14 +45,17 @@ from adapter.ndjson import (
 )
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
+from adapter.stage_times import Stages
 from adapter.validate.validator import (
     Hl7Validator,
     Sampler,
     StructuralValidator,
     capped_types,
     missing_required,
+    no_birthdate_hold,
     sample_cap,
     sample_size,
+    validate_sample,
 )
 
 log = logging.getLogger("adapter")
@@ -513,7 +517,7 @@ def run_ingest(
     """One night's ingest. Any exception on the way (an unreadable source, a mapping error, a full disk) writes one
     ``ingest.failed`` audit event with the error's type, the step and the table, then propagates (T-615b, DATA-003).
     The event holds no message text: a parser's message can quote a cell."""
-    at: dict[str, str | None] = {"step": "start", "table": None}
+    at = Stages("start")  # OPT-1 §6: the stage dict, which also times each stage
     try:
         with contextlib.ExitStack() as cleanup:  # T-692: the night's spool goes, whatever happens
             return _run_ingest(
@@ -537,7 +541,7 @@ def run_ingest(
                 night_event(
                     cfg,
                     "ingest.failed",
-                    snapshot=snapshot or datetime.now(ZoneInfo(cfg.tz)).date().isoformat(),
+                    snapshot=snapshot or site_today(cfg.tz).isoformat(),
                     source=source_kind,
                     passed=False,
                     held=False,
@@ -563,7 +567,7 @@ def _run_ingest(
     cfg: AdapterConfig,
     source_kind: str,
     source_path: str,
-    at: dict[str, str | None],
+    at: Stages,
     *,
     since: str | None,
     snapshot: str | None,
@@ -575,9 +579,11 @@ def _run_ingest(
 ) -> IngestReport:
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
-    snap = snapshot or started.date().isoformat()
+    today = site_today(cfg.tz)
+    snap = snapshot or today.isoformat()
     try:  # D-529: before a row, a folder or a lake build exists for it
-        refuse_future_night(snap, started.date())
+        refuse_future_night(snap, today)
+        refuse_older_night(cfg, snap, today)  # R1+1 walk: a night the box is past never runs part-way
     except FutureNight as exc:
         log.error("night refused: %s", exc)
         if cfg.audit_dir:  # as a refused site key: the reason is in the audit, not only in the caller's hands
@@ -585,7 +591,15 @@ def _run_ingest(
                 "ingest.failed",
                 snapshot=snap,
                 actor="adapter",
-                detail={"source": source_kind, "refused": "future_night", "reason": str(exc)},
+                detail={
+                    "source": source_kind,
+                    "reason": str(exc),
+                    "refused": "older_night"
+                    if isinstance(exc, OlderNight)
+                    else "held_night_unread"
+                    if isinstance(exc, HeldNightUnread)
+                    else "future_night",
+                },
             )
         raise
     try:  # NEW-B-38 (D-679): before anything is read or written, the room for tonight's snapshot
@@ -619,6 +633,13 @@ def _run_ingest(
                 detail={"source": source_kind, "refused": "site_key", "reason": str(exc)},
             )
         raise
+    from adapter.publish import recover_all, refuse_split
+
+    # P-03 (review R5): a FHIR put-back that is owed is done, or refuses the night by its name
+    # (FhirRestoreOutstanding), before this night reads its source or touches any store; so is a night that would
+    # move the FHIR store or the lake alone (review F1: NightRefused)
+    recover_all(cfg)
+    refuse_split(cfg, load_fhir=load_fhir, rebuild_lake=rebuild_lake)
     errors: list[str] = []
     # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
     # is scratch on the lake volume (``lake:tmp``), removed when the night ends
@@ -635,6 +656,7 @@ def _run_ingest(
                 identity_conflicts.add(pid)
 
     against_served: set[str] = set()  # H34-06: chart numbers whose name or national id differ from the served one
+    merge_recorded: list[dict[str, Any]] = []  # #1561 P01: recorded merges applied over differing demographics
     patient_pairs: list[tuple[str, str]] = []
     identities: list[tuple[str, dict[str, str]]] = []
     fhir_profiles = ""
@@ -652,11 +674,10 @@ def _run_ingest(
     contracts = (
         governance.load_contracts(cfg.contracts_dir) if cfg.contracts_dir and source_kind != "fhir_bulk" else None
     )
-    control_totals = (
-        governance.read_control_totals(Path(source_path))
-        if contracts is not None and source_kind == "csv" and not since
-        else None
+    control_totals = (  # E2E P-25: read whenever the export ships the file, with or without data contracts
+        governance.read_control_totals(Path(source_path)) if source_kind == "csv" and not since else None
     )
+    recon: list[Equation] = []  # without contracts: the totals counted as the rows stream past
     checks: list[governance.TableCheck] = []
     inputs: list[Path] = []
     gate_facts = governance.NightFacts(night=snap, current_before=current_before)
@@ -690,7 +711,17 @@ def _run_ingest(
         bulk = FhirBulkSource(Path(source_path))
         inputs += [p for p in Path(source_path).iterdir() if p.is_file()]
         timed = read_times.timed(lambda r: str(r.get("resourceType") or "?"), bulk.resources())
-        for r in pseudonymise_bulk(timed, key):
+        bulk_ids: dict[str, dict[str, str]] = {}  # H34-06 review P02: each Patient id's identifiers, by system
+
+        def ids_seen(rs: Iterator[Resource]) -> Iterator[Resource]:
+            for r in rs:
+                if r.get("resourceType") == "Patient":
+                    pid = bulk_id(key, "Patient", str(r.get("id")))
+                    if _two_people_seen(bulk_ids, pid, _identifiers(r)):
+                        identity_conflicts.add(pid)
+                yield r
+
+        for r in pseudonymise_bulk(ids_seen(timed), key):
             to_spool(r)
         for rtype, rid in bulk.deleted():
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
@@ -775,6 +806,9 @@ def _run_ingest(
             got = read_times.timed(table, src.rows(table, src_name, delta, since_t))
             if contracts is not None:
                 got = _kept(got, raw)
+            elif control_totals and (ct := control_totals.get(src_name)) is not None:
+                read_back: list[ControlTotals] = []
+                got = governance.counted(got, ct.patient_column, ct.delta_column, read_back)
             others = [0]  # CGRD-A2 (D-813, lane E's hunk): rows of a shared source that are another table's
 
             def own(rows_in: Any, t: str = table, n: list[int] = others) -> Iterator[Row]:
@@ -790,6 +824,8 @@ def _run_ingest(
             if (pv := tspec.get("pivot")) is not None:
                 stream = pivot_rows(stream, pv, str(tspec.get("key") or ""), spool.root / f".pivot-{table}", pivoted)
             rows = _TableRows.write(spool.root / f".rows-{table}", stream)
+            if contracts is None and control_totals and (ct := control_totals.get(src_name)) is not None:
+                recon += governance.reconcile(table, ct, read_back[0])  # E2E P-25
             if isinstance(where_dir := getattr(src, "directory", None), Path):
                 inputs.append(where_dir / f"{src_name}.csv")
             why = quarantine_reason(src, src_name)
@@ -855,7 +891,7 @@ def _run_ingest(
                     ]
                     names: dict[str, dict[str, str]] = {}  # H34-06: one chart number, two names or national ids
                     for pid, said in identities:
-                        if _two_people_seen(names, pid, said):
+                        if _two_people_seen(names, pid, _named(said)):
                             identity_conflicts.add(pid)
             # STD-025 (T-615a): a row the mapping cannot read is rejected and counted by reason (its values left out);
             # the table goes on, and the night is held only when rejects pass REJECT_MAX_PCT % of the table's rows
@@ -930,6 +966,12 @@ def _run_ingest(
         ]
         if bad:
             errors.append(f"data contracts: {'; '.join(bad)}")
+    elif recon:  # E2E P-25: the export's control totals hold the night as they do with contracts
+        gate_facts.reconciliation = recon
+        bad = [f"{e.table}: {e.reason.value if e.reason else ''} ({e.name}: export {e.lhs}, read {e.rhs})"
+               for e in recon if e.verdict == "fail"]  # fmt: skip
+        if bad:
+            errors.append(f"control totals: {'; '.join(bad)}")
     aliases: dict[str, str] = {}
     from adapter.publish import finish_served
 
@@ -950,9 +992,23 @@ def _run_ingest(
             # only when a night is published); the served NDJSON carries neither
             # ponytail: one look-up per patient; a bulk read if it ever shows in the night's timings
             for pid, said in identities:
-                if _two_people(pm.identity(pid) or {}, said):
+                if _two_people(pm.identity(pid) or {}, _named(said)):
                     against_served.add(pid)
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
+            # ruling (#1561, P01): a recorded merge (reason and ticket) is the operator's attested decision and
+            # overrides differing demographics, never silently: the night's audit event and its page say so.
+            # ponytail: the surviving patient's served birth date and sex are not read here (its name and national
+            # id are, from the pid map); tonight's are when it arrives tonight
+            ident_by, tickets = dict(identities), pm.tickets()
+            for old, new in sorted(aliases.items()):
+                if old in patient_who and _two_people(
+                    {**patient_who[old], **_named(ident_by.get(old, {}))},
+                    {**patient_who.get(new, {}), **_named(ident_by.get(new) or pm.identity(new) or {})},
+                ):
+                    merge_recorded.append({"pids": [old, new], "ticket": tickets[old], "said": MERGE_RECORDED})
+            if merge_recorded:
+                log.warning("patient identity: %d recorded chart merge(s) applied: %s", len(merge_recorded),
+                            MERGE_RECORDED)  # fmt: skip
         finally:
             pm.close()
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
@@ -966,6 +1022,8 @@ def _run_ingest(
     if rerun:
         out_dir = cfg.lake_dir / RERUN_DIR / snap
         shutil.rmtree(out_dir, ignore_errors=True)
+    for name in (IDENTITY_CHECKED, IDENTITY_CONFLICT):  # H34-06 review P03: an earlier attempt's result goes first
+        (out_dir / name).unlink(missing_ok=True)
     prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
     last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
     base = snapshot_dir(cfg.lake_dir, last_good) if (since and last_good) else None
@@ -1113,13 +1171,19 @@ def _run_ingest(
             f"patient. The night is held; {then} (the pseudonymous ids are in {IDENTITY_CONFLICT} in the night's "
             "folder)"
         )
-    else:  # an earlier attempt of this night may have left one
-        (out_dir / IDENTITY_CONFLICT).unlink(missing_ok=True)
+    # review M1: the night says the identity check ran on it, written last and whole (review P03); an accept of a
+    # held night without it (an earlier release's, or a run that stopped before here) is refused, and so is one after
+    # another night was served than the one compared with (review P04; adapter.publish.refuse_two_people)
+    checked = out_dir / f".{IDENTITY_CHECKED}.tmp"
+    checked.write_text(json.dumps({"snapshot": snap, "against": last_good, "current": _current(cfg.lake_dir)}) + "\n",
+                       encoding="utf-8")  # fmt: skip
+    checked.replace(out_dir / IDENTITY_CHECKED)
     # dataflow review P0-2 (WS-08.1): validate first. fhir-store and the lake are loaded, and CURRENT moves, only for
     # a night that passed; a failed night is *held*: its NDJSON stays for the steward to look at, the box keeps
     # serving the previous snapshot
     at["step"] = "validate"
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
+    vres = None
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
         # T-693 (D-457): the sample is each type's share, at least 3 and at most a cap derived from the gate's own
@@ -1127,7 +1191,7 @@ def _run_ingest(
         picked = night.sample.result() if night.sample is not None else []
         cut = capped_types(night.kept, cfg.sample_fraction, cap=cap)
         try:
-            vres = chosen.validate(picked)
+            vres = validate_sample(chosen, picked)
             vsum = ValidationSummary(
                 sampled=vres.sampled,
                 errors=vres.errors,
@@ -1136,7 +1200,18 @@ def _run_ingest(
                 messages=vres.messages,
                 sample_cap=cap,
                 capped=cut or None,
+                patients_sampled=vres.patients,
+                no_birthdate=vres.no_birthdate,
             )
+            if vres.no_birthdate:
+                log.info(
+                    "%d of %d sampled patients have no birth date: age criteria are unknown for them",
+                    vres.no_birthdate,
+                    vres.patients,
+                )
+            if hold := no_birthdate_hold(vres):
+                errors.append(hold)
+                validation_msgs.append(hold)
         except Exception as exc:
             from adapter import failure
 
@@ -1179,9 +1254,18 @@ def _run_ingest(
         (out_dir / sp.RECORD).write_text(
             json.dumps(record, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
         )
-    if vsum.error_pct > cfg.validation_max_pct:
-        errors.append(f"validation error rate {vsum.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
-        validation_msgs.append(errors[-1])
+    baseline_said: list[str] = []
+    if vres is not None:  # TOL-HOLDS (SAFE-1 A5): over the ceiling, judged against the classes a steward accepted
+        from adapter import validation_baseline
+
+        validation_baseline.write_night(out_dir, validation_baseline.rates(vres))
+        v_held, baseline_said = validation_baseline.judge(
+            validation_baseline.load(cfg.lake_dir), vres, cfg.validation_max_pct
+        )
+        errors += v_held
+        validation_msgs += v_held
+        for line in baseline_said:
+            log.warning("%s", line)
     if psum is not None and psum.error_pct > cfg.validation_max_pct:
         first = f": {psum.messages[0]}" if psum.messages else ""
         errors.append(
@@ -1219,6 +1303,9 @@ def _run_ingest(
     at["step"] = "report"
     passed = not errors
     ended = datetime.now(zone)
+    # OPT-1 §6: seconds and peak memory per stage. The report carries its own stages, so the report stage ends here:
+    # it excludes serialising and writing the report, the gate, the pruning and the ledger event
+    stages = at.summary()
     # NEW-B-20 (D-661): how long the night took, for the host's doctor (the Windows update window is placed outside
     # it). ``finished``: it ended published, the whole of a night; a held or failed night measures only its part
     from adapter import night_runs
@@ -1250,6 +1337,7 @@ def _run_ingest(
         omop=omop_load,
         fhir_unread=night.unread.result(),  # T-616: the inbound contract, what each resource carries unread
         connector=ConnectorReport.model_validate(read_times.summary(source_kind)),  # 10E-9: per message, per table
+        stages={k: StageTimes.model_validate(v) for k, v in stages.items()},  # OPT-1 §6
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
@@ -1273,7 +1361,8 @@ def _run_ingest(
     sorted_out |= {e for e in errors if e.startswith("night held: ")}
     sorted_out |= {f"{t}: {w}" for t, w in quarantined.items()}
     gate_facts.file_quarantine = quarantined
-    gate_facts.completeness, gate_facts.validation, gate_facts.overrides = completeness_msgs, validation_msgs, overrides
+    gate_facts.completeness, gate_facts.validation = completeness_msgs, validation_msgs
+    gate_facts.overrides = [*overrides, *baseline_said]
     gate_facts.other = [e for e in errors if e not in sorted_out]
     gate_facts.current_after = _current(cfg.lake_dir)
     gate = governance.gate_record(gate_facts, datetime.now(zone))
@@ -1311,6 +1400,7 @@ def _run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
+                "stages": stages,  # OPT-1 §6: seconds and peak memory per stage, as in the report
                 "publish": publish_steps,  # T-723: each publish step's state (None: the night was held at the gate)
                 "unit_defaults_applied": defaulted,
                 "site_profile": profile_said,  # 10B-6 (D-1233): id, version, digest and the coverage counts
@@ -1318,6 +1408,7 @@ def _run_ingest(
                 "presence_words_read": presence_read,
                 "instants_to_site_offset": shifted,
                 "drop_override": "; ".join(overrides) or None,
+                "validation_baseline": baseline_said or None,  # TOL-HOLDS: a night the accepted baseline let through
                 # T-611: what the readiness page shows for a held night (tables only, never a row)
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
@@ -1345,12 +1436,14 @@ def _run_ingest(
                     else None
                 ),
                 "aliased": aliased or None,
+                # #1561 P01: the recorded merges applied over differing demographics (pseudonymous pids, ticket)
+                "merge_recorded": merge_recorded or None,
                 # T-106: the dual write into OMOP and the foreign-key checks after it (None: the flag is off)
                 "omop": (
                     {
                         k: v
                         for k, v in dump(omop_load).items()
-                        if k in ("state", "seconds", "counts", "relational_failed")
+                        if k in ("state", "seconds", "counts", "relational_failed", "dqd")
                     }
                     if omop_load is not None
                     else None
@@ -1681,37 +1774,88 @@ POC_ENVS = ("DEV", "TEST", "VALIDATION")
 def refuse_site_needs(cfg: AdapterConfig, snap: str, source_kind: str) -> None:
     """U-5 (D-1280, the integrator's go on #639): the first real-data run, at any time, is the step that needs the
     data source, the chart-number rule, the backup target, key and alarm, the audit share and the hospital's name.
-    On a PRODUCTION box a run with any of them missing, not usable or a stand-in is refused, and the refusal is
-    audited (``ingest.failed``, ``refused: site_needs``, the keys only); on a PoC box the run goes on and the items
-    are logged. The backup key is on the host only: the host's ``host-given.json`` says whether it is there."""
+    SAFE-1 A3: the run is never refused for them (its source is the hospital's own system and the run can be made
+    again); every box goes on and logs the items, and a PRODUCTION box also audits them (``ingest.site_needs``, the
+    keys only) for the page "Information still needed". The backup is asked where records nobody can make again
+    begin: a study opening (``study_records``). The backup key is on the host only: the host's ``host-given.json``
+    says whether it is there. ``SiteNeeded`` stays for the callers that name it."""
     from tb_common.config import environment_name
 
+    production = environment_name(os.environ) not in POC_ENVS and not cfg.synthetic_source
     g = site_needs.gate(
         "first_real_run",
-        production=environment_name(os.environ) not in POC_ENVS and not cfg.synthetic_source,
+        production=False,  # SAFE-1 A3: warns on every box
         env=os.environ,
         settings=cfg.site_settings,
         files=site_needs.mounted_files(),
         stand_ins=site_needs.read_mounted_stand_ins(),
     )
-    if not g.refused:
-        if g.warning:
-            log.warning("run goes on with stand-ins: %s", ", ".join(n.key for n, _ in g.warning))
+    if not g.warning:
         return
-    msg = g.message("en")
-    log.error("run refused: %s", msg)
-    if cfg.audit_dir:
+    log.warning("run goes on with stand-ins: %s", ", ".join(n.key for n, _ in g.warning))
+    if production and cfg.audit_dir:
         open_audit(cfg.audit_dir, cfg.tz).append(
-            "ingest.failed",
+            "ingest.site_needs",
             snapshot=snap,
             actor="adapter",
-            detail={
-                "source": source_kind,
-                "refused": "site_needs",
-                "needs": {n.key: st for n, st in g.blocking},
-            },
+            detail={"source": source_kind, "warned": "site_needs", "needs": {n.key: st for n, st in g.warning}},
         )
-    raise SiteNeeded(msg)
+
+
+class OlderNight(FutureNight):
+    """A night given by hand older than a night the box already holds: refused as a future night is, before anything
+    is read or written (``FutureNight``'s handlers say "refused, nothing was read or written")."""
+
+
+class HeldNightUnread(FutureNight):
+    """A night given by hand that cannot be judged: the box has a trial database and its generation ledger could not be
+    read. Refused as a future night is, before anything is read or written (review R2: a read that failed is not a
+    FHIR store that holds nothing; the FHIR load's own check would refuse it only after the run had begun)."""
+
+
+def held_night(cfg: AdapterConfig) -> tuple[str, str] | None:
+    """The newest night the box holds and where: the lake's served one (``CURRENT``) or the FHIR store's (the
+    generation ledger, when there is a trial database to ask). None: neither holds a night. A ledger that cannot be
+    read raises ``HeldNightUnread`` (logged), never "nothing held"."""
+    held: list[tuple[Generation, str]] = []
+    with contextlib.suppress(OSError, ValueError):
+        held.append((Generation.parse((cfg.lake_dir / "CURRENT").read_text(encoding="utf-8").strip()), "the lake"))
+    if os.environ.get(DB_URL_ENV):
+        try:
+            from datacore.generations import Built
+
+            with Built() as book:
+                st = book.state("fhir")
+        except Exception as exc:  # an ImportError too: an image without datacore cannot judge the night either
+            log.warning("older-night check: FHIR generation not read: %s", exc)
+            raise HeldNightUnread(
+                f"the FHIR store's newest night could not be read ({type(exc).__name__}: {exc}), so a night given by "
+                f"hand that is not the site's date cannot be judged: leave --snapshot out (the site's date is taken), "
+                f"or run it again when the trial database answers"
+            ) from exc
+        if st is not None:
+            held.append((st[0], "the FHIR store"))
+    if not held:
+        return None
+    gen, where = max(held)
+    return gen.snapshot, where
+
+
+def refuse_older_night(cfg: AdapterConfig, snap: str, today: date) -> None:
+    """A night named by hand (``--snapshot``) that is not the site's today, and older than a night the box holds, is
+    refused here, before any step. Before, it ran part-way: the FHIR load refused it ("fhir is built from <site date>;
+    a build from the older <date> is refused"), the lake step took it, and the run died on the publish record. The
+    usual cause is a date written in UTC (``date -u +%F``) before midnight UTC at a site east of it. The same night
+    again (a re-run of the served night) and a name that is not a date are not judged."""
+    if snap == today.isoformat() or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", snap):
+        return
+    held = held_night(cfg)
+    if held is not None and snap < held[0]:
+        raise OlderNight(
+            f"--snapshot {snap} is not the site's date ({today.isoformat()} in {cfg.tz}) and {held[1]} already holds "
+            f"the newer night {held[0]}: a night older than one the box holds is never published. Leave --snapshot "
+            f"out (the site's date is taken), or give {today.isoformat()}; never a UTC date (date -u)"
+        )
 
 
 def refuse_future_night(snap: str, today: date) -> None:
@@ -1765,11 +1909,29 @@ REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of 
 UNMAPPED_CODES = "unmapped_codes.json"  # NEW-DIN-6 (D-580): every code no look-up knows, with its row count
 COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
 IDENTITY_CONFLICT = "identity_conflict.json"  # H34-06: the pids that arrived as two people (tonight / against)
+IDENTITY_CHECKED = "identity_checked.json"  # H34-06 review M1: the identity check ran on this night
 _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of who the person is
+#: #1561 P01: what the night says of a recorded merge applied over differing demographics
+MERGE_RECORDED = "demographics differ: merge recorded"
+_NAMED = ("name", "national_id")  # H34-06 review B1: what of a mapping's identity says who (not a phone)
 
 
 def _who(r: Resource) -> dict[str, str]:
     return {k: str(r[k]) for k in _WHO if r.get(k)}
+
+
+def _named(said: dict[str, str]) -> dict[str, str]:
+    return {k: said[k] for k in _NAMED if k in said}
+
+
+def _identifiers(r: Resource) -> dict[str, str]:
+    """H34-06 review P02: a bulk Patient's identifiers (the national id among them) by system, read before
+    :func:`pseudonymise_bulk` drops them; never written anywhere."""
+    by: dict[str, list[str]] = {}
+    for i in r.get("identifier") or []:
+        if isinstance(i, dict) and i.get("value"):
+            by.setdefault(f"identifier|{i.get('system') or ''}", []).append(str(i["value"]))
+    return {k: json.dumps(sorted(set(v))) for k, v in by.items()}  # #1561 P03: "|" joins collide
 
 
 def _two_people_seen(seen: dict[str, dict[str, str]], pid: str, said: dict[str, str]) -> bool:

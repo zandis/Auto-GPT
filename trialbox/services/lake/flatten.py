@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -256,7 +257,7 @@ def _value(q: dict[str, Any], text: Any) -> dict[str, Any]:
 def _ref_id(ref: dict[str, Any] | None) -> str | None:
     if not ref or "reference" not in ref:
         return None
-    return str(ref["reference"]).split("/")[-1]
+    return re.sub(r"/_history/[^/]+$", "", str(ref["reference"])).split("/")[-1]  # a version is not another id
 
 
 # T-616 (STD-012): an inbound Duration in these UCUM units gives an order's end from its start
@@ -631,7 +632,7 @@ class Flattener:
         end = self.d(period.get("end"))
         days = _supply_days(disp.get("expectedSupplyDuration"))
         if end is None and start is not None and days is not None:
-            end = start + timedelta(days=days)
+            end = start + timedelta(days=max(days - 1, 0))  # INT-R1: the last covered day
         return start, end
 
     def medication(self, r: Resource) -> Row:

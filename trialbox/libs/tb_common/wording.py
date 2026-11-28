@@ -110,6 +110,12 @@ ALLOWED: tuple[str, ...] = tuple(
             "除外基準",  # ja: the protocol's "exclusion criteria" heading (a kind of criterion, not a patient outcome)
             "排除條件",  # zh-TW: the same heading
             "排除標準",  # zh-TW: the same heading, in the form some protocols use
+            # INT-S-B (D-1072): the denial said beside a note that may speak against a criterion (the patient stays
+            # on the list). Each says the patient is NOT excluded: the opposite of a verdict.
+            "Not excluded.",
+            "None is excluded.",
+            "除外していません",
+            "未排除",
         },
         key=len,
         reverse=True,

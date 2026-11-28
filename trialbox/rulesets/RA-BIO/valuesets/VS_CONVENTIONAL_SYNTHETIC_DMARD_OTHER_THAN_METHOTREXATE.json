@@ -20,6 +20,1368 @@
    }
   ]
  },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EB"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC01"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC03"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC04"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC05"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC06"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC07"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC08"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC09"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC1"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EC9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07ED"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EE"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EF"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EG"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EH"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EI"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EJ"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EK"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EL"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EM"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EN"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EO"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EP"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EQ"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07ER"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07ES"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07ET"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EU"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EV"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EW"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EX"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EY"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07EZ"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07G"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07H"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07I"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07J"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07K"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07L"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07M"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07N"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07O"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07P"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07Q"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07R"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07S"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07T"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07U"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07V"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07W"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07Y"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A07Z"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A17"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A18"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A19"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D05"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D12"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D13"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D14"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D15"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D16"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D17"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D18"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D19"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|D9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|E"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|F"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|I"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01A"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01H"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01I"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01J"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01K"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01L"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01N"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01O"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01P"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01Q"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01S"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01T"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01U"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01V"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01W"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01Y"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J01Z"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J03"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J08"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J09"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J1"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|J9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|K"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01A"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA02"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA03"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA04"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA05"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA06"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA07"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA08"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA09"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA1"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BA9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BB"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BC"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BD"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BE"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BF"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BG"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BH"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BI"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BJ"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BK"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BL"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BM"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BN"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BO"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BP"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BQ"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BR"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BS"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BT"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BU"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BV"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BW"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BX"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BY"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01BZ"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01C"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01D"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01G"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01H"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01I"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01J"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01K"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01L"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01M"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01N"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01O"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01P"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01Q"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01R"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01S"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01T"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01U"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01V"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01W"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01X"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01Y"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01Z"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L03"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AA"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AD"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AE"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AH"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AI"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AK"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AM"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AN"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AO"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AP"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AQ"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AR"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AS"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AT"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AU"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AV"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AW"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX01"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX02"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX04"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX05"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX06"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX07"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX08"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX09"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX1"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AX9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AY"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AZ"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04B"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04C"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04D"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04E"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04F"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04G"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04H"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04I"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04J"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04K"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04L"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04M"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04N"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04O"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04P"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04Q"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04R"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04S"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04T"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04U"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04V"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04W"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04X"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04Y"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04Z"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L05"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L06"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L07"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L08"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L09"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L1"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01C"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01D"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01E"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01F"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01G"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01H"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01I"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01J"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01K"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01L"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01M"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01N"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01O"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01P"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01Q"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01R"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01S"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01T"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01U"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01V"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01W"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01X"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01Y"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M01Z"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M06"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M07"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M08"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M1"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|O"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P01"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P04"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P05"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P06"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P07"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P08"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P09"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P1"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|P9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|Q"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|T"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|U"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|W"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X0"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X1"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X2"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X3"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X4"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X5"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X6"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X7"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X8"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|X9"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|Y"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|Z"
+  }
+ ],
  "id": "RA-BIO-VS-CONVENTIONAL-SYNTHETIC-DMARD-OTHER-THAN-METHOTREXATE",
  "name": "VS_CONVENTIONAL_SYNTHETIC_DMARD_OTHER_THAN_METHOTREXATE",
  "resourceType": "ValueSet",

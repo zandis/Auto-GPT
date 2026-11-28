@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import errno
+import fcntl
 import hashlib
 import io
 import ipaddress
@@ -30,7 +32,7 @@ import time
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
@@ -43,17 +45,18 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common import egress_edge, trusted_proxy
-from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
+from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditFull, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.flowledger import level_of_tag, record_export
+from tb_common.open_reasons import needs_text
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
-from tb_common.verdict_word import shown_of
+from tb_common.verdict_word import against_ids, flagged_last, shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import (
@@ -91,6 +94,7 @@ from console.auth import (
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
+from console.held import Held, HeldUnset
 from console.i18n import CATALOGUES, LANGS, lookup, pick_language, translate
 from console.identity import (
     MUST_CHANGE_OPEN,
@@ -222,6 +226,9 @@ class ConsoleSettings:
     studies: tuple[str, ...] = ()
     # D-192: the second factor, session timeouts and the optional OIDC sign-in (console.identity)
     identity: IdentitySettings = field(default_factory=IdentitySettings)
+    # P2-11 (D7): what one request leaves for the next, across the worker processes (console.held); a tmpfs.
+    # None: unset, the console runs and that store refuses
+    held_dir: Path | None = None
 
     @property
     def sso(self) -> bool:
@@ -273,6 +280,7 @@ class ConsoleSettings:
             ),
             studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
             identity=IdentitySettings.from_env(env, environment, Path(env.get("TB_CONSOLE_DIR") or "/data/console")),
+            held_dir=Path(held) if (held := env.get("TB_CONSOLE_HELD_DIR")) else None,
         )
         # H-137 (the owner's decision, #639 7156806411 item 7): "all" trusted proxies are refused in PRODUCTION
         why = trusted_proxy.refusal(env, environment)
@@ -481,8 +489,9 @@ def build_sponsor_pack(
     if models:
         verifier = f", verifier {models['verifier_model']}" if models.get("verifier_model") else ", no verifier"
         screening = (
-            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers may exclude: "
-            f"{'yes' if models.get('may_block') else 'no'}."
+            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers final: "
+            f"{'yes' if models.get('may_block') else 'no'} (the notes may speak against a criterion; no note answer "
+            "takes a patient off a list)."
         )
     lines = [
         f"TrialBox sponsor pack · {job.ruleset} v{version} · job {job.job_id}",
@@ -567,7 +576,12 @@ def create_app(
     users.idle, users.absolute = settings.identity.idle, settings.identity.absolute  # D-192
     ident = Identity(settings.identity, users, audit, settings.secure_cookie)
     if settings.admin_password_file is not None:
-        made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
+        # P2-11 (D7): every worker process runs this at its start; one at a time, so the second finds the first's
+        # administrator instead of failing on the same name
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        with (settings.data_dir / "bootstrap.lock").open("a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
         if made is not None:
             audit.append("console.user", actor="console:bootstrap", detail={"action": "create", "role": "admin"})
     if settings.pilot and classify is None and settings.gateway_url:
@@ -579,7 +593,8 @@ def create_app(
         )
     if settings.pilot and cascades is None:
         cascades = CascadeRuns(settings.data_dir / "cascade", settings.source_dir)
-    pending: dict[str, _Pending] = {}
+    # P2-11 (D7): seen by every worker process (console.held), as the next request may reach another one
+    pending = Held("proposal", PROPOSAL_TTL, settings.held_dir)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
@@ -587,6 +602,7 @@ def create_app(
     # D-146 (review J-17): a person, not the raw actor id ("console:crc" -> "crc"), on every translated page
     templates.env.filters["who"] = lambda v: str(v or "").removeprefix("console:") or "–"
     templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
+    templates.env.globals["needs_text"] = needs_text  # H-7: what the site must supply for an open answer
     templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
     # D-380 (ROLE-018): the menu asks the matrix, as the routes do (``permit(user.role, action, BEST)``)
     templates.env.globals["permit"] = permit
@@ -1023,6 +1039,25 @@ def create_app(
         detail = str(exc)[:300] if lang_of(request, sess) not in ("ja", "zh-TW") else ""
         return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": detail})
 
+    @app.exception_handler(HeldUnset)
+    async def _held_unset(request: Request, exc: HeldUnset) -> Response:
+        """P2-11 (TB-06 ruling): no TB_CONSOLE_HELD_DIR, so a page that keeps or shows a one-time password, code or
+        proposal answers a plain page naming the setting for IT, not 500 Internal Server Error."""
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON
+            return JSONResponse({"error": "heldunset", "detail": {}}, status_code=503)
+        return page(request, "problem.html", session_of(request), status=503, key="heldunset", values={})
+
+    @app.exception_handler(OSError)
+    async def _disk_full(request: Request, exc: OSError) -> Response:
+        """E2E P-34: a write the full disk refused (the audit's own refusal, or the system's ENOSPC) answers a plain
+        page that says so, not 500 Internal Server Error; any other OSError stays the server error it was."""
+        if not (isinstance(exc, AuditFull) or exc.errno == errno.ENOSPC):
+            raise exc
+        logging.getLogger(__name__).error("a write was refused: the disk is full (%s)", type(exc).__name__)
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON
+            return JSONResponse({"error": "diskfull", "detail": {}}, status_code=507)
+        return page(request, "problem.html", session_of(request), status=507, key="diskfull", values={})
+
     def actor(sess: Session) -> str:
         return f"console:{sess.user.username}"
 
@@ -1330,20 +1365,21 @@ def create_app(
     # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
     # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
     # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
-    one_time: dict[str, tuple[str, str, float]] = {}
+    # P2-11 (D7): in a memory tmpfs (TB_CONSOLE_HELD_DIR), seen by every worker process (console.held); unread for 10
+    # minutes: never shown, removed at the next keep or read
+    one_time = Held("once", 600.0, settings.held_dir)
 
     def keep_once(sess: Session, username: str, password: str) -> None:
-        now = time.monotonic()
-        for k in [k for k, v in one_time.items() if now - v[2] > 600]:  # unread for 10 minutes: gone
-            one_time.pop(k, None)
-        one_time[sess.token_sha] = (username, password, now)
+        one_time.put(sess.token_sha, (username, password, time.monotonic()))
 
     @app.get("/ops/users", response_class=HTMLResponse)
     def users_view(request: Request, undo: str = "", done: str = "") -> Response:
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
-        made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
+        # P2-11: unset (TB_CONSOLE_HELD_DIR), nothing was kept, so the page shows none and still serves
+        made, pw, _ = (None if one_time.unset else one_time.pop(sess.token_sha)) or ("", "", 0.0)
+        pw, _, pw_code = pw.partition("\ncode:")  # E2E P-17: with the password, the code for the authenticator
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
@@ -1364,6 +1400,7 @@ def create_app(
             made=made,
             pw=pw,
             pw_groups=pw.split("-") if pw else [],
+            pw_code=pw_code,
             sso=settings.sso,
         )
 
@@ -1388,6 +1425,8 @@ def create_app(
         if perm and not admin_allowed(sess.user.role, perm):  # D-178: the one role table (tb_common.authz)
             au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
             raise _Problem(403, "forbidden")
+        if action in ("add", "reset"):
+            one_time.ready()  # P2-11: no password or code is made that could not be shown (TB_CONSOLE_HELD_DIR unset)
         try:
             me = sess.user.username
             if action == "add":
@@ -1427,7 +1466,11 @@ def create_app(
                         "expires": made_user.expires or "",
                     },
                 )
-                keep_once(sess, name, password)
+                code = ""
+                if ident.needs_code(made_user):  # E2E P-17: without a code the new account could never enrol (D-192)
+                    code = us.issue_enrol_code(name)
+                    au.append("console.enrol_code", actor=actor(sess), detail={"user": name})
+                keep_once(sess, name, password + (f"\ncode:{code}" if code else ""))  # shown once, as the password
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "reset":
                 if us.is_sso(name):
@@ -1662,7 +1705,8 @@ def create_app(
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
-    boot.append(lambda: timers.start(helpers, raw_env, site_tz))
+    # P2-11 (D7): with several worker processes, the timers run in the one that holds the lock
+    boot.append(lambda: timers.start(helpers, raw_env, site_tz, lock=settings.data_dir / "timers.lock"))
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):
@@ -2046,7 +2090,10 @@ def create_app(
                     # D-478: the words a person reads (one model's "not met" is an open point, not a failing one)
                     words = {v["id"]: shown_of(v)[0] for v in r.get("criteria") or []}
                     unknown = [i for i, w in words.items() if w == "unknown"]
-                    failing = [i for i, w in words.items() if w == "fail"]
+                    against = against_ids(
+                        r.get("criteria")
+                    )  # INT-S-B: still open (above), said as a note speaking against
+                    failing = [i for i, w in words.items() if w == "fail" and i not in against]
                     quotes = [
                         {
                             "id": v["id"],
@@ -2066,6 +2113,7 @@ def create_app(
                             "department": r.get("department") or "",
                             "unknown": unknown,
                             "failing": failing,
+                            "against": against,
                             "quotes": quotes,
                             "actions": r.get("actions") or [],
                             "changed": r.get("changed") or [],
@@ -2073,6 +2121,13 @@ def create_app(
                     )
                 order = {"high": 0, "review": 1}
                 rows.sort(key=lambda r: (order.get(str(r["tier"]), 2), r["next_appointment"] or "9", r["pid"]))
+                rows = flagged_last(
+                    rows,
+                    lambda r: r["next_appointment"][:10],
+                    lambda r: r["tier"] == "review",
+                    lambda r: bool(r["against"]),
+                )
+                card["against_n"] = sum(1 for r in rows if r["against"])
                 card["rows"] = rows
         card["practitioners"] = (card["summary"] or {}).get("practitioner_names") or {}
         return card
@@ -2302,20 +2357,21 @@ def create_app(
         except ProposalError as exc:
             return _request_page(request, sess, 422, error=str(exc))
         now = time.time()
-        for pid in [p for p, v in pending.items() if now - v.created > PROPOSAL_TTL]:
-            pending.pop(pid, None)
         pid = secrets.token_urlsafe(12)
-        pending[pid] = _Pending(prop, sess.token_sha, now)
+        pending.put(pid, {"proposal": asdict(prop), "session_sha": sess.token_sha, "created": now})
         au.append("console.proposal", actor=actor(sess), detail={"action": "proposed", "line": prop.line})
         return _request_page(request, sess, proposal=prop, proposal_id=pid)
 
     @app.post("/pilot/propose/{pid}/confirm")
     def propose_confirm(request: Request, pid: str, csrf: str = Form("")) -> Response:
         sess = need_requester(request, csrf)
-        item = pending.get(pid)
+        raw = pending.get(pid)
+        prop = None if raw is None else Proposal(**{**raw["proposal"], "notes": tuple(raw["proposal"]["notes"])})
+        item = None if prop is None else _Pending(prop, raw["session_sha"], raw["created"])
         if item is None or item.session_sha != sess.token_sha or time.time() - item.created > PROPOSAL_TTL:
             raise _Problem(410, "request.refused", reason="the proposal expired; propose again")
-        pending.pop(pid, None)
+        if pending.pop(pid) is None:  # another worker confirmed it first: one job per proposal
+            raise _Problem(410, "request.refused", reason="the proposal expired; propose again")
         job = submit(sess, item.proposal.line)
         return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
 

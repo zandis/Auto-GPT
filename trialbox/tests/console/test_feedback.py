@@ -63,6 +63,7 @@ def _export(b: dict[str, Any]) -> list[dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------------------------- every page
+@pytest.mark.usefixtures("held_dir")
 def test_an_entry_from_any_page_is_stored_with_path_language_role_and_time(box: dict[str, Any]) -> None:
     _done_feas(box["backend"])
     _done_case(box["backend"])

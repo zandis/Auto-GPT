@@ -24,6 +24,11 @@ def _run(tmp: Path, *args: str) -> subprocess.CompletedProcess[str]:
     (tmp / "gates.json").write_text("{}", encoding="utf-8")
     (tmp / "sbom").mkdir(exist_ok=True)
     (tmp / "vendor.key").write_text("not a key: never read before the refusals under test\n", encoding="utf-8")
+    pub = tmp / "keys" / "vendor_ed25519.pub"  # HYG2: a release names the key the boxes trust (--pub); a throwaway one
+    if not pub.exists():
+        from tools.sign_bundle import keygen
+
+        keygen(tmp / "keys")
     env = {k: v for k, v in os.environ.items() if not k.endswith("_IMAGE")}
     env["PY"] = sys.executable
     # a stand-in docker that answers nothing and says so: every refusal here comes before an image is exported
@@ -34,7 +39,7 @@ def _run(tmp: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["bash", str(ROOT / "tools/make_bundle.sh"), "--key", str(tmp / "vendor.key"), "--id", "2026.11-9",
          "--release-seq", "9", "--out", str(tmp / "dist/trialbox-2026.11-9.tar"), "--gates", str(tmp / "gates.json"),
-         "--sbom-dir", str(tmp / "sbom"), "--allow-dirty", "a test", *args],
+         "--sbom-dir", str(tmp / "sbom"), "--pub", str(pub), "--allow-dirty", "a test", *args],
         capture_output=True, text=True, env=env, cwd=ROOT, check=False, timeout=120,
     )  # fmt: skip
 

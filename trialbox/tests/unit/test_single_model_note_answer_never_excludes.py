@@ -63,10 +63,13 @@ def test_the_basis_check_alone_keeps_a_single_model_fail_from_excluding(
 
 
 @pytest.mark.parametrize("criterion", [INC, EXC], ids=["inclusion", "exclusion"])
-def test_control_a_pair_fail_under_the_same_input_excludes(criterion: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The pair's "not met" stands; on the exclusion it excludes, on the inclusion it is review (R22-17)."""
-    want = "no" if criterion is EXC else "unknown"
-    tier = ("excluded", [criterion.id]) if criterion is EXC else ("review", [])
+def test_control_a_pair_fail_under_the_same_input_stands_for_review(
+    criterion: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pair's "not met" stands (fail_stands); on the inclusion it is review (R22-17), and on the exclusion too
+    since ring 0 (D-1072; before it, it excluded)."""
+    want = "unknown"
+    tier: tuple[str, list[str]] = ("review", [])
     assert answer_of(criterion, _fail(criterion, "pair"), MAY_EXCLUDE) == want
     _without_held_back(monkeypatch)
     assert answer_of(criterion, _fail(criterion, "pair"), MAY_EXCLUDE) == want

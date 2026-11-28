@@ -348,6 +348,19 @@ def atoms(expr: Atom | BoolExpr) -> list[Atom]:
     return out
 
 
+def holds_no_atc(kind_: str, logic: Atom | BoolExpr | None, atom: Atom) -> bool:
+    """INT-R2: whether a medication order with no ATC makes this drug-class atom unknown in the compiled answer. Only
+    where D-130's runtime rule does not act: that rule holds the positive atoms of an inclusion, and leaves an
+    exclusion, a ``none`` and a negated atom as they are, where a silent False lets the patient through."""
+
+    def negated(e: Atom | BoolExpr | None) -> bool:
+        return isinstance(e, BoolExpr) and (e.op == "not" or any(negated(x) for x in e.args))
+
+    return atom.domain == "medication" and (
+        kind_ != "inclusion" or (atom.quantifier or "any") == "none" or negated(logic)
+    )
+
+
 def check_bool(expr: Atom | BoolExpr) -> None:
     if isinstance(expr, BoolExpr):
         if expr.op == "not" and len(expr.args) != 1:

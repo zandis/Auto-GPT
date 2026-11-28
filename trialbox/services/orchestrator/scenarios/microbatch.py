@@ -60,13 +60,14 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from criteria_compiler.semantics import codes_settle
 from matching import coded_values
-from tb_common import prefilter, provenance
+from tb_common import open_reasons, prefilter, provenance
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -94,7 +95,7 @@ from orchestrator.scenarios.evaluate import (
     is_note_answer,
     not_in_snapshot,
     row,
-    sort_key,
+    sort_rows,
     tier,
 )
 from orchestrator.scenarios.review import recipients, require_approved
@@ -164,7 +165,7 @@ NOT_READ = (*NOT_ASKED, Reason.NO_NOTES.value, Reason.REFUSED.value, Reason.HUMA
 
 
 def prefilter_stage(
-    rs: Ruleset, pv: PatientVerdicts | None, consent_out: frozenset[str], read: list[CriterionVerdict] | None = None
+    rs: Ruleset, pv: PatientVerdicts | None, consent_out: frozenset[str], read: Sequence[CriterionVerdict] | None = None
 ) -> str:
     """10E-12 (D-1259): the stage an evaluated patient left the night's funnel at (``tb_common.prefilter``).
     ``read``: the answers this evaluation gave, when they are fewer than the row's (the re-check answers some
@@ -190,6 +191,12 @@ def prefilter_stage(
         listed=pv.tier in LISTED,
         model_read=model_read,
     )
+
+
+def open_facts(rs: Ruleset, pv: PatientVerdicts | None) -> open_reasons.Facts | None:
+    """F17 5a, 5b: the evaluated patient's open criteria with their reason codes, and whether the coded records alone
+    are complete (``tb_common.open_reasons``); None when there is no evaluation."""
+    return None if pv is None else open_reasons.facts_of(rs.by_id(), pv.verdicts)
 
 
 def _opened(cid: str) -> CriterionVerdict:
@@ -442,7 +449,7 @@ def tally_scope(
     results = getattr(srun, "results", None) or {}
     tally.passed((s.pid for s in [*cand, *out] if s.pid not in chosen), "carried")
     for s in [*take, *more]:
-        tally.evaluated(s.pid, prefilter_stage(rs, results.get(s.pid), consent_out))
+        tally.evaluated(s.pid, prefilter_stage(rs, results.get(s.pid), consent_out), open_facts(rs, results.get(s.pid)))
 
 
 def run(ctx: Ctx) -> Outcome:
@@ -592,7 +599,7 @@ def run(ctx: Ctx) -> Outcome:
             pass  # the pool is not in the after-ingest run's scope (10E-12)
         elif p["pid"] in rechecked:
             read = fresh[p["pid"]].verdicts if p["pid"] in fresh else []  # the re-check's own answers
-            tally.evaluated(p["pid"], prefilter_stage(rs, pv, consent_out, read))
+            tally.evaluated(p["pid"], prefilter_stage(rs, pv, consent_out, read), open_facts(rs, pv))
         else:  # due and left by the budget, or not due (no visit in the window, nothing to re-check)
             tally.passed([p["pid"]], "carried" if p["pid"] in due_pids else "not_due")
         s = week.get(p["pid"])
@@ -651,7 +658,8 @@ def run(ctx: Ctx) -> Outcome:
         judging = vrun.judging
         used += len(again)
         for s in again:
-            tally.evaluated(s.pid, prefilter_stage(rs, (getattr(vrun, "results", None) or {}).get(s.pid), consent_out))
+            again_pv = (getattr(vrun, "results", None) or {}).get(s.pid)
+            tally.evaluated(s.pid, prefilter_stage(rs, again_pv, consent_out), open_facts(rs, again_pv))
     done_again = {s.pid for s in again}
     if not on_ingest:
         tally.passed((s.pid for s in behind if s.pid not in done_again), "carried")
@@ -772,7 +780,11 @@ def run(ctx: Ctx) -> Outcome:
         if len(have) > 1:
             have[-1].s2b_sources = {p: v for r in have for p, v in r.s2b_sources.items()}
         publish_s2b_source(ctx, have[-1])
-    ctx.metrics(patients_scoped=used + len(screened), prefilter=tally.record("ingest" if on_ingest else "weekly"))
+    ctx.metrics(
+        patients_scoped=used + len(screened),
+        prefilter=tally.record("ingest" if on_ingest else "weekly"),
+        night_open=tally.night_open(),
+    )
     night_done(ctx, used + len(screened))  # T-704 (D-458): what this job did not use is the next one's
     over = len(due) - len(recheck)
     # D-646 (8): weekly runs for a full pass of the excluded patients in scope, as this night went. Nobody carried:
@@ -818,7 +830,7 @@ def run(ctx: Ctx) -> Outcome:
     # ---------------------------------------------------------------- outputs
     ctx.state("reporting")
     meta = report_meta(ctx, rs, snapshot, run_date, judging)
-    everyone = sorted([*pool_rows, *version_rows, *waiting_rows, *new_rows], key=sort_key)
+    everyone = sort_rows([*pool_rows, *version_rows, *waiting_rows, *new_rows])
     listed = [r for r in everyone if r.tier in LISTED]
     cl = CandidateList(
         ruleset=rs.id,
@@ -897,7 +909,7 @@ def run(ctx: Ctx) -> Outcome:
         if on_ingest
         else f"this_week_visit1_{rs.id}_{run_date.isoformat()}"
     )
-    mailed = sorted(found if on_ingest else [*week_rows, *found], key=sort_key)
+    mailed = sort_rows(found if on_ingest else [*week_rows, *found])
     deliveries, _ = deliver_lists(ctx, rs, mailed, meta, stem, changes=None if on_ingest else changes)
     agg_to = recipients(rs.manifest.routing, job.requested_by)
     summary = ctx.publish(

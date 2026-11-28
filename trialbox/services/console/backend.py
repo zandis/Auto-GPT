@@ -28,7 +28,7 @@ from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
-from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
+from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, list_rulesets, load_approved, seed_working_copy
 from tb_common.service_auth import actor_header
 from tb_contracts import (
     Job,
@@ -53,6 +53,9 @@ class Unavailable(RuntimeError):
 
 
 _CODE = re.compile(r"^[A-Z][A-Z0-9-]{1,30}$")
+
+#: the most pids one ``POST /patients/deceased`` takes (the orchestrator's ``DeceasedRequest``, E2E P-05)
+DECEASED_PAGE = 20_000
 
 
 def failed(exc: ServiceError) -> Unavailable:
@@ -195,7 +198,7 @@ def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, Any]]:
     exactly this text (``console.ruleset_labels``)."""
     try:
         rs = load_approved(rulesets_dir, ruleset)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         return []
     shipped = ruleset_labels.shipped(ruleset, rulesets_dir)
     return [
@@ -221,7 +224,7 @@ def approval_state_of(rulesets_dir: Path, ruleset: str) -> dict[str, Any] | None
 
     try:
         rs = load_approved(rulesets_dir, ruleset)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         return None
     try:
         from criteria_compiler.terminology import resolver
@@ -313,7 +316,7 @@ def ruleset_infos(rulesets_dir: Path) -> list[RulesetInfo]:
         try:
             rs = load_approved(rulesets_dir, rid)
             out.append(RulesetInfo(rid, rs.version, "approved", str(rs.manifest.kind or "")))
-        except (RulesetNotApproved, FileNotFoundError, ValueError):
+        except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
             out.append(RulesetInfo(rid, None, "draft", ""))
     return out
 
@@ -534,12 +537,24 @@ class HttpBackend:
     def deceased(self, pids: list[str]) -> set[str]:
         """FIT-U04 (T-629, D-415): which of ``pids`` the lake's current snapshot records as dead (the orchestrator's
         ``POST /patients/deceased``). Raises :class:`Unavailable` when it cannot be asked: the caller then stops
-        contacts instead of reading "nobody died"."""
-        try:
-            data = self.orch.post_raw("/patients/deceased", {"pids": list(pids)}).json()
-        except ServiceError as exc:
-            raise failed(exc) from exc
-        return {str(p) for p in (data.get("deceased") or [])} if isinstance(data, dict) else set()
+        contacts instead of reading "nobody died". E2E P-05: asked in pages of :data:`DECEASED_PAGE`, the most pids
+        the orchestrator takes in one request; a study of 47,000 candidates was one request, refused (422), so every
+        contact waited."""
+        pids = list(pids)
+        dead: set[str] = set()
+        for i in range(0, len(pids), DECEASED_PAGE):
+            try:
+                data = self.orch.post_raw("/patients/deceased", {"pids": pids[i : i + DECEASED_PAGE]}).json()
+            except ServiceError as exc:
+                raise failed(exc) from exc  # one page not answered: nobody is called (never a partial "no deaths")
+            except ValueError as exc:
+                raise Unavailable("orchestrator answered the death check without JSON") from exc
+            # P05-1: a page answered 200 but not as {"deceased": [pid, ...]} is not "no deaths" on that page
+            found = data.get("deceased") if isinstance(data, dict) else None
+            if not isinstance(found, list) or not all(isinstance(p, str) for p in found):
+                raise Unavailable("orchestrator answered the death check in a shape the console does not read")
+            dead |= set(found)
+        return dead
 
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_call(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> Any:

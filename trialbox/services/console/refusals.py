@@ -11,6 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+#: E2E P-14/P-24: EDC refusals that name a gap in the box's set-up, not a fault of a service: the signature key the
+#: orchestrator cannot make or open (a VALIDATION or PRODUCTION box without a KEK). The console answers them as a
+#: refusal with the orchestrator's own reason and next step (409), never as "a TrialBox service did not answer" (502)
+EDC_SETUP_GAPS = frozenset({"edc.sign_key"})
+
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
     # 1523 ruling (review round 3, M3): the sponsor pack packs only what the job recorded
@@ -175,6 +180,10 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "提案已過期，請重新提案",
     ),
     "the re-check date must be within the next year": ("再確認日は1年以内にしてください", "再評估日期須在一年內"),
+    "watch a criterion of this patient's list": (
+        "この患者のリストにある基準を選んでください",
+        "請選擇此病人清單上的條件",
+    ),
     "keep is trialbox or theirs": (
         "TrialBox の値を残すか、ソースの値を採用するかを選んでください",
         "請選擇保留 TrialBox 的值或採用來源的值",

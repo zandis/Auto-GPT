@@ -31,7 +31,18 @@
 </form></details>{% endif %}
 </article>{% endfor %}
 </section>{% endfor %}
-<section class="card" aria-labelledby="sn-table"><h2 id="sn-table">{{ t('stillneeded.table') }}</h2>
+{% if open_studies %}<section class="card" aria-labelledby="sn-open" data-testid="sn-open">
+<h2 id="sn-open">{{ t('stillneeded.open.title') }}</h2>
+<p class="hint">{{ t('stillneeded.open.intro') }}</p>
+{% for s in open_studies %}<article data-testid="sn-open-{{ s.study }}">
+<h3>{{ s.study }} · {{ s.date }}</h3>
+{% if s.coded_complete is not none %}<p class="hint" data-testid="sn-open-complete-{{ s.study }}">{{ t('stillneeded.open.complete', n=s.coded_complete) }}</p>
+{% if s.open_jobs > 1 or s.open_jobs < s.jobs %}<p class="hint" data-testid="sn-open-partial-{{ s.study }}">{{ t('stillneeded.open.partial', k=s.open_jobs, n=s.jobs) }}</p>{% endif %}{% endif %}
+<div class="tablewrap"><table data-testid="sn-open-table-{{ s.study }}"><thead><tr><th scope="col">{{ t('stillneeded.open.criterion') }}</th><th scope="col">{{ t('stillneeded.open.reason') }}</th><th scope="col">{{ t('stillneeded.open.where') }}</th>{% if s.coded_complete is not none %}<th scope="col">{{ t('stillneeded.open.patients_by_job' if s.open_jobs > 1 else 'stillneeded.open.patients') }}</th>{% endif %}</tr></thead>
+<tbody>{% for r in s.rows %}<tr data-kind="{{ r.kind }}" data-reason="{{ r.reason }}"><th scope="row">{{ r.criterion }}</th><td>{{ r.label }}</td><td>{{ t('stillneeded.open.where.' ~ r.where) }}{% if r.kind == 'product' %} <span class="pill warn">{{ t('stillneeded.open.defect') }}</span>{% endif %}</td>{% if s.coded_complete is not none %}<td>{{ r.count }}</td>{% endif %}</tr>{% endfor %}</tbody></table></div>
+</article>{% endfor %}
+</section>
+{% endif %}<section class="card" aria-labelledby="sn-table"><h2 id="sn-table">{{ t('stillneeded.table') }}</h2>
 <p class="hint">{{ t('stillneeded.table.intro') }}</p>
 <div class="tablewrap"><table data-testid="sn-questions"><thead><tr><th scope="col">{{ t('stillneeded.table.question') }}</th><th scope="col">{{ t('stillneeded.table.default') }}</th><th scope="col">{{ t('stillneeded.state') }}</th><th scope="col">{{ t('stillneeded.table.gate') }}</th></tr></thead>
 <tbody>{% for q in table %}<tr data-testid="q-{{ q.key }}" data-group="{{ q.group }}"><th scope="row">{{ q.title }}</th><td>{{ q.default }}</td><td>{% if q.open %}{{ t('stillneeded.table.open') }}{% endif %}</td><td>{% for g in q.gate %}{{ g }}{% if not loop.last %} · {% endif %}{% else %}{{ t('stillneeded.table.gate.none') }}{% endfor %}</td></tr>{% endfor %}</tbody></table></div>

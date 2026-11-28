@@ -2,7 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
--- Safety rules: D-275 (units, sex, order dates).
+-- Safety rules: D-275 (units, sex, order dates), D-1073 (supply periods).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -705,8 +705,137 @@ vsf(vs_id, system, prefix) AS (VALUES
   ('VS_GOUT', 'http://hl7.org/fhir/sid/icd-10-cm', 'M1A'),
   ('VS_TYPE_2_DIABETES_MELLITUS', 'http://hl7.org/fhir/sid/icd-10', 'E14'),
   ('VS_TYPE_2_DIABETES_MELLITUS', 'http://hl7.org/fhir/sid/icd-10-cm', 'E11'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'E'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'F'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'I'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'K'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M00'),
   ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AA'),
-  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AB')),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AB'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC00'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC02'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC03'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC04'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC05'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC06'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC07'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC08'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC09'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC1'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC2'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC3'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC4'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC5'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC6'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC7'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC8'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AC9'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AD'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AE'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AF'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AG'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AH'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AI'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AJ'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AK'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AL'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AM'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AN'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AO'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AP'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AQ'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AR'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AS'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AT'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AU'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AV'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AW'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AX'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AY'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AZ'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04B'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04C'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04D'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04E'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04F'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04G'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04H'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04I'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04J'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04K'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04L'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04M'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04N'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04O'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04P'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04Q'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04R'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04S'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04T'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04U'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04V'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04W'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04X'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04Y'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04Z'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M06'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M07'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M08'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M1'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M2'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M3'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M4'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M5'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M6'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M7'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M8'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M9'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'O'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'Q'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'T'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'U'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V00'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V02'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V03'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V05'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V11'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V12'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V13'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V14'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V15'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V16'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V17'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V18'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V19'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V21'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V22'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V23'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V24'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V25'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V26'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V27'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V28'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V29'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V3'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V4'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V5'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V6'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V7'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V8'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'V9'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'W'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X0'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X1'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X2'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X3'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X4'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X5'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X6'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X7'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X8'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'X9'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'Y'),
+  ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'Z')),
 a_gout_coh_inc_01_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
@@ -759,17 +888,17 @@ c_gout_coh_inc_02 AS (
 a_gout_coh_inc_03_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -180) AND b.index_date
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND (e.d BETWEEN (b.index_date + -180) AND b.index_date OR (e.d IS NOT NULL AND e.te >= (b.index_date + -180) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 a_gout_coh_inc_03_1_nd AS (
   SELECT b.pid, b.index_date, count(*) AS n,
-         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc))) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) e ON e.pid = b.pid AND e.d IS NULL
+         string_agg(e.rid || '|' || coalesce(strftime(e.d, '%Y-%m-%d'), ''), ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vsf.system = 'http://www.whocc.no/atc' AND (starts_with(x.atc, vsf.prefix) OR (x.atc <> '' AND starts_with(vsf.prefix, x.atc)))) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc))) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) e ON e.pid = b.pid AND (e.d IS NULL OR (e.te IS NULL AND e.d < (b.index_date + -180) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 a_gout_coh_inc_03_1_off AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -180) AND b.index_date
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vsf.system = 'http://www.whocc.no/atc' AND (starts_with(x.atc, vsf.prefix) OR (x.atc <> '' AND starts_with(vsf.prefix, x.atc)))) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND (e.d BETWEEN (b.index_date + -180) AND b.index_date OR (e.d IS NOT NULL AND e.te >= (b.index_date + -180) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 -- GOUT-COH-INC-03 (inclusion): 六個月內曾使用降尿酸藥物。
 c_gout_coh_inc_03 AS (
@@ -780,27 +909,34 @@ c_gout_coh_inc_03 AS (
   LEFT JOIN a_gout_coh_inc_03_1_nd ON a_gout_coh_inc_03_1_nd.pid = b.pid AND a_gout_coh_inc_03_1_nd.index_date = b.index_date
   LEFT JOIN a_gout_coh_inc_03_1_off ON a_gout_coh_inc_03_1_off.pid = b.pid AND a_gout_coh_inc_03_1_off.index_date = b.index_date),
 a_gout_coh_inc_04_1 AS (
-  SELECT b.pid, b.index_date, count(*) AS n,
+  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
 a_gout_coh_inc_04_1_nd AS (
-  SELECT b.pid, b.index_date, count(*) AS n,
+  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n,
          string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)))) e ON e.pid = b.pid AND e.d IS NULL
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
+a_gout_coh_inc_04_1_r AS (
+  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit, FALSE AS undated FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)
+    UNION ALL SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit, TRUE FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)))) e
+    ON e.pid = b.pid AND ((e.undated AND e.d IS NULL) OR (NOT e.undated AND e.d BETWEEN (b.index_date + -365) AND b.index_date))
   GROUP BY b.pid, b.index_date),
 a_gout_coh_inc_04_1_off AS (
-  SELECT b.pid, b.index_date, count(*) AS n,
+  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_GOUT' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
 -- GOUT-COH-INC-04 (inclusion): 一年內因痛風就診二次以上。
 c_gout_coh_inc_04 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_gout_coh_inc_04_1.n, 0) >= 2) THEN TRUE WHEN coalesce(a_gout_coh_inc_04_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_gout_coh_inc_04_1.n, 0) + coalesce(a_gout_coh_inc_04_1_nd.n, 0) >= 2) THEN NULL ELSE FALSE END) AS v,
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_gout_coh_inc_04_1.n, 0) >= 2) THEN TRUE WHEN coalesce(a_gout_coh_inc_04_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_gout_coh_inc_04_1_r.n, 0) >= 2) THEN NULL ELSE FALSE END) AS v,
          concat_ws(';', coalesce(a_gout_coh_inc_04_1.ev, a_gout_coh_inc_04_1_off.ev, a_gout_coh_inc_04_1_nd.ev)) AS ev
   FROM base b
   LEFT JOIN a_gout_coh_inc_04_1 ON a_gout_coh_inc_04_1.pid = b.pid AND a_gout_coh_inc_04_1.index_date = b.index_date
   LEFT JOIN a_gout_coh_inc_04_1_nd ON a_gout_coh_inc_04_1_nd.pid = b.pid AND a_gout_coh_inc_04_1_nd.index_date = b.index_date
+  LEFT JOIN a_gout_coh_inc_04_1_r ON a_gout_coh_inc_04_1_r.pid = b.pid AND a_gout_coh_inc_04_1_r.index_date = b.index_date
   LEFT JOIN a_gout_coh_inc_04_1_off ON a_gout_coh_inc_04_1_off.pid = b.pid AND a_gout_coh_inc_04_1_off.index_date = b.index_date),
 a_gout_coh_inc_05_1_creatinine AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (

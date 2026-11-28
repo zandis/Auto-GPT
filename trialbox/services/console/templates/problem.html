@@ -13,6 +13,7 @@
 <form method="post" action="/role" data-testid="problem-role-switch"><input type="hidden" name="csrf" value="{{ csrf }}">{% if request.method == 'GET' %}<input type="hidden" name="back" value="{{ path }}">{% endif %}
 <p>{{ t('acting.wrong', role=t('role.' + user.role)) }}</p>
 <p class="actions">{% for r in my_roles if r != user.role %}<button type="submit" name="role" value="{{ r }}" class="secondary">{{ t('role.' + r) }}</button>{% endfor %}</p></form>{% endif %}
+{% if key == 'week.no_log' %}<p><a href="/pilot/request?ruleset={{ values.rs }}" data-testid="problem-request">{{ t('week.no_log.request') }}</a></p>{% endif %}
 <p class="actions">
 <a class="button" href="{{ '/home' if user else '/login' }}" data-testid="problem-home">{{ t('problem.home') }}</a>
 <a class="button secondary" href="{{ '/home' if user else '/login' }}" data-back data-testid="problem-back">{{ t('problem.back') }}</a>

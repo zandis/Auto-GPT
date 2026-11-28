@@ -53,6 +53,7 @@ from tb_llm.timeouts import caller_timeout, once_more
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import sha256_text
+from tb_common.label_p import slots
 from tb_common.phi_guard import PhiClearance, variables_text
 
 _FM = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
@@ -136,6 +137,9 @@ class LlmResult:
     prompt_sha: str = ""
     build_sha: str = ""  # through the gateway: the build that answered (weights digest); "" on a direct call (D-276)
     call_id: str = ""  # D-989: the gateway's call id (``llm.gateway.call``); ``direct-<output sha>`` on a direct call
+    # lane G (G2): per ``verdict`` of the answer, in order, the three labels' probabilities (tb_common.label_p.slots)
+    # when the call asked for ``logprobs``; () when it did not, None for a slot the server gave no label for
+    label_p: tuple[dict[str, float] | None, ...] = ()
 
 
 #: H-16 (lane H's offline review, H-18): what the call in this thread is asked for, set by a caller around a model call
@@ -159,6 +163,22 @@ def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
     except ValueError:
         ok = False
     return data if ok else {**data, "quote_date": None}
+
+
+#: what a judge reply holds about the span it read; an abstention has read none
+_SPAN_FIELDS = ("quote", "quote_date", "certainty", "experiencer", "time")
+
+
+def unknown_carries_nothing(data: dict[str, Any]) -> dict[str, Any]:
+    """INT-S-C: a verdict ``unknown`` is an answer nobody gave, so it has no quote, no quote date, no reading of the
+    quote and no confidence (0.0: the reply's number field stays a number). The judge's filler for them ("unknown",
+    "0000-01-01", 1.0) never reaches a row, a tier or a page. A ``pass`` or ``fail`` reply is returned as it is."""
+    if data.get("verdict") != "unknown":
+        return data
+    cleared: dict[str, Any] = {k: None for k in _SPAN_FIELDS if k in data}
+    if "confidence" in data:
+        cleared["confidence"] = 0.0
+    return {**data, **cleared}
 
 
 def load_prompt(prompt_id: str, environment: str | None = None) -> Prompt:
@@ -325,12 +345,16 @@ class LlmClient:
         clearance: PhiClearance | None = None,
         phi_guard_hit: bool | None = None,
         data_class: str | None = None,
+        logprobs: int = 0,
     ) -> LlmResult:
+        """``logprobs``: that many alternatives per answer token are asked of the server (lane G, G1), and the label
+        probabilities of each ``verdict`` come back on :attr:`LlmResult.label_p`; 0 asks none (every call before)."""
         kw: dict[str, Any] = {
             "job_id": job_id,
             "clearance": clearance,
             "phi_guard_hit": phi_guard_hit,
             "data_class": data_class,
+            "logprobs": logprobs,
         }
         # a gateway client may name the environment of the box it stands for (tools.scenarios): its served prompt
         env = self._prompt_env or getattr(self.gateway, "prompt_environment", None)
@@ -372,6 +396,7 @@ class LlmClient:
         clearance: PhiClearance | None,
         phi_guard_hit: bool | None,
         data_class: str | None,
+        logprobs: int = 0,
     ) -> LlmResult:
         prompt_id = prompt.meta.id
         schema_name = schema or prompt.meta.output_schema
@@ -417,6 +442,8 @@ class LlmClient:
                     "json_schema": {"name": prompt.meta.id, "schema": json_schema, "strict": True},
                 },
             }
+            if logprobs:
+                body.update(logprobs=True, top_logprobs=logprobs)
             t0 = time.perf_counter()
             if self.gateway is not None:
                 payload = self._via_gateway(body, prompt, job_id, data_class)
@@ -446,6 +473,7 @@ class LlmClient:
                 # G8 (D-958), on every path (P2b: SCREEN's note judge failed three protocols on it): a quote date
                 # that is no real date is no date, before the schema reads it
                 data = no_sentinel_date(data) if isinstance(data, dict) else data
+                data = unknown_carries_nothing(data) if isinstance(data, dict) else data  # INT-S-C
                 errors = schema_errors(schema_name, data)
                 codes = schema_error_codes(schema_name, data)  # what leaves the call: no model output (T-605)
             except (json.JSONDecodeError, ValueError) as exc:
@@ -491,6 +519,9 @@ class LlmClient:
                     prompt.sha256,
                     build_sha,
                     call_id,
+                    label_p=tuple(slots((payload["choices"][0].get("logprobs") or {}).get("content") or []))
+                    if logprobs
+                    else (),
                 )
             if truncated:
                 # a reasoning model (gpt-oss, nemotron) spends max_tokens on reasoning before the JSON: the answer was

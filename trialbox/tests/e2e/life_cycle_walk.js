@@ -271,13 +271,18 @@ async function act(p, a, tag) {
       return;
     }
     case "open_all": {
-      const link = () => p.locator("main").getByRole("link", { name: text, exact: true });
+      // H3-UX fix 2: every amber row's disclosure opened and its "read" box ticked, then the page's one form saved
+      // once (D-146: Approve all still waits for every amber row); the check is the same: none left unread
+      const boxes = () => p.locator("main input[name=opened]:not(:checked)");
       let n = 0;
-      while ((await link().count()) > 0 && n < 50) {
-        await click(p, link().first(), a.wait_s, text);
+      while ((await boxes().count()) > 0 && n < 50) {
+        const box = boxes().first();
+        await box.locator("xpath=ancestor::details[1]/summary").click();
+        await box.check();
         n += 1;
       }
-      return check(n > 0 && (await link().count()) === 0, `${tag}: every amber row opened (${n})`);
+      if (n > 0) await click(p, p.locator("main form#approval-save button[type=submit]"), a.wait_s, text);
+      return check(n > 0 && (await p.locator("main input[name=opened]").count()) === 0, `${tag}: every amber row opened (${n})`);
     }
     case "label_all": {
       if (plan.lang === "en") return;

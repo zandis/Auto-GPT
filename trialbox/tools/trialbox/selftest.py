@@ -80,7 +80,7 @@ def main(deploy: Path, *, dry_run: bool = False, run: Runner = _run) -> int:
         return 0
     code = run(cmd)
     if code == 0:
-        print("selftest: the pair canary passed; recorded as the gate's result (note answers may exclude again)")
+        print("selftest: the pair canary passed; recorded as the gate's result (note answers are final again)")
     elif code == 2:  # D-915, D-916: a model could not be reached; nothing recorded
         print("selftest: not run: the canary could not reach a model (still loading?); wait a minute and run it again")
     else:

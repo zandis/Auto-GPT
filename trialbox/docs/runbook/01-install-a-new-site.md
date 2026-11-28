@@ -104,6 +104,12 @@ which the site puts in `deploy/.env` before the first install) and the measured 
 `deploy/measured/ingest_memory.json` (`python -m tools.trialbox.memcaps --measure` re-measures it). The compose
 defaults are the floor; a cap set by hand is kept. `trialbox doctor` (`memory_caps`) fails when a cap is below what
 the patient count needs; `python -m tools.trialbox.memcaps --env-file deploy/.env --write` sizes them again.
+
+**Concurrent users** (P2-11). With the patient count, the site declares how many people use the console at the same
+time: `TB_CONSOLE_USERS` in `deploy/.env`, 25 when unset (the installer then writes 25, so the box states it). The
+service level at that number: the common pages answer within 1 s at the 95th percentile with that many users at once
+(`tools.console_timing.under_load`). The installer sizes the console's worker processes from it (`TB_CONSOLE_WORKERS`,
+one per ten users, never more than the host's CPUs; a value set by hand is kept).
 SCREEN and FEAS of the whole hospital hold its rows in the orchestrator, so `TB_MEM_ORCH` grows with the hospital: the
 installer writes it from `deploy/measured/orchestrator_memory.json` (the size ladder's peaks, H23b-01, D-1005) once the
 need passes the compose default of 4 GiB, from about 45,000 patients (about 8.3 GiB at 100,000). Below that the box
@@ -217,7 +223,8 @@ health line warns 90 days before the list runs out and is red after it.
    手動インストールでは、インストーラーと同様に配置先、タイムアウト、Compose のコンテナ数を設定します。
    有効化したら `trialbox.service` を起動します。これでインストール直後から systemd でコンテナを停止できます。
 6. **Vendor key.** The one command placed it (`deploy/keys/vendor_ed25519.pub`, from the key received out of
-   band); the installer refuses to start without it.
+   band); the installer refuses to start without it. The vendor's build takes that same key from `--pub`
+   (`tools/make_bundle.sh` refuses a release without it, and refuses a stick whose key does not verify the bundle).
 7. **First ingest.** From `/opt/trialbox`: `docker compose --project-directory deploy exec adapter python -m adapter.cli run`,
    or wait for 02:00. It reads the feed folder (`TB_SOURCE_DIR`) with the site's mapping (`deploy/site/mapping`).
    The report is in the lake's volume, which the adapter mounts:

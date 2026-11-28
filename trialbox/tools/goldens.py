@@ -217,7 +217,7 @@ def build_sets(work: Path) -> list[Built]:
     from tools.synth_hospital import run as synth_run
 
     snap = (REF - timedelta(days=1)).isoformat()
-    synth_run(work / "synth-ss", profile="ci", sites="jp-ss:JP:400", ref_date=REF, seed=SEED)
+    synth_run(work / "synth-ss", profile="ci", sites="jp-ss:JP:400:mix:9", ref_date=REF, seed=SEED)
     export(work / "synth-ss" / "jp-ss", work / "ssmix2")
     nd = parity._ingest(work, "ssmix2", work / "ssmix2", snap, "Asia/Tokyo", "jp_core/ssmix2_site.yaml", "jp-ss")
     lake = Lake(work / "lake-ssmix2-jp", "Asia/Tokyo")

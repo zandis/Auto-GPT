@@ -1,0 +1,33 @@
+{
+ "card": "HYG3",
+ "title": "the top-level legacy tree is not in the release build or its SBOM inputs",
+ "date": "2026-11-27",
+ "source": "docs/handover/legacy-tree-not-shipped-hyg3-2026-11-27.md",
+ "note": "basis 'shown' means shown by the card's guard test over the build inputs on int/r1plus1 3390bf74; no image was built.",
+ "findings": [
+  {
+   "id": "HYG3-01",
+   "severity": "Low",
+   "claim": "the release build already excludes the top-level legacy tree: every shipped image is built from a context inside trialbox/, the SBOM inputs are those images and trialbox's own lock, and the bundle's host tree is packed from trialbox/; nothing held this in place before the card's test",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG3-02",
+   "severity": "Low",
+   "claim": "the test reads build inputs, not built images: an image's actual file list is not checked",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG3-03",
+   "severity": "Low",
+   "claim": "the guard reads the Makefile's assignments, not make's run: an environment override of SC_IMAGES or SC_OWN_IMAGES (both ?=) at release time is not covered",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

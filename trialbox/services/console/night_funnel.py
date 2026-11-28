@@ -21,7 +21,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from tb_common import prefilter
+from tb_common import open_reasons, prefilter
+from tb_common.reasons import label
 
 log = logging.getLogger(__name__)
 
@@ -43,17 +44,85 @@ def night_card(
     if admits is None or not admits(user, job.ruleset):
         return None
     night = job.run_date
+    f = _funnel(job, list_jobs, limit)
+    if f is None:
+        return None
+    drops = prefilter.STAGES[:-1]  # the last stage is what is left: listed
+    rows = [{"key": s, "removed": f.drops[s], "left": f.remaining[i + 1]} for i, s in enumerate(drops)]
+    return {"study": f.ruleset, "date": night.isoformat(), "jobs": f.jobs, "in_scope": f.in_scope,
+            "rows": rows, "listed": f.listed, "coded_complete": _by_job(f.job_complete) if f.job_complete else None,
+            "open_jobs": len(f.job_complete)}  # fmt: skip
+
+
+def _by_job(nums: tuple[int, ...]) -> str:
+    """One number per job that wrote the figure, never their sum: a patient two jobs of the night both evaluated is
+    in each (``NightFunnel.job_complete``)."""
+    return " / ".join(str(n) for n in nums)
+
+
+def _funnel(job: Any, list_jobs: Callable[..., list[Any]], limit: int) -> prefilter.NightFunnel | None:
+    """The night's summed funnel of ``job``'s study, or None when the night's jobs cannot all be read or a record of it
+    does not add up (logged)."""
+    night = job.run_date
     jobs = list_jobs(limit, "done", ruleset=job.ruleset, type_="MICROBATCH")
     if len(jobs) >= limit and all(j.run_date is None or j.run_date >= night for j in jobs):
         return None
     mine = {j.job_id: j for j in [*jobs, job]}
     f = prefilter.night_funnel(mine.values(), job.ruleset, night)
-    if f is None:
-        return None
-    if f.faults:
+    if f is not None and f.faults:
         log.error("night funnel %s %s: %d pre-filter record(s) do not add up; not shown", f.ruleset, night, f.faults)
         return None
-    drops = prefilter.STAGES[:-1]  # the last stage is what is left: listed
-    rows = [{"key": s, "removed": f.drops[s], "left": f.remaining[i + 1]} for i, s in enumerate(drops)]
-    return {"study": f.ruleset, "date": night.isoformat(), "jobs": f.jobs, "in_scope": f.in_scope,
-            "rows": rows, "listed": f.listed}  # fmt: skip
+    return f
+
+
+_KIND_ORDER = {"product": 0, "person": 1, "site_gap": 2}
+
+
+def open_cards(
+    user: Any,
+    admits: Callable[[Any, str], bool] | None,
+    list_jobs: Callable[..., list[Any]],
+    lang: str,
+    limit: int = NIGHT_JOBS,
+) -> list[dict[str, Any]]:
+    """F17 5a, 5b: for each study, the criteria that stayed open on its latest night with a record of them, each with
+    its reason code in words, whether the cause is a site gap, a part of the box (a defect) or a person's decision, and
+    where in the site's data it is. The patient counts and the night's coded-complete count are figures: they go only
+    to an account the study's candidate list admits (``counts``; no admits function: none), as on the job page.
+    Studies whose night cannot be read whole are left out, as the job page's card leaves them."""
+    newest: dict[str, Any] = {}
+    for j in list_jobs(limit, "done", type_="MICROBATCH"):
+        no = j.metrics.night_open if j.metrics is not None else None
+        newer = j.ruleset in newest and j.run_date is not None and j.run_date <= newest[j.ruleset].run_date
+        if j.ruleset and j.run_date is not None and no is not None and not newer:
+            newest[j.ruleset] = j
+    out = []
+    for rid in sorted(newest):
+        counts = admits is not None and admits(user, rid)
+        f = _funnel(newest[rid], list_jobs, limit)
+        if f is None or f.coded_complete is None:
+            continue
+        by_job = {k[:3]: jo for k, jo in zip(f.open_reasons, f.job_open, strict=True)}
+        ordered = sorted(f.open_reasons, key=lambda o: (_KIND_ORDER[open_reasons.kind_of(o[1])], o[0], o[1]))
+        rows = [
+            {
+                "criterion": c,
+                "reason": r,
+                "label": label(r, lang) or r,
+                "kind": open_reasons.kind_of(r),
+                "where": w,
+                "count": _by_job(by_job[(c, r, w)]) if counts else None,
+            }
+            for c, r, w, _ in ordered
+        ]
+        out.append(
+            {
+                "study": f.ruleset,
+                "date": f.run_date.isoformat(),
+                "rows": rows,
+                "coded_complete": _by_job(f.job_complete) if counts else None,
+                "jobs": f.jobs,
+                "open_jobs": len(f.job_complete),
+            }
+        )
+    return out

@@ -41,14 +41,13 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import IO, Any
-from zoneinfo import ZoneInfo
 
 from tb_common import feedguard
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
+from tb_common.generation import site_today
 
 from adapter.ndjson import is_deleted_flag, snapshot_dir
 from adapter.pipeline import (
@@ -70,10 +69,17 @@ from adapter.pipeline import (
     merge_base,
     reference_maps,
     refuse_future_night,
+    refuse_older_night,
     refuse_site_needs,
 )
 from adapter.sources.base import has_table
-from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required
+from adapter.validate.validator import (
+    Hl7Validator,
+    StructuralValidator,
+    missing_required,
+    no_birthdate_hold,
+    validate_sample,
+)
 
 log = logging.getLogger("adapter")
 BASE = "base"
@@ -476,9 +482,10 @@ def backfill(
     docstring. ``on_bucket`` is called after each year is sorted (a :class:`BackfillStop` from it ends the run there;
     the next run resumes)."""
     t0 = time.perf_counter()
-    zone = ZoneInfo(cfg.tz)
-    snap = snapshot or datetime.now(zone).date().isoformat()
-    refuse_future_night(snap, datetime.now(zone).date())  # D-529
+    today = site_today(cfg.tz)
+    snap = snapshot or today.isoformat()
+    refuse_future_night(snap, today)  # D-529
+    refuse_older_night(cfg, snap, today)  # R1+1 walk: before any work
     refuse_site_needs(cfg, snap, source_kind)  # U-5 (D-1280): a back-fill is a run on real data
     key = cfg.site_key()
     check_site_key(cfg, key)
@@ -643,9 +650,11 @@ def _publish(
                 "sample_cap": cap,
                 "capped": capped_types(counts, cfg.sample_fraction, cap=cap),
             }
-            v = chosen.validate(_sample(stage, counts, cfg.sample_fraction, cap=cap))
+            v = validate_sample(chosen, _sample(stage, counts, cfg.sample_fraction, cap=cap))
             if v.error_pct > cfg.validation_max_pct:
                 errors.append(f"validation error rate {v.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
+            if hold := no_birthdate_hold(v):
+                errors.append(hold)
         except Exception as exc:
             from adapter import failure
 

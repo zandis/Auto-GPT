@@ -30,12 +30,19 @@ class Reason(StrEnum):
     # the criterion asks for an active condition and the record says resolved, inactive or in remission (D-917)
     CONDITION_NOT_ACTIVE = "condition_not_active"
     ABSTAINED = "abstained"  # the model said it cannot tell from the notes
+    # an exclusion the models read the notes for and found nothing to quote: a label and a sort key, never a tier
+    # change; the answer stays unknown, which keeps the patient (BENCH-2 §2, D-18)
+    NOT_DOCUMENTED = "not_documented"
     QUOTE_NOT_FOUND = "quote_not_found"  # the model's quote is not in the notes
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
     DISAGREE = "disagree"  # the two models gave different answers
+    # the judge's answer keeps the patient and the second model did not confirm it: it stands, flagged (BENCH-2 §2)
+    SECOND_OPINION_DIFFERS = "second_opinion_differs"
     LOW_CONFIDENCE = "low_confidence"  # the answer was below the minimum confidence
     SINGLE_MODEL = "single_model"  # one model's "not met" with no second model that agreed: a person looks (D-478)
     NOT_FINAL = "not_final"  # a "not met" given while a note answer was not allowed to exclude (D-476, D-478)
+    # ring 0 (D-1072): the notes suggest the patient is not eligible (an exclusion stated and affirmed): review
+    NOTES_SUGGEST_NOT_ELIGIBLE = "notes_suggest_not_eligible"
     MODEL_DOWN = "model_down"  # a model did not answer (outage, timeout, out of schema)
     REFUSED = "refused"  # the gateway refused the call (policy)
     HUMAN = "human"  # a person decides this criterion
@@ -68,6 +75,7 @@ CODES = frozenset(r.value for r in Reason)
 MIN_CONFIDENCE = 0.5
 
 _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
+    (("notes_suggest_not_eligible",), Reason.NOTES_SUGGEST_NOT_ELIGIBLE),  # first: the engine's string says review
     (("not in the snapshot", "not_in_snapshot"), Reason.NOT_IN_SNAPSHOT),
     (("verifier's quote", "verifier quote"), Reason.VERIFIER_QUOTE_MISSING),
     (("disagree",), Reason.DISAGREE),
@@ -113,6 +121,7 @@ LABELS: dict[str, dict[str, str]] = {
     },
     "no_notes": {"en": "no notes in the period", "ja": "期間内に記録の文章なし", "zh-TW": "期間內無病歷文字"},
     "not_mentioned": {"en": "not mentioned in the notes", "ja": "記録の文章に記載なし", "zh-TW": "病歷文字未提及"},
+    "not_documented": {"en": "not documented in the notes", "ja": "記録に記載がない", "zh-TW": "病歷未記載"},
     "code_outside_list": {
         "en": "a code of this family that the list does not hold",
         "ja": "この分類の、一覧にないコード",
@@ -164,6 +173,11 @@ LABELS: dict[str, dict[str, str]] = {
         "ja": "2回の確認が一致しない：確認してください",
         "zh-TW": "兩次確認結果不同：請查看",
     },
+    "second_opinion_differs": {
+        "en": "second opinion differs: please look",
+        "ja": "二次確認の結果が異なる：確認してください",
+        "zh-TW": "第二次確認結果不同：請查看",
+    },
     "low_confidence": {
         "en": "not certain enough: please look",
         "ja": "確度が低い：確認してください",
@@ -175,9 +189,14 @@ LABELS: dict[str, dict[str, str]] = {
         "zh-TW": "僅一次確認（無第二次確認一致）：請查看",
     },
     "not_final": {
-        "en": "the second check was not in force on that run: please look",
-        "ja": "その回は二次確認が有効ではありませんでした：確認してください",
-        "zh-TW": "該次執行未啟用第二次確認：請查看",
+        "en": "the notes may speak against this criterion (not final): please look",
+        "ja": "記録の文章が基準に反する可能性あり（未確定）：確認してください",
+        "zh-TW": "病歷文字可能不利於此條件（未確定）：請查看",
+    },
+    "notes_suggest_not_eligible": {
+        "en": "the notes may speak against this criterion: please confirm",
+        "ja": "記録の文章が基準に反する可能性あり：確認してください",
+        "zh-TW": "病歷文字可能不利於此條件：請確認",
     },
     "model_down": {"en": "not checked (system busy)", "ja": "未確認（システム混雑）", "zh-TW": "未確認（系統忙碌）"},
     "refused": {

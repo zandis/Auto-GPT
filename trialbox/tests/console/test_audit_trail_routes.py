@@ -338,6 +338,7 @@ def test_the_inventory_comes_from_the_live_apps(box: dict[str, Any]) -> None:  #
 NO_RECORD = {"POST /audit/verify": "the check of the whole chain", "POST /api/v1/audit/verify": "the same check"}
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_each_driven_route_succeeds_and_records_who_what_when_which(walked: dict[str, Any]) -> None:
     bad = []
     for j in walked["judged"]:

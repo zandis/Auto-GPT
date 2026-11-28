@@ -46,11 +46,12 @@ from criteria_compiler.semantics import (
     check_bool,
     compiled,
     fmt_num,
+    holds_no_atc,
     kind,
     lower,
     window,
 )
-from criteria_compiler.terminology.mapper import ValueSets
+from criteria_compiler.terminology.mapper import SYSTEMS, ValueSets
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 _env = Environment(
@@ -70,6 +71,24 @@ FAMILY_CODINGS = {
     "report": ("DiagnosticReport", "X.code.coding"),
     "observation": ("Observation", "X.code.coding"),
 }
+
+
+def _in_family(fams: list[tuple[str, str]], listed: list[tuple[str, str]]) -> str:
+    """A coding ``Cd`` inside one of the code families (D-113), or, for ATC (INT-R2, as the SQL), coarser than one:
+    such a code may be a member too. A drug class has hundreds of ATC families: one list, not a chain of ``or``."""
+    atc_codes = [c for sy, c in listed if sy == SYSTEMS["atc"]]
+    out = [
+        f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))"
+        for sy, pre in sorted(set(fams))
+        if sy != SYSTEMS["atc"] or any(c.startswith(pre) for c in atc_codes)
+    ]
+    atc = ", ".join(f"'{pre}'" for sy, pre in sorted(set(fams)) if sy == SYSTEMS["atc"])
+    if atc:
+        out.append(
+            f"(Cd.system.value = '{SYSTEMS['atc']}' and Cd.code.value != '' "
+            f"and exists (({{ {atc} }}) Fp where StartsWith(Cd.code.value, Fp) or StartsWith(Fp, Cd.code.value)))"
+        )
+    return " or ".join(out)
 
 
 def _cql_dec(x: float) -> str:
@@ -228,6 +247,31 @@ class CqlGenerator:
         self.library_version = version
 
     # ------------------------------------------------------------------ atoms
+    def _supply(self, p: str) -> tuple[list[str], str, str]:
+        """The functions giving an order's therapy start and last covered day as the lake reads them (``lake.flatten``
+        ``therapy``, INT-R1), and the two names."""
+        tp, sd, ts, te = (q(x + p) for x in ("TP_", "SD_", "TS_", "TE_"))
+        bounds = "(First(X.dosageInstruction).timing.repeat.bounds as FHIR.Period)"
+        dur = "X.dispenseRequest.expectedSupplyDuration"
+        unit = f"Lower(Coalesce({dur}.code.value, {dur}.unit.value))"  # blanks around it are read as the lake does
+        per = (
+            f"case when Matches({unit}, '^ *(d|day|days) *$') then 1.0 "
+            f"when Matches({unit}, '^ *(wk|week|weeks) *$') then 7.0 else null end"
+        )
+        fns = [
+            f"define function {tp}(X FHIR.MedicationRequest):\n"
+            f"  if {bounds}.start is not null or {bounds}.end is not null then {bounds}\n"
+            f"  else X.dispenseRequest.validityPeriod",
+            f"define function {sd}(X FHIR.MedicationRequest):\n"
+            f"  if {dur}.value.value >= 0 then Truncate({dur}.value.value * ({per})) else null",
+            f"define function {ts}(X FHIR.MedicationRequest):\n"
+            f"  Coalesce(date from {tp}(X).start, date from X.authoredOn)",
+            f"define function {te}(X FHIR.MedicationRequest):\n"
+            f"  Coalesce(date from {tp}(X).end, if {sd}(X) is null then null else if {sd}(X) <= 1 then {ts}(X)\n"
+            f"    else {ts}(X) + System.Quantity {{ value: ToDecimal({sd}(X) - 1), unit: 'day' }})",
+        ]
+        return fns, ts, te
+
     def _presence(self, cid: str, n: int, atom: Atom, w: Window) -> tuple[list[str], str, str]:
         p = f"{cid}_{n}"
         vs = q(atom.valueset)
@@ -266,6 +310,22 @@ class CqlGenerator:
                 raise CompileError(f"unsupported domain {atom.domain}")
         joiner = " " if retrieve.endswith(" and") else " where "
         un, qn = q("U_" + p), q("Q_" + p)
+        placed, unplaced = f"{date} in {win}", f"{date} is null"
+        supply_fns: list[str] = []
+        if atom.domain == "medication" and w.from_days is not None:
+            # INT-R1, as the SQL: a dated order also counts when its supply period overlaps the window, the period as
+            # the lake reads it (``lake.flatten`` ``therapy``): the bounds period, else the validity period; its start
+            # else the order date; its end else the start plus the expected supply duration in days or weeks
+            supply_fns, ts, te = self._supply(p)
+            placed = (
+                f"({placed} or ({date} is not null and {te}(X) >= {date_expr(w.from_days)} "
+                f"and {ts}(X) <= {date_expr(w.to_days)}))"
+            )
+            # before the window with no end: it may have run into it, unknown as the SQL says
+            unplaced = (
+                f"({date} is null or ({te}(X) is null and {date} < {date_expr(w.from_days)} "
+                f"and {ts}(X) <= {date_expr(w.to_days)}))"
+            )
         # D-917, as the SQL: a condition atom with ``clinical_status`` counts a row whose status (its first coded
         # clinicalStatus, as the lake keeps it) is listed or missing; a row of another status only makes it unknown
         statuses = atom.clinical_status if atom.domain == "condition" else None
@@ -275,8 +335,9 @@ class CqlGenerator:
         # an undated record cannot be placed in the window: unknown where the dated ones do not settle the atom, as
         # the SQL says (scenario run DUMP-01)
         defs = [
-            f"define {qn}:\n  {retrieve}{joiner}{date} in {win}{counted}",
-            f"define {un}:\n  {retrieve}{joiner}{date} is null",
+            *supply_fns,
+            f"define {qn}:\n  {retrieve}{joiner}{placed}{counted}",
+            f"define {un}:\n  {retrieve}{joiner}{unplaced}",
         ]
         quant = atom.quantifier or "any"
         unknown = [un]
@@ -287,9 +348,21 @@ class CqlGenerator:
                 f"and not ({status} in {{ {listed_st} }})"
             )
             unknown.append(sn)
+
+        # inv-j5, as the SQL: a condition count counts visits (its encounter; a record without one counts alone).
+        # Review INVJ5-2: a typed key, the encounter reference's last part as the lake keeps ``eid``; INVJ5-4: less a
+        # terminal ``/_history/{version}``, so a version is not another visit. Review INVJ5-1: what may still reach
+        # the count is the distinct visits of every row that counts or may count, not a sum
+        visit = "Coalesce('Encounter/' + Last(Split(ReplaceMatches(X.encounter.reference.value, '/_history/[^/]+$', ''), '/')), 'Condition/' + X.id)"
+
+        def cnt(*xs: str) -> str:
+            if atom.domain != "condition":
+                return " + ".join(f"Count({x})" for x in xs)
+            return f"Count(distinct (({' union '.join(xs)}) X return {visit}))"
+
         if quant == "count>=":
-            settled = f"Count({qn}) >= {atom.count}"
-            reach = " + ".join([f"Count({qn})", *(f"Count({x})" for x in unknown)]) + f" >= {atom.count}"
+            settled = f"{cnt(qn)} >= {atom.count}"
+            reach = f"{cnt(qn, *unknown)} >= {atom.count}"
         else:
             settled, reach = f"exists ({qn})", " or ".join(f"exists ({x})" for x in unknown)
         hit, miss = ("false", "true") if quant == "none" else ("true", "false")
@@ -303,18 +376,14 @@ class CqlGenerator:
         if atom.domain not in FAMILY_CODINGS:
             raise CompileError(f"code families are not supported on {atom.domain} atoms")
         on = q("O_" + p)
-        in_family = " or ".join(
-            f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
-        )
-        for name, when in ((on, f"{date} in {win}"), (q("UO_" + p), f"{date} is null")):
+        for name, when in ((on, placed), (q("UO_" + p), unplaced)):
             defs.append(
                 f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"
-                f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
-                f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+                f"    and {self._offlist(atom, fams)}"
             )
         unknown.append(q("UO_" + p))
         if quant == "count>=":
-            reach = " + ".join([f"Count({qn})", *(f"Count({x})" for x in unknown)]) + f" >= {atom.count}"
+            reach = f"{cnt(qn, *unknown)} >= {atom.count}"
         else:
             reach = " or ".join(f"exists ({x})" for x in unknown)
         a = f"if {settled} then {hit} else if exists ({on}) then null as Boolean else if {reach} then null as Boolean else {miss}"
@@ -484,6 +553,26 @@ class CqlGenerator:
         )
         return defs, a, ev
 
+    _hold_no_atc = False  # set per atom by render
+
+    def _offlist(self, atom: Atom, fams: list[tuple[str, str]]) -> str:
+        """The resource ``X`` is coded inside the class's families and off its list (D-113); INT-R2, as the SQL: or it
+        is an order with no ATC whose own code is not listed either (``holds_no_atc``)."""
+        codings, vs = FAMILY_CODINGS[atom.domain][1], q(atom.valueset)
+        out = (
+            f"exists (({codings}) Cd where ({_in_family(fams, self.vs.codes(atom.valueset))}) "
+            f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+        )
+        if not self._hold_no_atc or not any(sy == SYSTEMS["atc"] for sy, _ in fams):
+            return out
+        stems = ", ".join(f"'{s}'" for s in self.vs.yj_stems(atom.valueset))
+        yj = f" or (Matches(Cd.code.value, '{YJ_SHAPE}') and Substring(Cd.code.value, 0, 7) in {{{stems}}})"
+        return (
+            f"({out}\n      or (not exists (({codings}) Cd where Cd.system.value = '{SYSTEMS['atc']}' "
+            f"and Cd.code.value != '')\n      and not exists (({codings}) Cd where FHIRHelpers.ToCode(Cd) in {vs}"
+            f"{yj if stems else ''})))"
+        )
+
     def _med_duration(self, cid: str, n: int, atom: Atom, w: Window) -> tuple[list[str], str, str]:
         p = f"{cid}_{n}"
         assert atom.duration is not None and atom.duration.min_days is not None
@@ -492,16 +581,14 @@ class CqlGenerator:
         lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days, anchor)
         hi = date_expr(w.to_days, anchor)
         qn, pn, dn, on = q("Q_" + p), q("P_" + p), q("D_" + p), q("O_" + p)
-        start = "Coalesce(date from X.dispenseRequest.validityPeriod.start, date from X.authoredOn)"
+        fns, ts, te = self._supply(p)  # INT-R1: the period as the lake, and so the SQL, reads it
         defs = [
+            *fns,
             f"define {qn}:\n  [MedicationRequest: {q(atom.valueset)}] X",
             (
-                f"define {pn}:\n  {qn} X\n    let s: Max({{ Coalesce(date from start of "
-                f"FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), date from X.authoredOn), {lo} }}),\n"
-                f"        e: Min({{ Coalesce(date from end of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), "
-                f"date from start of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), date from X.authoredOn), "
-                f"{hi} }})\n    where Coalesce(date from start of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), "
-                f"date from X.authoredOn) is not null and s <= e\n    return Interval[s, e]"
+                f"define {pn}:\n  {qn} X\n    let s: Max({{ {ts}(X), {lo} }}),\n"
+                f"        e: Min({{ Coalesce({te}(X), {ts}(X)), {hi} }})\n"
+                f"    where {ts}(X) is not null and s <= e\n    return Interval[s, e]"
             ),
             (
                 f"define {dn}:\n  Coalesce(Max((collapse ({pn} I return Interval[start of I, end of I + {gap} days]) "
@@ -509,12 +596,19 @@ class CqlGenerator:
             ),
             # D-275 (review S-9), as the SQL: an order with no end date ran for an unknown time and one with no
             # date cannot be placed; where the dated periods do not reach min_days the answer is null (unknown)
-            (
-                f"define {on}:\n  {qn} X\n    where {start} is null\n"
-                f"      or (X.dispenseRequest.validityPeriod.end is null and {start} <= {hi})"
-            ),
+            f"define {on}:\n  {qn} X\n    where {ts}(X) is null\n      or ({te}(X) is null and {ts}(X) <= {hi})",
         ]
-        a = f"if {dn} >= {atom.duration.min_days} then true else if exists ({on}) then null as Boolean else false"
+        unknown = f"exists ({on})"
+        fams = [f for f in self.vs.families(atom.valueset) if f[0] == SYSTEMS["atc"]]
+        if fams:  # INT-R2, as the SQL: an order in the window inside the class's family and off its list
+            fn = q("OF_" + p)
+            defs.append(
+                f"define {fn}:\n  [MedicationRequest] X where ({ts}(X) is null or {ts}(X) <= {hi})\n"
+                f"    and ({te}(X) is null or {te}(X) >= {lo})\n"
+                f"    and {self._offlist(atom, fams)}"
+            )
+            unknown = f"exists ({fn}) or {unknown}"
+        a = f"if {dn} >= {atom.duration.min_days} then true else if {unknown} then null as Boolean else false"
         ev = f"{qn} X return X.id + '|' + ToString(date from X.authoredOn)"
         return defs, a, ev
 
@@ -574,6 +668,7 @@ class CqlGenerator:
         names: dict[int, str] = {}
         evs: list[str] = []
         for n, atom in enumerate(atoms(c.logic), start=1):
+            self._hold_no_atc = holds_no_atc(c.kind, c.logic, atom)
             defs, a, ev = self._atom(ctx, c.id, n, atom, (extensions or {}).get(id(atom)))
             out.extend(defs)
             aname = f"A_{c.id}_{n}"

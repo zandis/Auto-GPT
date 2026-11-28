@@ -595,6 +595,7 @@ class Orchestrator:
         if ctx._services is None and job.snapshot_date is None:
             return  # the job never read the lake
         release_hold(ctx._services, job.job_id)
+        self._release_ended_holds()  # R-A: a hold the start could not release (the lake was not up yet)
         for hook in list(self.after_job):
             try:
                 hook()
@@ -677,7 +678,7 @@ class Orchestrator:
         )
         try:
             self.send(job, [to], _subject(job, "failed", f"at {err.step}"), body, [], kind="failed")
-        except (StepFailed, ServiceError, RuntimeError) as exc:
+        except Exception as exc:  # r2rerun R-A: the mail never stops the failed job's hold from being released
             log.warning("could not send Failed mail for %s: %s", job.job_id, exc)
 
     # ------------------------------------------------------------------ restart recovery (T-689; D-532)
@@ -753,6 +754,8 @@ class Orchestrator:
     # ------------------------------------------------------------------ worker pool
     def start(self) -> None:
         self.db.answers_sweep()  # T-689 (D-456): kept answers live only as long as their job is unfinished
+        if not self._release_ended_holds():  # R-A: the lake is not up yet (a box's boot): tried again until it is
+            threading.Thread(target=self._sweep_holds_until_read, name="hold-sweep", daemon=True).start()
         limit = max_restarts()
         for jid in self.db.interrupted():  # restart recovery: run again from the start (scenarios are idempotent)
             self._recover_or_watch(jid, limit)
@@ -760,6 +763,43 @@ class Orchestrator:
             t = threading.Thread(target=self._worker, name=f"worker-{i}", daemon=True)
             t.start()
             self._threads.append(t)
+
+    def _release_ended_holds(self) -> bool:
+        """r2rerun R-A (ruling c): at start and after each job, the lake hold of every job that has ended is released
+        (the orchestrator does not wait for the lake at start, so a box's boot may leave it to the first job). A
+        process that died between a job's end and its release (or a failure that never reached it) left the hold,
+        which blocked the night's rebuild of that snapshot for HOLD_TTL_SECONDS (14 days). A holder that is not a
+        job, or a job that has not ended (it runs again and keeps its generation), keeps its hold. False: the lake
+        did not answer, or a holder could not be looked up (the holds stay; :meth:`start` tries again,
+        :meth:`_sweep_holds_until_read`)."""
+        holds = getattr(self.services.lake, "holds", None)
+        if holds is None:
+            return True
+        try:
+            held = holds()
+        except Exception as exc:  # a lake not up yet
+            log.warning("lake holds not read (%s): the ended jobs keep theirs for now", type(exc).__name__)
+            return False
+        read = True
+        for holder in held:
+            try:
+                job = self.db.get(holder)
+            except Exception as exc:  # a database error: when unsure keep the hold, and try the sweep again
+                log.warning("job %s not read (%s): its lake hold is kept for now", holder, type(exc).__name__)
+                read = False
+                continue
+            if job is not None and job.state in TERMINAL:
+                log.info("job %s ended (%s): its lake hold is released", holder, job.state)
+                release_hold(self.services, holder)
+        return read
+
+    def _sweep_holds_until_read(self) -> None:
+        """R-A (Codex R-A-1): the start's sweep again every HOLD_SWEEP_RETRY seconds until the lake answers, so an
+        ended job's hold does not wait for another job to end (none may come before the night's rebuild). Not one of
+        the workers (``workers_alive``): it ends once the sweep has run."""
+        while not self._stop.wait(HOLD_SWEEP_RETRY):
+            if self._release_ended_holds():
+                return
 
     def workers_alive(self) -> tuple[int, int]:
         """D-895: ``(alive, started)`` worker threads; the health line is red when a started worker is dead."""
@@ -832,6 +872,7 @@ class Orchestrator:
 
 #: D-895: a worker that cannot reach the database waits this long, doubling to the cap, and tries again
 WORKER_RETRY_FIRST = 1.0
+HOLD_SWEEP_RETRY = 60.0  # R-A: seconds between tries of a start's hold sweep that met a lake not up yet
 WORKER_RETRY_MAX = 30.0
 
 

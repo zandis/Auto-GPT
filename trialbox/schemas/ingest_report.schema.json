@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/ingest_report.schema.json",
   "title": "IngestReport",
-  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.6.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector).",
+  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.7.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector; 1.7.0: stages).",
   "type": "object",
   "required": [
     "snapshot",
@@ -107,6 +107,13 @@
         {"type": "null"}
       ]
     },
+    "stages": {
+      "description": "OPT-1 §6: seconds per stage of the night and the process peak resident memory at each stage end (name: seconds, peak_rss_mb): counts and times only. Absent in a report written before 1.7.0",
+      "anyOf": [
+        {"type": "object", "additionalProperties": {"$ref": "#/$defs/stage_times"}},
+        {"type": "null"}
+      ]
+    },
     "omop": {
       "description": "the dual write of the night into the OMOP store of record (flag omop.dual_write, T-106, D-339); null when the flag is off or the night was held",
       "anyOf": [
@@ -131,6 +138,17 @@
         "seconds": {"type": "number", "minimum": 0},
         "p95_ms": {"type": ["number", "null"]},
         "histogram": {"type": "object", "additionalProperties": {"type": "integer"}}
+      }
+    },
+    "stage_times": {
+      "title": "StageTimes",
+      "description": "OPT-1 §6: one stage of the night: seconds spent in it (a stage entered twice adds up) and the process peak resident memory in MB when it last ended (a high-water mark, so it never falls from one stage to the next; null where the platform cannot say)",
+      "type": "object",
+      "required": ["seconds", "peak_rss_mb"],
+      "additionalProperties": false,
+      "properties": {
+        "seconds": {"type": "number", "minimum": 0},
+        "peak_rss_mb": {"type": ["number", "null"], "minimum": 0}
       }
     },
     "connector_report": {
@@ -187,6 +205,14 @@
             "type": "integer"
           },
           "description": "T-693 (D-457): the resource types the cap cut, with the number of their resources"
+        },
+        "patients_sampled": {
+          "type": ["integer", "null"],
+          "description": "U4: the Patients in the sample"
+        },
+        "no_birthdate": {
+          "type": ["integer", "null"],
+          "description": "U4: the sampled Patients with no birthDate, a class of its own outside errors (its own limit)"
         }
       }
     },
@@ -231,6 +257,35 @@
           "type": "integer",
           "minimum": 0,
           "description": "Data Quality Relational checks run after the load (isRequired, isPrimaryKey, isForeignKey)"
+        },
+        "dqd": {
+          "type": "object",
+          "description": "H3-NLP 3.1: the DQD-shaped checks of omop.dqd run after the load; every check that did not pass, in DQD's words",
+          "additionalProperties": false,
+          "required": ["checks", "fail", "known", "failed"],
+          "properties": {
+            "checks": {"type": "integer", "minimum": 0},
+            "fail": {"type": "integer", "minimum": 0},
+            "known": {"type": "integer", "minimum": 0},
+            "failed": {
+              "type": "array",
+              "items": {
+                "title": "DqdCheckRow",
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["checkName", "cdmTableName", "cdmFieldName", "numViolatedRows", "numDenominatorRows", "status", "notes"],
+                "properties": {
+                "checkName": {"type": "string"},
+                "cdmTableName": {"type": "string"},
+                "cdmFieldName": {"type": ["string", "null"]},
+                "numViolatedRows": {"type": "integer"},
+                "numDenominatorRows": {"type": "integer"},
+                  "status": {"enum": ["fail", "known"]},
+                  "notes": {"type": "string"}
+                }
+              }
+            }
+          }
         },
         "relational_failed": {
           "type": "object",

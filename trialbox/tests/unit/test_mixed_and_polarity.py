@@ -206,7 +206,9 @@ def test_mixed_verdict_from_the_notes_follows_the_note_rules(monkeypatch: pytest
         evidence=Evidence(resource_refs=[], confidence=0.95, quote=flare),
         affirmed=True,
     )
-    assert tier(rs, [*base, strong], 0.75, note_block=True)[0] == "excluded"
+    assert (
+        tier(rs, [*base, strong], 0.75, note_block=True)[0] == "review"
+    )  # D-1072 (ring 0): a note answer never excludes
     assert tier(rs, [*base, strong], 0.75, note_block=False)[0] == "review"
     bare = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=[], confidence=0.95))
     assert tier(rs, [*base, bare], 0.75, note_block=True)[0] == "review"  # L1: no quote

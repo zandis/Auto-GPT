@@ -262,6 +262,26 @@ def test_the_ingest_writes_a_merged_patients_records_under_the_surviving_pid(tmp
     assert f"Patient/{old}" not in obs and f"Patient/{new}" in obs
 
 
+def test_a_recorded_merge_of_differing_demographics_passes_and_the_night_says_so(tmp_path: Path) -> None:
+    """Ruling (#1561, P01): a recorded merge (reason and ticket) is the operator's attested decision and overrides
+    differing demographics (synthetic 10000002 and 10000003 differ by birth date), never silently: the night's audit
+    event names the merged pids, the ticket and the words "demographics differ: merge recorded"."""
+    cfg = _cfg(tmp_path, None)
+    pm = cfg.pidmap()
+    try:
+        old, new = pm.merge(KEY, "10000002", "10000003", "duplicate chart", "HIS-1")
+    finally:
+        pm.close()
+    rep = _night(cfg, _drop(tmp_path, totals=False), GOOD)
+    assert rep.passed, rep.errors
+    events = [json.loads(x) for f in sorted((tmp_path / "audit").glob("*.jsonl")) for x in f.read_text().splitlines()]
+    done = [e for e in events if (e.get("detail") or {}).get("source") == "csv" and "merge_recorded" in e["detail"]]
+    assert done, events[-1]
+    assert done[-1]["detail"]["merge_recorded"] == [
+        {"pids": [old, new], "ticket": "HIS-1", "said": "demographics differ: merge recorded"}
+    ]
+
+
 @pytest.mark.nodb
 def test_apply_aliases_moves_references_and_drops_the_merged_patient() -> None:
     by_type: dict[str, list[dict[str, Any]]] = {

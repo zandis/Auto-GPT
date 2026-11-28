@@ -22,21 +22,33 @@ case "$CMD" in
     mkdir -p "$DIST"
     (cd "$ROOT" && make demo-bundle)                                        # A: dist/trialbox-demo.tar.gz
     "${PY:-$ROOT/.venv/bin/python}" "$ROOT/tools/sign_bundle.py" keygen "$DIST/keys"
+    # HYG2-R2: make_bundle.sh publishes B and C into bundles/ inside this build's own folder; that replaces the last
+    # bundles/ as ONE folder, only once both are built: a failed build, a failed rename or a cut leaves the last pair
+    # as it was, never a new B beside an old C (bundles.old holds the last pair only between the two renames below)
+    # a cut between those two renames left the last pair in bundles.old: it is put back before anything can fail
+    L="$DIST/bundles"
+    [ -e "$L" ] || [ ! -d "$L.old" ] || mv -T "$L.old" "$L" \
+      || { echo "demo-vm-update: the last bundles are in $L.old and could not be put back into $L" >&2; exit 1; }
+    NEXT="$(mktemp -d "$DIST/bundles.next.XXXXXX")"
+    trap 'rm -rf "$NEXT"' EXIT
     docker build -f "$ROOT/demo/Dockerfile" --label trialbox.release=step8-b -t trialbox-demo:step5 "$ROOT"
     # no bundle without its checks (T-110b, D-340): each image goes through the release gates before its bundle
     (cd "$ROOT" && make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$DIST/gates-b" SC_IMAGES=trialbox-demo:step5)
     "$ROOT/tools/make_bundle.sh" --key "$DIST/keys/vendor_ed25519.key" --id 2026.11-step8-demo-b --release-seq 1 \
       --gates "$DIST/gates-b/gates.json" --sbom-dir "$ROOT/dist/sbom" \
-      --image trialbox-demo:step5 --no-third-party --out "$DIST/trialbox-step8-b.tar"
+      --image trialbox-demo:step5 --no-third-party --pub "$DIST/keys/vendor_ed25519.pub" --out "$NEXT/bundles/b/trialbox-step8-b.tar"
     printf 'FROM trialbox-demo:step5\nCMD ["false"]\n' | docker build -t trialbox-demo:step5-broken -
     docker tag trialbox-demo:step5-broken trialbox-demo:step5
     (cd "$ROOT" && make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$DIST/gates-c" SC_IMAGES=trialbox-demo:step5)
     "$ROOT/tools/make_bundle.sh" --key "$DIST/keys/vendor_ed25519.key" --id 2026.11-step8-demo-c --release-seq 2 \
       --gates "$DIST/gates-c/gates.json" --sbom-dir "$ROOT/dist/sbom" \
-      --image trialbox-demo:step5 --no-third-party --out "$DIST/trialbox-step8-c.tar"
+      --image trialbox-demo:step5 --no-third-party --pub "$DIST/keys/vendor_ed25519.pub" --out "$NEXT/bundles/c/trialbox-step8-c.tar"
+    rm -rf "$L.old"; [ ! -e "$L" ] || mv -T "$L" "$L.old"
+    mv -T "$NEXT/bundles" "$L" || { [ -e "$L" ] || [ ! -d "$L.old" ] || mv -T "$L.old" "$L"; exit 1; }
+    rm -rf "$L.old"
     tar -C "$ROOT" -czf "$DIST/trialbox-tree.tar.gz" tools libs deploy/gcp deploy/keys 2>/dev/null \
       || tar -C "$ROOT" -czf "$DIST/trialbox-tree.tar.gz" tools libs deploy/gcp
-    gcloud storage cp "$ROOT/dist/trialbox-demo.tar.gz" "$DIST/trialbox-step8-b.tar" "$DIST/trialbox-step8-c.tar" \
+    gcloud storage cp "$ROOT/dist/trialbox-demo.tar.gz" "$L/b/trialbox-step8-b.tar" "$L/c/trialbox-step8-c.tar" \
       "$DIST/trialbox-tree.tar.gz" "$DIST/keys/vendor_ed25519.pub" "gs://$BUCKET/step8/"
     echo "uploaded to gs://$BUCKET/step8/ (the vendor key is a throwaway for this drill)" ;;
   run)

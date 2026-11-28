@@ -158,7 +158,7 @@ services:
       - ./pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
       - ./secrets/pgbackrest:/etc/pgbackrest/conf.d:ro
       - ${TB_PGBACKREST_REPO:-./pgbackrest/repo}:/var/lib/pgbackrest
-    networks: [trialbox-net]
+    networks: [trialbox-net, fhir-net]   # P2-03 (D2): fhir-net for the FHIR store's own connection (it is on nothing else)
     restart: unless-stopped
     mem_limit: ${TB_MEM_DB:-4g}
     # T-695 (D-752, F-10): PostgreSQL's shutdown checkpoint writes its dirty buffers; docker's 10 s left crash
@@ -202,7 +202,10 @@ services:
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    networks: [trialbox-net]
+    # P2-03 (ASSESS-1-ADDENDUM D2): HAPI answers without authentication, so it is isolated by network: fhir-net only,
+    # shared with its database and its three clients (adapter, orchestrator, criteria-compiler). doc-parser,
+    # embed-service and the rest share no network with it (tests/unit/test_fhir_network_isolation.py).
+    networks: [fhir-net]
     restart: unless-stopped
     mem_limit: ${TB_MEM_FHIR:-5g}   # the heap (HAPI_XMX, 3g) plus the JVM's own; raise both together
     pids_limit: 1024
@@ -272,7 +275,8 @@ services:
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     # only service allowed to reach clinicaltrials.gov (public registry, COHORT; network.sh); its cloud LLM calls go
     # through the gateway like every other model call
-    networks: [trialbox-net, egress-net]
+    # fhir-net (P2-03, D2): the CQL gate's $evaluate and the terminology load (compose run of this service)
+    networks: [trialbox-net, egress-net, fhir-net]
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - rulesets-data:/data/rulesets
@@ -291,6 +295,7 @@ services:
     # a read-only root ("Unable to rename directory ... for atomic delete", tried 2026-11-19). The cache is 399 MB, too
     # much for a tmpfs under this cap. User, cap_drop and no-new-privileges hold.
     read_only: false
+    networks: [trialbox-net, fhir-net]   # fhir-net (P2-03, D2): the nightly load into the FHIR store
     command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
     environment: {<<: *nodb, PORT: "8016", TB_SERVICE_NAME: adapter,
                   TB_DB_URL: "postgresql://tb_adapter:${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
@@ -348,11 +353,12 @@ services:
                   TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
                   TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
                   TB_GATEWAY_VERIFIER_MODEL: "${TB_GATEWAY_VERIFIER_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}",
-                  TB_NOTE_BLOCK: "${TB_NOTE_BLOCK:-both_agree}", TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
+                  TB_NOTE_BLOCK: "${TB_NOTE_BLOCK:-never}", TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
                   TB_SELFTEST: "${TB_SELFTEST:-on}",
                   TB_LAKE_MAX_SNAPSHOT_AGE_DAYS: "${TB_LAKE_MAX_SNAPSHOT_AGE_DAYS:-3}",  # D-383
                   TB_SITE_PUBLISH_BATCH_SECONDS: "${TB_SITE_PUBLISH_BATCH_SECONDS:-300}"}  # D-403
-    networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
+    # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh); fhir-net (P2-03, D2): CQL on the FHIR store
+    networks: [trialbox-net, egress-net, fhir-net]
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - ./site/needs:/run/tb-needs:ro   # U-5 (D-1280): the stand-ins list, deploy/site/needs, read-only; a rewrite is seen at once
@@ -413,11 +419,16 @@ services:
     # Secure in PRODUCTION (D-192); an explicit TB_CONSOLE_SECURE_COOKIE=0 is refused there.
     <<: *py
     mem_limit: ${TB_MEM_CONSOLE:-2g}
+    # P2-11 (ASSESS-1-ADDENDUM D7): worker processes sized at install from the site's declared concurrent users
+    # (TB_CONSOLE_USERS, default 25; tools/trialbox/console_size.py writes TB_CONSOLE_WORKERS). Unset: one, as before
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
+              "--workers", "${TB_CONSOLE_WORKERS:-1}",
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
     environment: {<<: *nodb, PORT: "8090", TB_SERVICE_NAME: console,
                   TB_DB_URL: "postgresql://tb_console:${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
+                  # P2-11 (D7): the tmpfs (x-py) where every worker finds a one-time password or proposal (console.held)
+                  TB_CONSOLE_HELD_DIR: /tmp,
                   # H-137: the list uvicorn's command trusts, also seen by the console (it refuses "all" in PRODUCTION)
                   TB_CONSOLE_FORWARDED_ALLOW_IPS: "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}",
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
@@ -552,6 +563,11 @@ networks:
   trialbox-net:
     name: ${COMPOSE_PROJECT_NAME:-trialbox}-net
     internal: true        # no default route: deny-by-default egress at the compose level
+  fhir-net:
+    # P2-03 (ASSESS-1-ADDENDUM D2): the FHIR store and its clients only (fhir-store, db, adapter, orchestrator,
+    # criteria-compiler); no route out, nothing routed from trialbox-net
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-fhir
+    internal: true
   model-net:
     name: ${COMPOSE_PROJECT_NAME:-trialbox}-model-net
     internal: true        # gateway <-> model-guard (llm-service, llm-verifier) / llm-stub only

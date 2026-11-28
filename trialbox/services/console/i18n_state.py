@@ -50,6 +50,7 @@ EN: dict[str, str] = {
     "sstate.bad_keep_years": "Give the years to keep the study's files after the close as a whole number from 1 to 30.",
     # T-629 (FIT-U06): the study's type for SAE reporting selects the reporting table; no study opens without it
     "sstate.sae_type": "Not opened: choose this study's type for serious adverse event reporting on the set-up page first. The type decides who is told of a serious adverse event and by when.",
+    "sstate.backup": 'Not opened: this box has no backup target or backup key yet. An open study makes records that cannot be made again (consents, the screening log), so they are backed up first. Ask the administrator to fill them in on the page "Information still needed".',
     "sstate.sae_mailbox": 'Not opened: this box has no trial office mailbox yet, or only a stand-in for it. A new serious adverse event is mailed at once to the office and the study\'s PI. Ask the administrator to fill it in on the page "Information still needed".',
     "sstate.sae_unknown": "Not opened: TrialBox could not read this study's SAE reporting type just now. Try again in a minute.",
     "sstate.readonly": "The study coordinator or the study's PI changes the state and the identifiers.",
@@ -151,6 +152,7 @@ JA: dict[str, str] = {
     "sstate.kept_until": "試験のファイルは {day} まで保存されます（終了から {years} 年）。",
     "sstate.bad_keep_years": "終了後の保存期間は 1 から 30 までの整数（年）で入力してください。",
     "sstate.sae_type": "開始していません：先に設定ページで、この試験の重篤な有害事象の報告上の種類を選んでください。種類によって、誰にいつまでに報告するかが決まります。",
+    "sstate.backup": "開始していません：この機器にはバックアップ先またはバックアップの鍵がまだありません。開始した試験は作り直せない記録（同意、スクリーニングの記録）を作るため、先にバックアップを用意します。「まだ必要な情報」ページで入力するよう管理者に依頼してください。",
     "sstate.sae_mailbox": "開始していません：この機器には治験事務局のメールアドレスがまだないか、仮の値しかありません。新しい重篤な有害事象は事務局と試験の責任医師にすぐメールされます。「まだ必要な情報」ページで入力するよう管理者に依頼してください。",
     "sstate.sae_unknown": "開始していません：この試験の SAE 報告上の種類をいま読めませんでした。少し待ってからやり直してください。",
     "sstate.readonly": "状態と識別番号は、試験の CRC または試験責任医師が変更します。",
@@ -252,6 +254,7 @@ ZH: dict[str, str] = {
     "sstate.kept_until": "試驗檔案保存至 {day}（結束後 {years} 年）。",
     "sstate.bad_keep_years": "請以 1 到 30 的整數（年）填寫結束後的保存期間。",
     "sstate.sae_type": "未開始：請先在設定頁面選擇本試驗在嚴重不良事件通報上的類型。類型決定須通報誰、期限為何。",
+    "sstate.backup": "未開始：本機器尚未設定備份存放處或備份金鑰。開放的試驗會產生無法重建的紀錄（同意書、篩選紀錄），因此須先備份。請管理員在「尚需填寫的資料」頁面填寫。",
     "sstate.sae_mailbox": "未開始：本機器尚未設定試驗辦公室的信箱，或只有暫定值。新的嚴重不良事件會立即寄給辦公室與試驗主持人。請管理員在「尚需填寫的資料」頁面填寫。",
     "sstate.sae_unknown": "未開始：目前無法讀取本試驗的 SAE 通報類型。請稍後再試。",
     "sstate.readonly": "狀態與識別編號由試驗的研究護理師或試驗主持人變更。",

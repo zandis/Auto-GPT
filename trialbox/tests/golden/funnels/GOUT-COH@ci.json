@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
+  "head": "6c73db64a3fcdb82626fce1e691ba67f42f3675e",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
+  "reason": "INT-R1: a medication look-back counts an order whose supply reaches into the window (GOUT-COH-INC-03, GZQO-EXC-04, RA-COH-INC-02 and the steps after them)",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -77,7 +77,7 @@
    "remaining": {
     "GOUT-COH-INC-01": 734,
     "GOUT-COH-INC-02": 557,
-    "GOUT-COH-INC-03": 372,
+    "GOUT-COH-INC-03": 374,
     "GOUT-COH-INC-04": 124,
     "GOUT-COH-INC-05": 28,
     "GOUT-COH-INC-06": 12,
@@ -108,7 +108,7 @@
    "remaining": {
     "GOUT-COH-INC-01": 700,
     "GOUT-COH-INC-02": 504,
-    "GOUT-COH-INC-03": 342,
+    "GOUT-COH-INC-03": 344,
     "GOUT-COH-INC-04": 100,
     "GOUT-COH-INC-05": 19,
     "GOUT-COH-INC-06": 8,
@@ -139,7 +139,7 @@
    "remaining": {
     "GOUT-COH-INC-01": 750,
     "GOUT-COH-INC-02": 544,
-    "GOUT-COH-INC-03": 347,
+    "GOUT-COH-INC-03": 348,
     "GOUT-COH-INC-04": 113,
     "GOUT-COH-INC-05": 26,
     "GOUT-COH-INC-06": 14,
@@ -156,7 +156,7 @@
     "GOUT-COH-INC-07": 0
    },
    "variants": {
-    "unknown_as_pass": 26
+    "unknown_as_pass": 27
    }
   }
  }

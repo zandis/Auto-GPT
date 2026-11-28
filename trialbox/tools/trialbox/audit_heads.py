@@ -374,6 +374,10 @@ def doctor_checks(env: Mapping[str, str], deploy: Path, now: datetime | None = N
     except ImportError:  # OCR 1523-14: a host python3 without the crypto library: the dates and the chain
         own = None
     holding = sum(audit.holds_heads(t) for t in targets)
+    if not audit_dir.is_dir():  # REAL2 M-5: the host check's image had no audit volume and read "0 events": tampered
+        warn.append(f"the audit folder {audit_dir} is not there here (TB_AUDIT_HOST_DIR): the trail was not compared "
+                    "with the signed heads")  # fmt: skip
+        targets = []
     for t in targets:
         try:
             state, text = audit.anchor_state(t, audit_dir, own, now, limit, holding)

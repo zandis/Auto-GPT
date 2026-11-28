@@ -257,6 +257,10 @@ MODEL_PACK_FORMAT = "trialbox-model-pack/1"
 #: H-95: what an image stream holds back from ``docker load`` until its whole sha256 is known
 HOLD_BACK = 1 << 20
 _READ = 1 << 20
+#: a rollback ran (``rollback <bundle>`` after a power cut, or the automatic one) and no apply has ended well since:
+#: the next apply trusts no image a cut load may have left (a tag or an id says nothing of the layers under it)
+IMAGES_SUSPECT = "IMAGES_SUSPECT"
+DANGLING = ["docker", "image", "ls", "-q", "--no-trunc", "-f", "dangling=true"]
 
 
 @dataclass(frozen=True)
@@ -365,6 +369,10 @@ class Plan:
     poc_no_backup: str = ""  # H-99: the preflight's backup refusal, warned on a PoC box; the backup is skipped
     streamed: list[Streamed] = field(default_factory=list)  # H-95: payloads read from the bundle, never staged
     pack: dict[str, Any] | None = None  # H-95: the manifest's pack (None: a whole bundle)
+    reverify: bool = False  # IMAGES_SUSPECT: dangling images go before the load, every image is checked after it
+    previous_images: dict[str, str] | None = (
+        None  # IMAGES_SUSPECT: each tag's image id before the cut apply (None: unknown)
+    )
 
     @classmethod
     def load(cls, stage: Path, summary: dict[str, Any]) -> Plan:
@@ -1095,6 +1103,71 @@ RESTORE_SWAP_SQL = (
 RESTORE_SPLIT_AWK = (
     '$4 == "EXTENSION" || ($4 == "COMMENT" && $5 == "-" && $6 == "EXTENSION") { print > x; next } { print > m }'
 )
+#: the reason of the rollback's hold (``backup.HOLD_FLAG``, ``screening.after_restore``): no patient, no count
+RESTORE_HOLD_REASON = (
+    "the rollback restored candidate lists made before a consent change recorded after its dump; a person "
+    "releases the hold once the lists are run again"
+)
+#: P-19 (ASSESS-1: an opt-out holds in every store, dumps included; P19-DESIGN-3 §5): before the swap, every opt-out
+#: register of the database in place (any tb_prefix; a partitioned one through its parent) replaces the restored one
+#: whole, ids and order kept, and its sequence is moved past them (review P19-Y2: no merge, so no tie can change the
+#: winning event). The live events are streamed from one database to the other, never written to a file (review
+#: P19-1), in one transaction that commits only when their count is the one read before (``:c``; a stream cut short
+#: refuses); an empty one is skipped (Y7); a nonempty one with no table in the dump refuses (fail closed: the
+#: rollback stops before the swap). The database in place is untouched until the swap, so a rollback run again reads
+#: them again. Review P19-2: when they differ from the dump's (consent changed after it), the restored database's
+#: candidate lists predate that change: the existing hold (``screening.after_restore``, D-522) is set there, with its
+#: flag event, so no list job runs on them until a person releases it.
+RESTORE_KEEP_SQL = (
+    "CREATE TEMP TABLE tb_live (id bigint, pid text, action text, source text, note text, by text, at text);\n"
+    "\\copy tb_live FROM pstdin\n"
+    "CREATE TEMP TABLE tb_whole (n bigint CHECK (n = :c));\n"
+    "INSERT INTO tb_whole SELECT count(*) FROM tb_live;\n"
+    "SELECT (EXISTS (SELECT id, pid, action, source, note, by, at FROM tb_live EXCEPT "
+    'SELECT id, pid, action, source, note, by, at FROM :"s".optout_events) OR EXISTS (SELECT id, pid, action, source, '
+    'note, by, at FROM :"s".optout_events EXCEPT SELECT id, pid, action, source, note, by, at FROM tb_live)) '
+    "AND to_regclass('app.flag') IS NOT NULL AS hold \\gset\n"
+    "\\if :hold\n"
+    "WITH old AS (SELECT value FROM app.flag WHERE name = 'screening.after_restore'), "
+    "held AS (INSERT INTO app.flag (name, value, changed_by, reason) VALUES ('screening.after_restore', 'held', "
+    f"'update rollback', '{RESTORE_HOLD_REASON}') ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, "
+    "changed_at = now(), changed_by = EXCLUDED.changed_by, reason = EXCLUDED.reason WHERE app.flag.value <> 'held' "
+    "RETURNING 1) INSERT INTO app.flag_event (name, kind, old_value, new_value, actor, reason) "
+    f"SELECT 'screening.after_restore', 'set', (SELECT value FROM old), 'held', 'update rollback', "
+    f"'{RESTORE_HOLD_REASON}' FROM held;\n"
+    "\\echo 'restore: screening held'\n"
+    "\\endif\n"
+    'TRUNCATE :"s".optout_events;\n'
+    'INSERT INTO :"s".optout_events (id, pid, action, source, note, by, at) OVERRIDING SYSTEM VALUE '
+    "SELECT id, pid, action, source, note, by, at FROM tb_live ORDER BY id;\n"
+    "SELECT setval(pg_get_serial_sequence(format('%I.optout_events', :'s'), 'id'), coalesce(max(id), 0) + 1, false) "
+    'FROM :"s".optout_events \\gset\n'
+)
+RESTORE_REGISTERS_SQL = (
+    "SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE c.relname = 'optout_events' AND c.relkind IN ('r', 'p');\n"
+)
+#: P19-DESIGN-3 R6 (reviews P19-Y1, G1): the dump's provenance index is never served, whatever release made the dump:
+#: it is emptied before the swap and written again from the chain by ``trialbox provenance --rebuild``
+RESTORE_EMPTY_INDEX_SQL = (
+    "DO $tb$ BEGIN IF to_regclass('provenance.model_uses') IS NOT NULL THEN "
+    "TRUNCATE provenance.model_uses, provenance.model_calls; END IF; END $tb$;\n"
+)
+#: review P19-3: a dump without ``provenance.withhold`` is the release before P-19, whose search and drain never ask
+#: the marker: its services' grants on the index go in the restored database (its search is refused, its drain writes
+#: no row) until the next update's role script grants them again
+RESTORE_REFUSE_INDEX_SQL = (
+    "SELECT to_regclass('provenance.model_uses') IS NOT NULL AND to_regprocedure('provenance.withhold()') IS NULL "
+    "AS old \\gset\n"
+    "\\if :old\n"
+    "DO $tb$ DECLARE r text; BEGIN FOR r IN SELECT rolname FROM pg_roles WHERE rolname IN ('tb_audit_writer', "
+    "'tb_console', 'tb_orchestrator') LOOP EXECUTE format('REVOKE ALL ON SCHEMA provenance FROM %I', r); "
+    "EXECUTE format('REVOKE ALL ON provenance.model_calls, provenance.model_uses FROM %I', r); END LOOP; END $tb$;\n"
+    "\\echo 'restore: the release before P-19 asks no provenance marker: its services may not use the index'\n"
+    "\\endif\n"
+)
+#: the line the restore ends with (stdout), read back by the box for the ``update.rolled_back`` event
+RESTORE_SAID = "restore: {n} register event(s) kept; provenance index emptied; rebuild required"
 RESTORE_SH = (
     f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1\n'
     'r="$1"; db="$2"; reset="$3"; n="${db}_tbrb"; o="${db}_tbold"; made=\n'
@@ -1113,10 +1186,23 @@ RESTORE_SH = (
     'adm -d "$n" -f "$d/ext.sql" || exit 1\n'
     '{ printf "%s\\n" "$reset"; cat "$t"; } '
     '| psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$r" -d "$n" || exit 1\n'
+    f"cat > \"$d/keep.sql\" <<'TBSQL' || exit 1\n{RESTORE_KEEP_SQL}TBSQL\n"
+    f'adm -d "$db" -tA > "$d/registers" <<\'TBSQL\' || exit 1\n{RESTORE_REGISTERS_SQL}TBSQL\n'
+    "k=0\n"
+    "while read -r s; do\n"
+    '  c=$(printf \'%s\\n\' \'SELECT count(*) FROM :"s".optout_events;\' | adm -d "$db" -tA -v s="$s") || exit 1\n'
+    '  [ "$c" -gt 0 ] || continue\n'
+    "  printf '%s\\n' 'COPY (SELECT id, pid, action, source, note, by, at FROM :\"s\".optout_events) TO STDOUT;' "
+    '| adm -d "$db" -v s="$s" | adm -d "$n" --single-transaction -v s="$s" -v c="$c" -f "$d/keep.sql" || exit 1\n'
+    "  k=$((k + c))\n"
+    'done < "$d/registers"\n'
+    f"adm -d \"$n\" <<'TBSQL' || exit 1\n{RESTORE_EMPTY_INDEX_SQL}TBSQL\n"
+    f"adm -d \"$n\" <<'TBSQL' || exit 1\n{RESTORE_REFUSE_INDEX_SQL}TBSQL\n"
     f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_SWAP_SQL}TBSQL\n"
     "made=\n"
     "printf '%s\\n' 'DROP DATABASE IF EXISTS :\"o\" WITH (FORCE);' | adm -d postgres "
     '|| echo "restore: $db is restored; the database it replaced is left as $o (the next rollback drops it)" >&2\n'
+    f'echo "{RESTORE_SAID.format(n="$k")}"\n'
 )
 # Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
 # its relations in public (not an extension's). D-541: and what the database's owner owns (the FHIR store's own role
@@ -1226,6 +1312,57 @@ def _existing(p: Path) -> Path:
     while not _there(p) and p != p.parent:
         p = p.parent
     return p
+
+
+#: P19-DESIGN-3 §4: the provenance marker written whole with any image's ``sh`` (a release's own tool may not be in
+#: the image tagged now: a rollback run again after a cut one finds the old release's), in the audit folder ``$2``
+MARKER_SH = (
+    'set -e; cd "$2"; t=$(mktemp .PROVENANCE_STATE.XXXXXX); printf \'%s\\n\' "$1" > "$t"; chmod 0644 "$t"; sync; '
+    'mv -f "$t" PROVENANCE_STATE; sync'
+)
+
+
+def marker_body(reason: str) -> str:
+    """The marker that requires the rebuild, as ``tb_common.provenance_index.require_rebuild`` writes it."""
+    from tools.trialbox import audit_heads
+
+    audit_heads._libs()
+    from tb_common import provenance_index as pi
+
+    return json.dumps({"version": pi.VERSION, "verified": False, "reason": reason, "since": _now(), "attempts": 0,
+                       "done_through": "", "updated_at": _now()}, sort_keys=True)  # fmt: skip
+
+
+def _marker_failed(exc: BaseException) -> UpdateFailed:
+    return UpdateFailed(f"the provenance marker could not be written ({type(exc).__name__}: {exc}); the rollback "
+                        "stops before the restore")  # fmt: skip
+
+
+def mark_rebuild_required(audit_dir: Path) -> None:
+    """P19-DESIGN-3 §4, the update tool's one site, for a box whose audit folder this process reaches (the in-process
+    box): the marker says rebuild-required before any database goes back (a restored index is never served). One
+    that cannot be written stops the rollback here; the next ``tools/apply_update.sh rollback`` tries again."""
+    try:
+        if not audit_dir.is_dir():
+            raise FileNotFoundError(f"no audit folder {audit_dir}")
+        from tools.trialbox import audit_heads
+
+        audit_heads._libs()
+        from tb_common import provenance_index
+
+        provenance_index.require_rebuild(audit_dir, "update rollback")
+    except OSError as exc:
+        raise _marker_failed(exc) from exc
+
+
+def restore_said(out: str) -> dict[str, Any]:
+    """The ``update.rolled_back`` detail of what ``RESTORE_SH`` printed last (G1, G2's audit half)."""
+    m = re.search(r"^restore: (\d+) register event\(s\) kept; provenance index emptied", out, re.M)
+    said: dict[str, Any] = {"register_events_kept": int(m.group(1)) if m else None,
+                            "provenance_index": "emptied; rebuild required"}  # fmt: skip
+    if re.search(r"^restore: screening held$", out, re.M):  # review P19-2
+        said["screening_hold"] = "held"
+    return said
 
 
 class Box(Protocol):
@@ -1578,6 +1715,10 @@ class Updater:
         live = self.stops.stoppable  # H-114: a first signal stops the step under way, or the next one at its start
         try:
             enter("apply")
+            mark = _images_mark(self.dir)
+            plan.reverify = mark is not None
+            prev = (mark or {}).get("previous")
+            plan.previous_images = prev if isinstance(prev, dict) else None
             with live():
                 applied = self.box.apply(plan, rb, point)
                 save_point(rb, point)
@@ -1595,6 +1736,12 @@ class Updater:
             with live():
                 checked = self.box.check(plan)
             step("check", True, checked)
+            if mark is not None and (mark.get("bundle_id") == plan.bundle_id or plan.images()):
+                # review M2: only the cut bundle again, or a run that checked its images again, ends the mark, and only
+                # once the release is checked (a later failure rolls back and keeps the earliest ``previous``); a
+                # model pack or a bundle without images leaves it for the bundle whose load was cut
+                with contextlib.suppress(OSError):  # left: the next apply checks the images once more
+                    (self.dir / IMAGES_SUSPECT).unlink(missing_ok=True)
         except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C, SIGTERM, SIGHUP roll back; kill -9 leaves the marker
             self.stops.hold()
             failed = f"{type(exc).__name__}: {exc}"
@@ -1606,7 +1753,7 @@ class Updater:
             self.box.audit("update.rolled_back", plan,
                            {"bundle_id": plan.bundle_id, "error": failed[:500], "rolled_back": rolled,
                             "state": "previous release" if rolled else "between releases (rollback failed)",
-                            **self.stops.note()})  # fmt: skip
+                            **getattr(self.box, "rollback_note", {}), **self.stops.note()})  # fmt: skip
             if rolled:
                 self._done(plan, rb)
             raise UpdateFailed(
@@ -1737,6 +1884,16 @@ class Updater:
         # said as a failed rollback, the marker kept for ``tools/apply_update.sh rollback`` to finish it
         try:
             us.set_step(self.dir, us.marker(self.dir) or {}, "rollback")
+            try:  # review M4: a hint for the next apply; one that cannot be written never stops the rollback
+                old = (_images_mark(self.dir) or {}).get("previous")
+                ids = point.extra.get("image_ids")
+                # per tag, the earliest record wins: a mark still there means no apply has ended well since it
+                prev = {**(ids if isinstance(ids, dict) else {}), **(old if isinstance(old, dict) else {})}
+                us.write_atomic(self.dir / IMAGES_SUSPECT, {"bundle_id": plan.bundle_id, "at": _now(),
+                                                            "previous": prev or None})  # fmt: skip
+            except OSError as exc:
+                self.say(f"      images mark not written ({exc}): before the next update, remove the dangling "
+                         "images (docker image ls -f dangling=true) the cut load may have left")  # fmt: skip
             with contextlib.suppress(Exception):  # review 1461-1: what the stopped step moved, for a rollback cut short
                 save_point(rb, point)
             self.box.rollback(plan, rb, point)
@@ -1893,6 +2050,7 @@ class Updater:
                                                             "recovered": True,
                                                             "state": "previous release" if rolled else
                                                             "between releases (rollback failed)",
+                                                            **getattr(self.box, "rollback_note", {}),
                                                             **self.stops.note()})  # fmt: skip
                 if not rolled:
                     raise UpdateFailed(f"the rollback of {bundle_id} failed; the marker stays (RUNBOOK §5)")
@@ -2040,6 +2198,19 @@ def _env_file(path: Path) -> dict[str, str]:
     return out
 
 
+def _images_mark(updates: Path) -> dict[str, Any] | None:
+    """IMAGES_SUSPECT as a rollback wrote it (None: no mark). A mark that cannot be read still marks, unread."""
+    from tools import update_status as us
+
+    f = updates / IMAGES_SUSPECT
+    if not f.is_file():
+        return None
+    try:
+        return us.read_json(f) or {}
+    except (OSError, ValueError):
+        return {}
+
+
 def _image_pins(plan: Plan) -> dict[str, str]:
     """release.json's pinned images: reference -> digest."""
     return {str(r.get("image")): str(r.get("digest")) for r in ((plan.release or {}).get("images") or {}).values()
@@ -2058,6 +2229,7 @@ class _DockerImages:
                     have = self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
                 except UpdateFailed:
                     have = ""
+                point.extra.setdefault("image_ids", {})[tag] = have  # R1: by digest, what the release before needs
                 if have:
                     rt = rollback_tag(tag, plan.bundle_id)
                     self.run(["docker", "tag", have, rt])
@@ -2069,6 +2241,10 @@ class _DockerImages:
         done = []
         pins = _image_pins(plan)
         checked: set[str] = set()
+        needed: set[str] = set()
+        if plan.reverify:  # a cut load's images: their layers are loaded again, never taken from the store
+            needed = self.needed_images(plan, point)
+            done += self.drop_dangling(needed) + self.drop_suspect(plan, point, needed)
         for tar in plan.images():
             configs, manifests = tar_images(tar)
             tags = sorted(configs)
@@ -2079,16 +2255,95 @@ class _DockerImages:
                 if tag in pins and configs[tag] != pins[tag]:
                     raise UpdateFailed(f"image {tar.name}: {tag} has config {configs[tag] or '(none)'}, "
                                        f"release.json pins {pins[tag]}; nothing loaded")  # fmt: skip
-            if isinstance(tar, Streamed):  # H-95: from the stick, hashed again on the way in
-                stream_image(tar, configs, manifests, self.run, rb, point)
-            else:
-                self.run(["docker", "load", "-i", str(tar)], timeout=3600)
+            self.load_one(tar, configs, manifests, rb, point)
             done.append(f"image {tar.name}")
+            if plan.reverify:  # never a tag alone: each tag's image is the pinned one, and nothing is left dangling
+                wrong = [t for t in tags if t in pins and self.image_id(t) not in {configs[t], *manifests} - {""}]
+                if wrong or set(self.run(DANGLING).split()) - needed:  # once more, from nothing of what was there
+                    done += [f"{tag}: not the pinned image" for tag in wrong] + self.drop_dangling(needed)
+                    self.load_one(tar, configs, manifests, rb, point)
+                    done.append(f"image {tar.name} loaded again")
             for tag in tags:
                 self.check_loaded(plan, tag, {configs[tag], *manifests} - {""})
                 checked.add(tag)
         if done and plan.release is not None and set(pins) - checked:
             raise UpdateFailed(f"release.json pins images this bundle did not load: {sorted(set(pins) - checked)}")
+        return done
+
+    def load_one(
+        self, tar: Path | Streamed, configs: dict[str, str], manifests: set[str], rb: Path | None, point: Point | None
+    ) -> None:
+        if isinstance(tar, Streamed):  # H-95: from the stick, hashed again on the way in
+            stream_image(tar, configs, manifests, self.run, rb, point)
+        else:
+            self.run(["docker", "load", "-i", str(tar)], timeout=3600)
+
+    def image_id(self, tag: str) -> str:
+        try:
+            return self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
+        except UpdateFailed:
+            return ""
+
+    def needed_images(self, plan: Plan, point: Point | None) -> set[str]:
+        """By digest, the images the running or the previous release needs, which a reverify never removes: the image
+        of every container, running or stopped (the update has stopped the services), and each tag's image before the
+        cut apply (IMAGES_SUSPECT ``previous``); for a tag that record does not name, the image this apply's rollback
+        point tagged. A list the engine cannot give fails the apply (it rolls back)."""
+        ids = self.run(["docker", "ps", "-aq", "--no-trunc"]).split()
+        needed = set(self.run(["docker", "inspect", "-f", "{{.Image}}", *ids]).split()) if ids else set()
+        prev = plan.previous_images or {}
+        needed |= set(prev.values())
+        for tag, rt in (point.images if point else {}).items():
+            if rt and tag not in prev:
+                needed.add(self.image_id(rt))
+        return needed - {""}
+
+    def drop_suspect(self, plan: Plan, point: Point | None, needed: set[str]) -> list[str]:
+        """R1: a tag that already names the bundle's own image before the load (``docker load`` keeps such an image,
+        whatever its layers) loses that image, every tag of it, unless the running or previous release needs it (by
+        digest: kept and said). An image that cannot be removed fails the apply. A rollback tag of this apply's point
+        that named it goes back to the tag's image before the cut apply, or the point says the tag was new."""
+        done = []
+        prev = plan.previous_images or {}
+        for tar in plan.images():
+            configs, manifests = tar_images(tar)
+            for tag in sorted(configs):
+                iid = self.image_id(tag)
+                if not iid or iid not in {configs[tag], *manifests} - {""}:
+                    continue
+                if iid in needed:
+                    done.append(f"{tag}: {iid} kept: the running or previous release uses it")
+                    continue
+                tags = self.run(["docker", "image", "inspect", "-f", '{{join .RepoTags " "}}', iid]).split()
+                for t in tags:
+                    self.run(["docker", "image", "rm", t])  # never -f: the engine refuses one a container uses
+                if self.image_id(iid):
+                    raise UpdateFailed(f"image {tag}: {iid}, left by a cut load, could not be removed; nothing loaded")
+                done.append(f"{tag}: {iid} left by a cut load removed ({', '.join(tags)})")
+                for t, rt in list(point.images.items()) if point is not None else []:
+                    if rt not in tags:
+                        continue
+                    if prev.get(t) and self.image_id(prev[t]):
+                        self.run(["docker", "tag", prev[t], rt])
+                    elif point is not None:
+                        point.images[t] = ""
+        return done
+
+    def drop_dangling(self, needed: set[str] | frozenset[str] = frozenset()) -> list[str]:
+        """Remove every untagged image (what a load cut by a power loss leaves, layers half written) but one the
+        running or previous release needs (``needed``, by digest: kept and said, never handed to ``rm -f``, which
+        would remove an image a stopped container uses): the next load writes its layers again instead of reusing
+        them."""
+        done = []
+        for iid in self.run(DANGLING).split():
+            if iid in needed:
+                done.append(f"dangling image {iid} kept: the running or previous release uses it")
+                continue
+            try:
+                self.run(["docker", "image", "rm", "-f", iid])
+                done.append(f"dangling image {iid} removed")
+            except UpdateFailed as exc:
+                done.append(f"dangling image {iid} kept: {str(exc)[-200:]}")
         return done
 
     def check_loaded(self, plan: Plan, tag: str, accepted: set[str]) -> None:
@@ -2919,13 +3174,33 @@ class ComposeBox(_DockerImages):
             user = "trialbox" if db == "trialbox_wf" else "hapi"
             argv = self._c("exec", "-T", "db", "sh", "-c", RESTORE_SH, "tb-restore", user, db, RESET_SQL)
 
-            def restore(plain: Path, argv: list[str] = argv) -> None:
-                self.run(argv, stdin_file=plain)
+            def restore(plain: Path, argv: list[str] = argv, db: str = db) -> None:
+                out = self.run(argv, stdin_file=plain)
+                if db == "trialbox_wf":  # P19-DESIGN-3 §5: said, and in the update.rolled_back event
+                    self.rollback_note = restore_said(out or "")
+                    kept = self.rollback_note["register_events_kept"]
+                    print(f"rollback: {kept} opt-out register event(s) kept; the provenance index emptied: run "
+                          "trialbox provenance --rebuild", file=sys.stderr)  # fmt: skip
+                    if self.rollback_note.get("screening_hold"):
+                        print(f"rollback: screening held ({RESTORE_HOLD_REASON})", file=sys.stderr)
 
             _with_plain(Path(f), rb, restore)
 
+    def mark_rebuild_required(self) -> None:
+        """P19-DESIGN-3 §4: the provenance marker, through the box's audit volume in a container of its image (the
+        host need not see the volume's folder). A write that fails stops the rollback before anything goes back."""
+        image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+        vol = f"{self.project()}_{BACKUP_VOLUMES['audit']}:/a"
+        argv = [*self.docker, "run", "--rm", "--network", "none", "--user", "0", "--entrypoint", "sh", "-v", vol,
+                image, "-c", MARKER_SH, "tb-marker", marker_body("update rollback"), "/a"]  # fmt: skip
+        try:
+            self.run(argv, timeout=120)
+        except (UpdateFailed, OSError, subprocess.TimeoutExpired) as exc:
+            raise _marker_failed(exc) from exc
+
     def rollback(self, plan: Plan, rb: Path, point: Point) -> None:
         self.run(self._c("stop", *PY_SERVICES, "fhir-store"), timeout=600)  # nobody holds the databases open
+        self.mark_rebuild_required()  # P19-DESIGN-3 §4: before anything goes back
         self.restore_images(point)
         restore_models(self.models, rb, point)
         self.restore_databases(rb, point)
@@ -3258,6 +3533,9 @@ class InProcessBox:
 
         from tools.trialbox import backup as bk
 
+        audit = self.work / "box" / "audit"  # the box's own folder (``audit`` writes there too)
+        audit.mkdir(parents=True, exist_ok=True)
+        mark_rebuild_required(audit)  # P19-DESIGN-3 §4: before anything goes back
         dsn, prefix = split_url(self.url)
         src = bk.DbSource("trialbox_wf", dsn, (f"{prefix}*",))
         _with_plain(Path(point.dumps["trialbox_wf"]), rb, lambda plain: bk.restore_db(src, plain, os.environ))

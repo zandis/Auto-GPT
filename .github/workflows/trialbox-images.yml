@@ -133,7 +133,8 @@ jobs:
       # --vuln-mode report touches only the test-only mail servers of tools/supply_chain/release.py VULN_REPORT_ONLY
       # (T-110b): their fixable CRITICAL/HIGH findings are listed in the job summary. Everything else fails this step:
       # a finding in any image a bundle carries that no dated allow-list entry accepts, the licence gate, a build or
-      # scan error, a missing or empty report, an image not named by its scan.
+      # scan error, a missing or empty report, an image not named by its scan. A fixable CRITICAL in such an image
+      # fails whatever the allow-list says (release hygiene item 1).
       # the layers the builds cached are not what is scanned (the images are): they go before the largest scan
       - name: Drop the build cache
         run: |
@@ -151,6 +152,43 @@ jobs:
         if: ${{ !cancelled() }}
         continue-on-error: true
         run: make image-scan
+
+      # Release hygiene item 5: the standing release gates over the tree (the code-pattern scanner at a pinned rule
+      # commit, two secret scanners with no verification, the platform-manifest scanner on deploy/platform, the
+      # Dockerfile linter on every Dockerfile), each image by version and digest. BLOCKING (the integrator's ruling
+      # 7213778687): a count above deploy/security/standing-gates-baseline.json fails from the first day; every
+      # finding of the secret scanners fails now, of the code-pattern scanner and the linter from 2026-12-17 (with
+      # D-1343); the platform scanner stays on its baseline, no date. Once per run: the tree is the same on both
+      # platforms.
+      - name: Standing release gates
+        if: ${{ !cancelled() && matrix.platform == 'linux/amd64' }}
+        id: standing-gates
+        run: |
+          if [[ -e build/standing-gates || -L build/standing-gates ]]; then
+            echo "Standing release gates require fresh output in CI." >&2
+            exit 1
+          fi
+          rc=0
+          make standing-gates || rc=$?
+          reports=build/standing-gates/reports
+          if [[ -f "$reports/rows.json" && ! -L "$reports/rows.json" &&
+                -f "$reports/summary.md" && ! -L "$reports/summary.md" ]]; then
+            stage=$(mktemp -d "$RUNNER_TEMP/standing-gates.XXXXXXXX")
+            cp -- "$reports/rows.json" "$stage/rows.json"
+            cat -- "$reports/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            printf 'rows_dir=%s\n' "$stage" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$rc"
+
+      # trialbox/build/standing-gates is never uploaded whole: only the redacted rows file is kept, by explicit path.
+      - name: Keep standing release gate rows
+        if: ${{ !cancelled() && steps.standing-gates.outputs.rows_dir != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: standing-gates-rows
+          path: ${{ steps.standing-gates.outputs.rows_dir }}/rows.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Disk after the gates
         if: always()
