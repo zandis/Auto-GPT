@@ -83,7 +83,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-CONSENT_PROXY=""; ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
+CONSENT_PROXY=""; CONSENT_PROXY_SET=0; ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
 TEST_BOX=""; TEST_BOX_SET=0; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
@@ -165,12 +165,6 @@ for _a in "$@"; do
   case "$_a" in --check|--tier-check|--ctgov-check|--keep-poc-list) _clear=0 ;; esac
   _prev="$_a"
 done
-# CONSENT-PROXY (P-23, review R1 and R2 of #1572): its value is read here, before the install does anything (the PoC
-# list below is the first thing it changes): a word other than on or off, or none, is refused
-_prev=""; for _a in "$@" ""; do
-  [ "$_prev" != --consent-proxy ] || case "$_a" in on|off) ;; *) echo "install: --consent-proxy takes on or off, not '$_a': nothing was changed" >&2; exit 2 ;; esac  # H-94 not a stop: a usage error, refused by name on every box
-  _prev="$_a"
-done
 # the list is this install's (review L-3 of #1396): emptied when an install starts, before its first stop_or_warn;
 # kept by the run from the signed tree (the same install, TB_INSTALL_SIGNED naming the release `current` names) and
 # by a run that only checks, and when box-install.sh runs it (--keep-poc-list: box-install.sh empties it itself; the
@@ -194,7 +188,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --all-questions) ALL_QUESTIONS=1 ;;  # the vendor's: the settings wizard's every question, in place of the four (M1)
     --environment) ENVIRONMENT="$2"; shift ;;
-    --consent-proxy) CONSENT_PROXY="${2:-}"; shift ;;  # P-23: consent by a representative and assent (CONSENT-PROXY)
+    --consent-proxy) CONSENT_PROXY_SET=1; case "${2-}" in --*) ;; *) CONSENT_PROXY="${2-}"; [ $# -lt 2 ] || shift ;; esac ;;  # P-23: consent by a representative and assent (CONSENT-PROXY); no value: kept and warned there
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
     --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
     --model-pack) MODEL_PACK="$2"; shift ;;  # H-95: the model pack the software pack needs (else found beside it)
@@ -1082,15 +1076,30 @@ grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
 TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
 TB_ENV_SITE="$(tb_env_raw deploy/.env)"  # H94-08: as compose reads it (the line above is master's; tests pin its place)
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
-envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# the whole edited file, written beside it with its mode and owner, then renamed over it: deploy/.env is old or new,
+# never without the setting; every line ends in a newline (review R2 and R3 of #1572; box.sh's envset, H-142)
+envset() {
+  local t
+  t="$(mktemp deploy/.env.XXXXXX)" || return 1
+  if { awk -v k="$1=" 'index($0, k) != 1' deploy/.env; printf '%s=%s\n' "$1" "$2"; } > "$t" \
+      && chmod --reference=deploy/.env "$t" && chown --reference=deploy/.env "$t" && mv -f "$t" deploy/.env; then
+    return 0
+  fi
+  rm -f "$t"
+  return 1
+}
 # CONSENT-PROXY (E2E P-23; the integrator's ruling): consent by a legally authorised representative, and assent, are
 # a site's choice at install (dementia and paediatric trials need them): --consent-proxy on|off writes TB_CONSENT_PROXY.
 # Not given: the box keeps what deploy/.env says (the plan writes "on" for a country whose profile asks for it, D-1232),
-# else off
-case "$CONSENT_PROXY" in
-  "") ;;
-  on|off) envset TB_CONSENT_PROXY "$CONSENT_PROXY"; echo "    consent by a representative: $CONSENT_PROXY (--consent-proxy)" ;;
-  *) die "--consent-proxy takes on or off, not '$CONSENT_PROXY'" ;;  # H-94 not a stop: a usage error, refused by name on every box
+# else off. Typed in another case or with spaces, it is read; another word, or none, keeps the box's setting (else off)
+# and warns (review B1/R1 of #1572: CLINICAL TOLERANCE, not a stop)
+_cp="${CONSENT_PROXY//[[:space:]]/}"; _cp="${_cp,,}"
+case "$_cp" in
+  on|off) envset TB_CONSENT_PROXY "$_cp"; echo "    consent by a representative: $_cp (--consent-proxy)" ;;
+  *) if [ "$CONSENT_PROXY_SET" = 1 ]; then
+       _was="$(envget TB_CONSENT_PROXY)"; _why="this box's setting"; [ -n "$_was" ] || { _was=off; _why="the default"; }
+       echo "WARN: --consent-proxy takes on or off, not '$CONSENT_PROXY': consent by a representative stays $_was ($_why); to set it, run the install again with --consent-proxy on (or --consent-proxy off)" >&2
+     fi ;;
 esac
 # ---- end of CONSENT-PROXY
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
