@@ -3,7 +3,7 @@
 {% block content %}
 <div class="headrow"><h1>{{ rs }} v{{ version }} · {{ t('s20.title') }}</h1>
 <span class="hint" data-testid="s20-split">{{ t('s20.split', n=rows|length, s=split.structured, m=split.note, x=split.mixed, h=split.human) }}</span></div>
-{% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}
+{% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}{% if done == 'saved' %}<p class="ok" role="status" data-testid="approval-saved">{{ t('s20.saved') }}</p>{% endif %}
 <p>{{ t('s20.help') }}</p>
 <p class="hint" data-testid="s20-who">{{ t('s20.who') }}</p>
 {% if term_refused %}
@@ -33,7 +33,11 @@
 </ul>{% endif %}
 </section>
 {% endif %}
+{# H3-UX fix 2: one form for the whole table: amber rows read, codes ticks and labels go in one round trip; each
+   criterion keeps its own record and audit event (D-146, D-309, D-120) #}
+{% set may_save = user.can_approve or (lang != 'en' and user.can_request) %}
 <section class="card">
+<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/save" id="approval-save"><input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="scroll" tabindex="0"><table class="approval" data-testid="s20">
 <thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('s20.c.check') }}</th><th>{{ t('s20.c.state') }}</th></tr></thead>
 <tbody>{% for r in rows %}{% set is_amber = r.amber %}{% set seen = r.id in opened %}
@@ -47,16 +51,19 @@
 <details class="codes"{% if open_row == r.id %} open{% endif %}><summary>{{ t('s20.codes', n=r.codes_list|length) }}</summary>
 {% if r.codes_list %}<ul class="codes">{% for c in r.codes_list %}<li class="mono">{{ c }}</li>{% endfor %}</ul>{% else %}<p class="hint">{{ t('s20.codes.none') }}</p>{% endif %}
 {% if r.equivalence_pct is not none %}<p class="hint">{{ t('s20.eq', pct=r.equivalence_pct) }}</p>{% endif %}
+{% if is_amber and not seen and user.can_approve %}<p><label><input type="checkbox" name="opened" value="{{ r.id }}" data-testid="open-{{ r.id }}"> {{ t('s20.read_row') }}</label></p>{% endif %}
 </details>
-{% if lang != 'en' and (user.can_request or user.can_approve) %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/label" class="inline labelform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><label for="lbl-{{ r.id }}">{{ t('s20.label', language=t('lang.name.' + lang)) }}</label> <input id="lbl-{{ r.id }}" name="text" maxlength="80" value="{{ labels.get(r.id, '') }}" data-testid="label-{{ r.id }}"{% if r.id in unlabelled %} required aria-invalid="true"{% endif %}> <button type="submit" class="small secondary">{{ t('s20.label.save') }}</button>
+{% if lang != 'en' and (user.can_request or user.can_approve) %}<span class="inline labelform"><input type="hidden" name="label_id" value="{{ r.id }}"><label for="lbl-{{ r.id }}">{{ t('s20.label', language=t('lang.name.' + lang)) }}</label> <input id="lbl-{{ r.id }}" name="label_text" maxlength="80" value="{{ labels.get(r.id, '') }}" data-testid="label-{{ r.id }}"{% if r.id in unlabelled %} aria-invalid="true"{% endif %}>
 {# D-309: the label step is required before approval #}
-{% if r.id in unlabelled %}<br><span class="pill warn" data-testid="label-missing-{{ r.id }}">{{ t('s20.label.missing', language=t('lang.name.' + lang)) }}</span>{% elif r.id in shipped %}<br><span class="hint" data-testid="label-shipped-{{ r.id }}">{{ t('s20.label.shipped') }}</span>{% endif %}</form>{% endif %}
+{% if r.id in unlabelled %}<br><span class="pill warn" data-testid="label-missing-{{ r.id }}">{{ t('s20.label.missing', language=t('lang.name.' + lang)) }}</span>{% elif r.id in shipped %}<br><span class="hint" data-testid="label-shipped-{{ r.id }}">{{ t('s20.label.shipped') }}</span>{% endif %}</span>{% endif %}
 {% if r.id in ticks %}<p class="hint" data-testid="tick-{{ r.id }}">✓ {{ t('s20.ticked_by', by=ticks[r.id][0], at=ticks[r.id][1]|local) }}</p>{% endif %}
 </td>
 <td>{{ t('s20.class.' + (r['class'] or 'structured')) }}</td>
-<td class="nowrap">{% if is_amber %}{% if seen %}<span class="pill ok">{{ t('s20.opened') }}</span>{% elif user.can_approve %}<a class="button small" href="?open={{ r.id }}#{{ r.id }}" data-testid="open-{{ r.id }}">{{ t('s20.open_row') }}</a>{% else %}<span class="pill warn">{{ t('s20.amber') }}</span>{% endif %}{% else %}<span class="hint">{{ t('s20.ok') }}</span>{% endif %}
-{% if user.can_approve and r.id not in ticks %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/tick" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><button type="submit" class="small secondary" data-testid="tick-btn-{{ r.id }}">{{ t('s20.tick') }}</button></form>{% endif %}</td>
+<td class="nowrap">{% if is_amber %}{% if seen %}<span class="pill ok">{{ t('s20.opened') }}</span>{% else %}<span class="pill warn">{{ t('s20.amber') }}</span>{% endif %}{% else %}<span class="hint">{{ t('s20.ok') }}</span>{% endif %}
+{% if user.can_approve and r.id not in ticks %}<br><label class="nowrap"><input type="checkbox" name="tick" value="{{ r.id }}" data-testid="tick-btn-{{ r.id }}"> {{ t('s20.tick') }}</label>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>
+{% if may_save %}<button type="submit" data-testid="approval-save">{{ t('s20.label.save') }}</button>{% endif %}
+</form>
 </section>
 <section class="card attention" data-testid="approve-box">
 {% if user.can_approve and approver %}

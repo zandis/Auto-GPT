@@ -251,6 +251,49 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         )
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=label#{crit}", status_code=303)
 
+    @app.post("/pilot/jobs/{job_id}/approval/save")
+    async def save(request: Request, job_id: str) -> Response:
+        """H3-UX fix 2: the approval page's one form. Amber rows read, codes ticks and site labels in one round trip;
+        each criterion keeps the record and the audit event its one-row route writes (D-146, D-309, D-120). Only a
+        label the person changed is saved, so a pre-filled ruleset label stays the ruleset's."""
+        sess = h.need(request)
+        form = await request.form()
+        if not h.csrf_ok(sess, str(form.get("csrf") or "")):
+            raise h.problem(400, "csrf")
+        opened, tick = [str(x) for x in form.getlist("opened")], [str(x) for x in form.getlist("tick")]
+        label_id, label_text = [str(x) for x in form.getlist("label_id")], [str(x) for x in form.getlist("label_text")]
+        if ((opened or tick) and not sess.user.can_approve) or (
+            label_id and not (sess.user.can_request or sess.user.can_approve)
+        ):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+        if label_id and sess.lang == "en":
+            raise h.problem(400, "request.refused", reason="choose the page language the label is in first")
+        job, book = waiting_job(sess, job_id)
+        ctx = context(sess, job, book)
+        ids = {str(r["id"]) for r in ctx["rows"]}
+        if not {*opened, *tick, *label_id} <= ids or len(label_id) != len(label_text):
+            raise h.problem(404, "notfound")
+        now = h.clock().isoformat()
+        why = {str(r["id"]): ",".join(r["amber"]) for r in ctx["rows"]}
+        for crit in dict.fromkeys(opened):
+            if crit in ctx["ambers"] and crit not in ctx["opened"]:
+                store.open_row(job.job_id, crit, sess.user.username, now)
+                au.append("console.approval_open", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
+                          detail={"action": crit, "reason": why[crit]})  # fmt: skip
+        for crit, text in zip(label_id, label_text, strict=True):
+            words = " ".join(text.split())[:80]
+            if words and words != ctx["labels"].get(crit, ""):
+                store.save_label(job.ruleset or "", crit, sess.lang, words, sess.user.username, now)
+                au.append("console.criterion_label", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
+                          detail={"action": crit, "role": sess.user.role, "lang": sess.lang})  # fmt: skip
+        for crit in dict.fromkeys(tick):
+            if crit not in ctx["ticks"]:
+                store.tick_codes(job.job_id, crit, sess.user.username, now)
+                au.append("console.code_tick", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
+                          detail={"action": crit, "role": sess.user.role})  # fmt: skip
+        return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=saved", status_code=303)
+
     @app.post("/pilot/jobs/{job_id}/approve")
     def approve(
         request: Request,

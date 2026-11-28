@@ -10,9 +10,11 @@ from typing import Any
 
 from console.backend import read_audit
 
-from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - box is a fixture
+import tests.console.test_console_app as _app
 from tests.console.test_criterion_labels import _approval_job, _gzqo_rows
 
+box = _app.box  # the fixture, found by name
+login, name_pi = _app.login, _app.name_pi
 PW = "approval-one-form-password-01"
 IDS = [f"GZQO-INC-{n}" for n in range(31, 51)]  # 20 criteria with no shipped label
 AMBER = IDS[:6]  # left to a person at screening: amber
@@ -34,7 +36,7 @@ def _page_and_csrf(c: Any, job_id: str) -> tuple[str, str]:
     return page, m.group(1)
 
 
-def test_the_coordinator_gives_twenty_labels_in_one_post(box: dict[str, Any]) -> None:  # noqa: F811
+def test_the_coordinator_gives_twenty_labels_in_one_post(box: dict[str, Any]) -> None:
     job = _approval_job(box, _rows())
     box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
     c, csrf = login(box["app"], "crc", PW)
@@ -56,7 +58,7 @@ def test_the_coordinator_gives_twenty_labels_in_one_post(box: dict[str, Any]) ->
     assert r.status_code == 403 and not _events(box, "console.code_tick")
 
 
-def test_an_unchanged_label_is_not_saved_again(box: dict[str, Any]) -> None:  # noqa: F811
+def test_an_unchanged_label_is_not_saved_again(box: dict[str, Any]) -> None:
     """A pre-filled label submitted as it is stays the ruleset's (shipped); only what the person changed is saved."""
     job = _approval_job(box, _gzqo_rows("GZQO-INC-01", "GZQO-EXC-01"))
     box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
@@ -70,7 +72,7 @@ def test_an_unchanged_label_is_not_saved_again(box: dict[str, Any]) -> None:  # 
     assert [e["action"] for e in _events(box, "console.criterion_label")] == ["GZQO-EXC-01"]
 
 
-def test_the_pi_records_amber_rows_and_ticks_in_one_post_then_approves(box: dict[str, Any]) -> None:  # noqa: F811
+def test_the_pi_records_amber_rows_and_ticks_in_one_post_then_approves(box: dict[str, Any]) -> None:
     job = _approval_job(box, _rows())
     box["users"].create("pi", "investigator", PW, "pi@hospa.test")
     name_pi(box, "pi")
@@ -93,7 +95,7 @@ def test_the_pi_records_amber_rows_and_ticks_in_one_post_then_approves(box: dict
     assert r.status_code == 200 and 'data-testid="confirm-text"' in r.text  # the confirmation step comes next
 
 
-def test_approve_still_waits_for_every_amber_row(box: dict[str, Any]) -> None:  # noqa: F811
+def test_approve_still_waits_for_every_amber_row(box: dict[str, Any]) -> None:
     job = _approval_job(box, _rows())
     box["users"].create("pi", "investigator", PW, "pi@hospa.test")
     name_pi(box, "pi")
