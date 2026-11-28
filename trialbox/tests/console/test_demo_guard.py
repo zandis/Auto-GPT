@@ -168,6 +168,7 @@ def test_the_route_guard_call_refuses_on_its_own() -> None:
 
 # ---------------------------------------------------------------------------------------------- the banner
 @pytest.mark.parametrize("lang", LANGS)
+@pytest.mark.usefixtures("held_dir")
 def test_the_banner_is_on_every_page_in_three_languages(box: dict[str, Any], lang: str) -> None:
     _done_feas(box["backend"])
     _done_case(box["backend"])

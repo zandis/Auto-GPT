@@ -49,6 +49,7 @@ def test_the_role_walk_at_a_japanese_site(japan_box: dict[str, Any], tmp_path: P
     assert not {u for u in unclear_now(ours)}, unclear_now(ours)
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_who_may_use_the_committee_routes_at_a_japanese_site(japan_box: dict[str, Any]) -> None:
     walked = [(m, p, c) for m, p, c in rm.walk(japan_box) if p.endswith(COMMITTEE)]
     got = rm.render(walked).replace("Role x route matrix", "Role x route matrix at a Japanese site (10C-4)")

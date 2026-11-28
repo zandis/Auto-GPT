@@ -125,6 +125,7 @@ def test_the_policy_forbids_workers_by_name() -> None:
     assert "worker-src" not in _directives(planted)
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_every_page_says_no_store_and_no_worker(box: dict[str, Any]) -> None:
     """Every GET route of the console, as the administrator and as a coordinator (who opens patient-level pages), is
     answered with ``Cache-Control: no-store`` and a policy that forbids workers, whatever its status. Only the web

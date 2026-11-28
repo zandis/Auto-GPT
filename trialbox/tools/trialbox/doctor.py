@@ -27,6 +27,10 @@ closed). Checks:
   ``TB_CONSOLE_MFA`` resolves to ``totp`` (the console's default outside DEV and TEST), OIDC, when on, keeps
   ``TB_OIDC_REQUIRE_MFA``, and no trusted identity header (``TB_CONSOLE_SSO_HEADER``, D-93) signs people in. FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere;
+* ``console_held`` (P2-11, D7): the console's ``TB_CONSOLE_HELD_DIR`` (``console.held``: a reset password, a sign-in
+  code, a pilot proposal kept for the next request) is set in the console service's compose environment to one of its
+  ``tmpfs`` mounts (the compose files of ``COMPOSE_FILE``, else ``deploy/docker-compose.yml``). FAIL otherwise: unset,
+  the console starts and refuses those actions;
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known; FAIL while
   the FHIR store is refused by one of its two named known limitations (E2E P-03: ``fhir_write_unfenced``,
   ``lake_generation_mismatch`` in ``<lake>/FHIR_STATE``), which only a person ends;
@@ -195,6 +199,7 @@ import importlib.util
 import io
 import json
 import os
+import posixpath
 import re
 import sys
 import tempfile
@@ -595,6 +600,53 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
+
+
+def check_console_held(inp: DoctorInputs) -> Check:
+    """P2-11 (D7): ``TB_CONSOLE_HELD_DIR`` as compose gives it to the console, judged by its own mount: the most
+    specific of the console's ``tmpfs`` and ``volumes`` targets holding it must be a tmpfs (``console.held`` checks
+    the open folder again at the start; unset, it refuses every keep). A compose file that cannot be read is named
+    with the parser's line and column, never a line of it (it may hold a password)."""
+    name = "console_held"
+    env: dict[str, str] = {}
+    mounts: dict[str, bool] = {}  # target -> a tmpfs
+    docs: list[Mapping[str, Any]] = []
+    if inp.compose_config is not None:
+        docs.append(inp.compose_config)
+    else:
+        deploy = inp.deploy or ROOT / "deploy"
+        try:
+            for entry in [e for e in (inp.env.get("COMPOSE_FILE") or "docker-compose.yml").split(":") if e]:
+                text = _compose_file(deploy, entry).read_text(encoding="utf-8")
+                docs.append(yaml.safe_load(_COMPOSE_TAG.sub("", text)) or {})
+        except OSError as exc:
+            return Check(name, "FAIL", f"held dir unset or not tmpfs: {entry} was not read ({exc.strerror})")
+        except yaml.YAMLError as exc:
+            mark = getattr(exc, "problem_mark", None)
+            where = f"line {mark.line + 1}, column {mark.column + 1}" if mark else "not YAML"
+            return Check(name, "FAIL", f"held dir unset or not tmpfs: {entry} was not read ({where})")
+    for doc in docs:  # a later file adds to and overrides an earlier one, as compose merges them
+        console = (doc.get("services") or {}).get("console") or {}
+        given = console.get("environment") or {}
+        if isinstance(given, list):
+            given = dict(str(item).partition("=")[::2] for item in given)
+        env.update({str(k): str(v) for k, v in given.items()})
+        raw = console.get("tmpfs") or []
+        mounts.update({str(x).split(":")[0]: True for x in ([raw] if isinstance(raw, str) else raw)})
+        for vol in console.get("volumes") or []:  # "source:target[:mode]", "target", or the long form
+            if isinstance(vol, Mapping):
+                mounts[str(vol.get("target", ""))] = vol.get("type") == "tmpfs"
+            else:
+                parts = str(vol).split(":")
+                mounts[parts[1] if len(parts) > 1 else parts[0]] = False
+    held = posixpath.normpath(env["TB_CONSOLE_HELD_DIR"]) if env.get("TB_CONSOLE_HELD_DIR") else ""
+    over = [m for m in mounts if held == m.rstrip("/") or held.startswith(m.rstrip("/") + "/")]
+    own = max(over, key=len, default="")
+    if held and own and mounts[own]:
+        return Check(name, "PASS", f"the console keeps one-time passwords and proposals in {held} (a tmpfs at {own})")
+    why = f"TB_CONSOLE_HELD_DIR={held!r}, its own mount {own or 'none'}" + ("" if not own else " (not a tmpfs)")
+    return Check(name, "FAIL", f"held dir unset or not tmpfs: {why}; password resets, new accounts and pilot proposals "
+                 "are refused until compose sets it")  # fmt: skip
 
 
 def check_mail_tls(inp: DoctorInputs) -> Check:
@@ -2726,6 +2778,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_named_choices,
     check_mail_auth,
     check_console_mfa,
+    check_console_held,
     check_ldap_ca,
     check_publish_gate,
     check_note_block,

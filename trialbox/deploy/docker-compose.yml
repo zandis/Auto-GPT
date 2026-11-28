@@ -419,11 +419,16 @@ services:
     # Secure in PRODUCTION (D-192); an explicit TB_CONSOLE_SECURE_COOKIE=0 is refused there.
     <<: *py
     mem_limit: ${TB_MEM_CONSOLE:-2g}
+    # P2-11 (ASSESS-1-ADDENDUM D7): worker processes sized at install from the site's declared concurrent users
+    # (TB_CONSOLE_USERS, default 25; tools/trialbox/console_size.py writes TB_CONSOLE_WORKERS). Unset: one, as before
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
+              "--workers", "${TB_CONSOLE_WORKERS:-1}",
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
     environment: {<<: *nodb, PORT: "8090", TB_SERVICE_NAME: console,
                   TB_DB_URL: "postgresql://tb_console:${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
+                  # P2-11 (D7): the tmpfs (x-py) where every worker finds a one-time password or proposal (console.held)
+                  TB_CONSOLE_HELD_DIR: /tmp,
                   # H-137: the list uvicorn's command trusts, also seen by the console (it refuses "all" in PRODUCTION)
                   TB_CONSOLE_FORWARDED_ALLOW_IPS: "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}",
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
