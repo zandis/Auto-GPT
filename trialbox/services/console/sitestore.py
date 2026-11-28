@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -233,7 +233,14 @@ CREATE INDEX study_irb_text_rs ON study_irb_text (ruleset, at)
 SCHEMA_V7 = """
 ALTER TABLE study_state ADD COLUMN keep_years INTEGER
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
+# lane K watch: the time of the "Not now" mark whose watched criterion has fired, kept on the patient's row until the
+# PI replaces or withdraws the mark (a later run that reads the first answer again does not take the patient off)
+SCHEMA_V8 = """
+ALTER TABLE weekly_seen ADD COLUMN fired_mark TEXT
+"""
+MIGRATIONS: tuple[str, ...] = (
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8
+)  # fmt: skip
 
 # ---------------------------------------------------------------------------------------------- D-386 study state
 STUDY_STATES = ("startup", "open", "paused", "closed")
@@ -557,6 +564,20 @@ class SiteStore:
                 )
                 have = {str(p): str(j) for p, j in tx.fetchall(sql, (ruleset,))}  # a parallel view may have won
         return have
+
+    def watch_fired(self, ruleset: str) -> dict[str, str]:
+        """pid -> ``at`` of the mark whose watch has fired (:func:`console.studies.watch_state`)."""
+        sql = "SELECT pid, fired_mark FROM weekly_seen WHERE ruleset = ? AND fired_mark IS NOT NULL"
+        return {str(p): str(a) for p, a in self.db.fetchall(sql, (ruleset,))}
+
+    def fire_watch(self, ruleset: str, fired: Mapping[str, str]) -> None:
+        """Keep that the watch of each mark (pid -> its ``at``) fired, until the PI replaces or withdraws it."""
+        if fired:
+            with self.db.transaction() as tx:
+                tx.executemany(
+                    "UPDATE weekly_seen SET fired_mark = ? WHERE ruleset = ? AND pid = ?",
+                    [(at, ruleset, pid) for pid, at in fired.items()],
+                )
 
     def first_seen(self, ruleset: str) -> dict[str, tuple[str, str]]:
         """pid -> (first job, first time) a pseudonym was listed for ``ruleset``."""

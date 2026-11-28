@@ -487,8 +487,18 @@ def register(app: FastAPI, h: Helpers) -> None:
         crit = crit_of(rs, lang)
         fits = kept_fits(rs, lang, kept, crit)
         made = len(fits)
+        marks = store.latest_marks(rs)
+        kept_watch = store.watch_fired(rs)
         rows = st.weekly_rows(
-            cl, crit, registry_map(rs), store.latest_marks(rs), seen, job.job_id, names, today=h.today(), fits=fits
+            cl, crit, registry_map(rs), marks, seen, job.job_id, names, today=h.today(), fits=fits, fired=kept_watch
+        )
+        store.fire_watch(  # a fired watch is kept until the PI replaces or withdraws the mark
+            rs,
+            {
+                r["pid"]: marks[r["pid"]].at
+                for r in rows
+                if (r["watch"] or {}).get("fired") and r["pid"] not in kept_watch
+            },
         )
         if len(fits) != made:
             freeze()  # the fits just made are kept with the list, so frozen with it

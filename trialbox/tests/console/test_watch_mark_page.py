@@ -53,3 +53,20 @@ def test_a_watched_criterion_that_changes_brings_the_patient_back(box: dict[str,
     _screen(box, 9812, "3.0.0", [_row("fail")], 2)  # the next run answers the watched criterion
     back = pi.get("/studies/GZQO/week?list=all").text
     assert f'data-testid="watch-fired-{A[:8]}"' in back and WATCHED in back
+
+
+def test_a_fired_watch_stays_on_the_list_when_the_next_run_reads_the_first_answer_again(box: dict[str, Any]) -> None:  # noqa: F811
+    """Review K1: the patient is not set aside again before the PI acts; a new mark clears the kept firing."""
+    _screen(box, 9821, "3.0.0", [_row("unknown")], 0)
+    box["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(box, "pi")
+    pi, _ = login(box["app"], "pi", PW)
+    week = pi.get("/studies/GZQO/week?list=all").text
+    mark = {"csrf": _csrf(week), "mark": "not_now", "reason": f"{WATCHED}=unknown"}
+    pi.post(f"/studies/GZQO/patients/{A}/mark", data=mark)
+    _screen(box, 9822, "3.0.0", [_row("fail")], 2)
+    assert f'data-testid="watch-fired-{A[:8]}"' in pi.get("/studies/GZQO/week?list=all").text  # the view keeps it
+    _screen(box, 9823, "3.0.0", [_row("unknown")], 0)  # the run after reads the first answer, no change
+    assert f'data-testid="watch-fired-{A[:8]}"' in pi.get("/studies/GZQO/week?list=all").text
+    pi.post(f"/studies/GZQO/patients/{A}/mark", data=mark)  # the PI marks again
+    assert f'data-testid="row-{A[:8]}"' not in pi.get("/studies/GZQO/week?list=all").text  # set aside afresh

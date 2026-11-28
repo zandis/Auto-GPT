@@ -84,3 +84,19 @@ def test_a_change_and_change_back_in_a_later_run_still_brings_the_patient_back()
     cl["rows"][0]["changed"] = [CID]
     assert st.weekly_rows(cl, {}, {}, {PID: mk}, {}, "J1", today=TODAY) == []  # the run the mark was made on
     assert [r["pid"] for r in st.weekly_rows(cl, {}, {}, {PID: mk}, {}, "J2", today=TODAY)] == [PID]
+
+
+def test_a_fired_watch_keeps_the_patient_counted_when_the_next_run_reads_the_first_answer_again() -> None:
+    """Review K1: the watch fired on an earlier view; the next run has the first answer and no change."""
+    mk = Mark(PID, "not_now", "2027-03-01 watch:GZQO-INC-03=unknown", None, "pi", AT, "J1")
+    quiet = _cl("unknown")
+    assert st.weekly_rows(quiet, {}, {}, {PID: mk}, {}, "J3", today=TODAY) == []  # nothing recorded: set aside
+    rows = st.weekly_rows(quiet, {}, {}, {PID: mk}, {}, "J3", today=TODAY, fired={PID: AT})
+    assert [r["pid"] for r in rows] == [PID] and rows[0]["watch"]["fired"] is True
+
+
+def test_a_replaced_mark_does_not_keep_the_old_watch_fired() -> None:
+    """The PI re-marks (another ``at``) or withdraws (no mark): the earlier firing no longer counts."""
+    again = Mark(PID, "not_now", "2027-04-01 watch:GZQO-INC-03=unknown", None, "pi", "2026-12-02T07:00:00+00:00", "J3")
+    assert st.weekly_rows(_cl("unknown"), {}, {}, {PID: again}, {}, "J4", today=TODAY, fired={PID: AT}) == []
+    assert st.weekly_rows(_cl("unknown"), {}, {}, {}, {}, "J4", today=TODAY, fired={PID: AT})[0]["watch"] is None

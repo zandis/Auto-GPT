@@ -370,7 +370,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         reg = h.registry_map(rid) if h.registry_map else {}
         # MVP-B: the bundle's own criteria with its kept fits (one read of the criteria a view)
         rows = st.weekly_rows(wk["cl"], wk["crit"], reg, store.latest_marks(rid), {}, wk["job"].job_id, names,
-                              include_closed=True, today=today(), fits=wk["fits"])  # fmt: skip
+                              include_closed=True, today=today(), fits=wk["fits"],
+                              fired=store.watch_fired(rid))  # fmt: skip
         refs = team.latest_referrals(rid)
         staff = {s.practitioner_id: s for s in team.staff() if s.practitioner_id}
         nos = store.screening_nos(rid)
