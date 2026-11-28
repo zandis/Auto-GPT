@@ -438,9 +438,10 @@ class Drain:
             raise RuntimeError("the audit drain needs an autocommit connection (P-19: each index write commits at "
                                "its line, releasing the consent lock)")  # fmt: skip
         self.con.execute(f"LISTEN {NOTIFY}")
-        self.index = self._index_installed(say=True)  # said once: the drain asks again before a batch (P-19)
+        self.index = bool(self._index_installed(say=True))  # said once: the drain asks again before a batch (P-19)
         if self.index:
             self._new_box()
+            self._replay_last()
         self.cursor = last_drained(self.directory)
         if self.cursor is None:
             return
@@ -460,17 +461,17 @@ class Drain:
         self._after = self.cursor.at
         self._withhold("journal resync")  # P-19: a hand restore is caught here (the backstop of the update tool's)
 
-    def _index_installed(self, *, say: bool = False) -> bool:
+    def _index_installed(self, *, say: bool = False) -> bool | None:
         """Whether the provenance index's tables are there (the role script creates them, D-989 step 2c). Without
         them the drain writes the chain alone, and ``trialbox doctor`` says the index is not installed. ``say``:
-        log a confirmed absence (a probe that fails is logged apart, review P19-D5)."""
+        log a confirmed absence (a probe that fails is logged apart, review P19-D5). None: the probe failed."""
         from tb_common import provenance_index
 
         try:
             ok = provenance_index.installed(self.con)
         except Exception as exc:  # an index that cannot be read never stops the drain
             log.warning("provenance index: could not be read (%s)", type(exc).__name__)
-            return False
+            return None
         if not ok and say:
             log.info("provenance index not installed: the chain is written without it")
         return ok
@@ -486,6 +487,33 @@ class Drain:
         except Exception as exc:
             log.warning("provenance index: the new box's marker was not written (%s)", type(exc).__name__)
 
+    def _replay_last(self) -> None:
+        """Review P19-5: a stop between a line's append and its index write leaves that line (the newest with rows)
+        without them under a verified marker, the journal's cursor past it. Its rows are written again at the start
+        (a row already there, or one the register withholds, is a no-op), under the writer's lock as a batch."""
+        from tb_common import provenance_index
+
+        files = _day_files(self.directory)
+        rec: dict[str, Any] | None = None
+        for line in lines_backward(files[-1]) if files else ():
+            try:
+                body = json.loads(line)
+            except ValueError:
+                continue
+            if any(provenance_index.rows_of(body)):
+                rec = body
+                break
+        if rec is None:
+            return
+        got = self.con.execute("SELECT pg_try_advisory_lock(%s)", (provenance_index.WRITER_LOCK,)).fetchone()
+        if not (got and got[0]):
+            return  # a rebuild runs: it reads the line itself
+        try:
+            if self._clean():
+                self._index(rec)
+        finally:
+            self.con.execute("SELECT pg_advisory_unlock(%s)", (provenance_index.WRITER_LOCK,))
+
     def _withhold(self, reason: str) -> None:
         """P-19: the index may no longer equal the chain: the marker says rebuild-required, so the searches and this
         drain's index writes are refused until ``trialbox provenance --rebuild``. A marker that cannot be written
@@ -500,6 +528,9 @@ class Drain:
             log.error("provenance index: the marker could not be written (%s): no index writes until a restart",
                       type(exc).__name__)  # fmt: skip
             self.index = False
+            if provenance_index.read_marker(self.directory).clean:  # review P19-6: the searches would trust it
+                with contextlib.suppress(OSError):
+                    (self.directory / provenance_index.STATE).unlink()
 
     def _clean(self) -> bool:
         """P-19: whether the marker lets the drain write the index (logged once at each change)."""
@@ -545,20 +576,25 @@ class Drain:
         if not rows:
             return 0
         if not self.index:  # P-19: tables made after the drain started are written from the next line on (D5)
-            self.index = self._index_installed()
+            probe = self._index_installed()
+            if probe is None and provenance_index.read_marker(self.directory).clean:
+                self._withhold("the index could not be read")  # review P19-8: this batch goes without its rows
+            self.index = bool(probe)
             if self.index:
                 self._new_box()
         # P19-DESIGN-3 R4: a batch runs under the writer's lock, which the rebuild holds while it reads the chain: no
         # line is appended then, and every line after its CLEAN is written here. Not taken: the rebuild runs; the rows
         # stay in the journal for the next step. (No index, no rebuild: the lock is not needed.)
+        locked = False  # review P19-6: released as taken (a failed marker write clears self.index in the batch)
         if self.index:
             got = self.con.execute("SELECT pg_try_advisory_lock(%s)", (provenance_index.WRITER_LOCK,)).fetchone()
             if not (got and got[0]):
                 return 0
+            locked = True
         try:
             return self._batch(rows, alive, self.index and self._clean())
         finally:
-            if self.index:
+            if locked:
                 self.con.execute("SELECT pg_advisory_unlock(%s)", (provenance_index.WRITER_LOCK,))
 
     def _batch(self, rows: list[tuple[Any, ...]], alive: Path | None, clean: bool) -> int:

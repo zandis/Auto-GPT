@@ -28,6 +28,35 @@ def _connect(url: str) -> Any:
     return _psycopg().connect(_dsn(url), autocommit=True, connect_timeout=10)
 
 
+#: review B1 (PR 1584): the rebuild where the chain and the index are, on a compose box
+REBUILD_IN_BOX = ("run", "--rm", "--no-deps", "-T", "-e", "TB_DB_URL", "audit-writer", "python", "-m",
+                  "tb_common.provenance_index", "rebuild")  # fmt: skip
+
+
+def _rebuild_in_box() -> int | None:
+    """On a box's host (its ``deploy/.env``, not in its image) the rebuild runs in a one-off audit-writer container:
+    the one service that mounts the audit volume read-write, as the box's admin (its ``TB_DB_URL``, which may empty
+    the index; the drain's role may not). The URL travels in the environment, never on the command line. The
+    container's exit code; None: not a box's host."""
+    import subprocess
+
+    from tools.trialbox import box_hold, launch
+
+    if launch.in_box_image():
+        return None
+    try:
+        box = launch.box_file(launch.DEPLOY)
+    except launch.BoxFileError as e:
+        print(f"trialbox provenance: {e}", file=sys.stderr)
+        return 2
+    if not box.get("TB_DB_URL"):
+        return None
+    deploy = Path(os.path.abspath(launch.DEPLOY))
+    compose, env = box_hold.engine(deploy, box)
+    env["TB_DB_URL"] = box["TB_DB_URL"]
+    return subprocess.run([*compose, *REBUILD_IN_BOX], env=env, cwd=deploy, check=False).returncode
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     from tb_common import provenance_index as idx
 
@@ -46,6 +75,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--audit-dir", default=os.environ.get("TB_AUDIT_DIR") or "/data/audit")
     ap.add_argument("--db-url", default=os.environ.get("TB_DB_URL") or "")
     a = ap.parse_args(list(argv) if argv is not None else None)
+    if a.rebuild and not Path(a.audit_dir).is_dir():  # no chain here: the box's host (review B1)
+        rc = _rebuild_in_box()
+        if rc is not None:
+            return rc
     if not a.db_url:
         print("trialbox provenance: TB_DB_URL is not set", file=sys.stderr)
         return 2

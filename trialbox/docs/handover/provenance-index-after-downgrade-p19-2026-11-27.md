@@ -237,5 +237,23 @@ no database and its container is recreated from the image. P19-03 and P19-04 are
 (the register has no partial state).
 
 What was not verified in round 4: a compose box's real rollback (the tests run `RESTORE_SH` itself on the test
-cluster); the rebuild's time at a site's size (no site figure was declared; the test that measures it runs only with
-`TB_P19_SITE_LINES` and `TB_P19_REBUILD_BUDGET_S`).
+cluster); the rebuild's time at a site's size (no site figure was declared, so nothing was measured: the test that
+skipped without one was dropped in the fix round, review B2).
+
+Fix round (reviews of PR 1584):
+- B1: on a box's host `trialbox provenance --rebuild` runs in a one-off `audit-writer` container (`compose run`,
+  the admin's `TB_DB_URL` in the environment), the one service that writes the audit folder; RUNBOOK §5 names it.
+- The host check's doctor runs in an image without the audit volume: `provenance_index` says WARN "not checked here".
+- P19-1: the rollback streams the live register into the restored database (no file); the count read first is
+  checked there, so a stream cut short refuses before the swap.
+- P19-2: when the live register differs from the dump's, the rollback sets `screening.after_restore` (held, with its
+  flag event) in the restored database before the swap; `update.rolled_back` carries `screening_hold`.
+- P19-3: a dump without `provenance.withhold` (the release before P-19) loses its services' grants on the index in
+  the restored database; the next update's role script grants them again.
+- P19-4: a resumed rebuild reads its recorded day file again. P19-5: the drain's start writes the rows of the
+  newest chain line that has rows (a stop between a line and its rows). P19-6: the batch's lock is released as taken;
+  a marker that cannot be written takes the verified marker away. P19-7: a search reads the marker again after its
+  query and refuses when it changed. P19-8: a failed probe before a batch requires the rebuild.
+- Left as limitations (detect and refuse): P19-9 (a rollback point older than the register refuses before the swap,
+  the services stay stopped); P19-6 when the audit folder takes no write at all (the verified marker cannot be
+  removed either); P19-3 holds until someone runs the old release's role script by hand.

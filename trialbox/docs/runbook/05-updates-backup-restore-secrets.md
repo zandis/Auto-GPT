@@ -308,6 +308,18 @@ the box (the anchor folder on the hospital's share, never on the box's own disk)
 signing leaves at most one day open. On an installed box the `audit-writer` service is not given the anchor folder, so
 there the nightly check is the one that finds a cut below a signed head, within a day.
 
+**The provenance index must be rebuilt (P-19).** After the update that brings P-19 to a box that already has model
+calls in its audit chain, and after every rollback or restore, `trialbox doctor` fails `provenance_index` with "the
+provenance index must be rebuilt ... run trialbox provenance --rebuild", and the console's provenance search is
+refused until then. As root in the install folder:
+
+    sudo trialbox provenance --rebuild
+
+On the box's host it runs once in a one-off `audit-writer` container (the service that writes the audit folder),
+as the box's administrator, and prints one line per day file of the chain. Run `trialbox doctor` after it: the row
+passes. A rollback that put back candidate lists made before a consent change also holds screening
+(`screening.after_restore`); release it only after the lists are run again.
+
 
 **Restore over the live stack, one command (H-100).** In a root shell on the box, from the install folder. The
 private key from the envelope must be a file owned by root and readable by root alone (mode 0600), not a link: a

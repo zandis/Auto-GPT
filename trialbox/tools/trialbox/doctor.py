@@ -2473,7 +2473,11 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
         return Check(
             "provenance_index", "PASS", "NOT CHECKED: no TB_DB_URL (run trialbox provenance --check on the box)"
         )
-    marker = idx.read_marker(Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")))
+    audit = Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit"))
+    if not audit.is_dir():  # the host check's one-off container mounts no audit volume: no marker to read here
+        return Check("provenance_index", "WARN", f"NOT CHECKED here: no audit folder {audit} (run trialbox "
+                     "provenance --check on the box)")  # fmt: skip
+    marker = idx.read_marker(audit)
     if not marker.clean:  # P19-DESIGN-3 §2: before any database work, with the operator's step
         return Check("provenance_index", "FAIL", marker.text)
     from tb_common.audit_writer import _dsn, _psycopg

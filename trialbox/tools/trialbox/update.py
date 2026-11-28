@@ -1103,16 +1103,40 @@ RESTORE_SWAP_SQL = (
 RESTORE_SPLIT_AWK = (
     '$4 == "EXTENSION" || ($4 == "COMMENT" && $5 == "-" && $6 == "EXTENSION") { print > x; next } { print > m }'
 )
+#: the reason of the rollback's hold (``backup.HOLD_FLAG``, ``screening.after_restore``): no patient, no count
+RESTORE_HOLD_REASON = (
+    "the rollback restored candidate lists made before a consent change recorded after its dump; a person "
+    "releases the hold once the lists are run again"
+)
 #: P-19 (ASSESS-1: an opt-out holds in every store, dumps included; P19-DESIGN-3 §5): before the swap, every opt-out
 #: register of the database in place (any tb_prefix; a partitioned one through its parent) replaces the restored one
 #: whole, ids and order kept, and its sequence is moved past them (review P19-Y2: no merge, so no tie can change the
-#: winning event). The live events go through a file in the script's 0700 folder, as the dump does, in one
-#: transaction; an empty one is skipped (Y7); a nonempty one with no table in the dump refuses (fail closed: the
+#: winning event). The live events are streamed from one database to the other, never written to a file (review
+#: P19-1), in one transaction that commits only when their count is the one read before (``:c``; a stream cut short
+#: refuses); an empty one is skipped (Y7); a nonempty one with no table in the dump refuses (fail closed: the
 #: rollback stops before the swap). The database in place is untouched until the swap, so a rollback run again reads
-#: them again.
+#: them again. Review P19-2: when they differ from the dump's (consent changed after it), the restored database's
+#: candidate lists predate that change: the existing hold (``screening.after_restore``, D-522) is set there, with its
+#: flag event, so no list job runs on them until a person releases it.
 RESTORE_KEEP_SQL = (
     "CREATE TEMP TABLE tb_live (id bigint, pid text, action text, source text, note text, by text, at text);\n"
     "\\copy tb_live FROM pstdin\n"
+    "CREATE TEMP TABLE tb_whole (n bigint CHECK (n = :c));\n"
+    "INSERT INTO tb_whole SELECT count(*) FROM tb_live;\n"
+    "SELECT (EXISTS (SELECT id, pid, action, source, note, by, at FROM tb_live EXCEPT "
+    'SELECT id, pid, action, source, note, by, at FROM :"s".optout_events) OR EXISTS (SELECT id, pid, action, source, '
+    'note, by, at FROM :"s".optout_events EXCEPT SELECT id, pid, action, source, note, by, at FROM tb_live)) '
+    "AND to_regclass('app.flag') IS NOT NULL AS hold \\gset\n"
+    "\\if :hold\n"
+    "WITH old AS (SELECT value FROM app.flag WHERE name = 'screening.after_restore'), "
+    "held AS (INSERT INTO app.flag (name, value, changed_by, reason) VALUES ('screening.after_restore', 'held', "
+    f"'update rollback', '{RESTORE_HOLD_REASON}') ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, "
+    "changed_at = now(), changed_by = EXCLUDED.changed_by, reason = EXCLUDED.reason WHERE app.flag.value <> 'held' "
+    "RETURNING 1) INSERT INTO app.flag_event (name, kind, old_value, new_value, actor, reason) "
+    f"SELECT 'screening.after_restore', 'set', (SELECT value FROM old), 'held', 'update rollback', "
+    f"'{RESTORE_HOLD_REASON}' FROM held;\n"
+    "\\echo 'restore: screening held'\n"
+    "\\endif\n"
     'TRUNCATE :"s".optout_events;\n'
     'INSERT INTO :"s".optout_events (id, pid, action, source, note, by, at) OVERRIDING SYSTEM VALUE '
     "SELECT id, pid, action, source, note, by, at FROM tb_live ORDER BY id;\n"
@@ -1128,6 +1152,19 @@ RESTORE_REGISTERS_SQL = (
 RESTORE_EMPTY_INDEX_SQL = (
     "DO $tb$ BEGIN IF to_regclass('provenance.model_uses') IS NOT NULL THEN "
     "TRUNCATE provenance.model_uses, provenance.model_calls; END IF; END $tb$;\n"
+)
+#: review P19-3: a dump without ``provenance.withhold`` is the release before P-19, whose search and drain never ask
+#: the marker: its services' grants on the index go in the restored database (its search is refused, its drain writes
+#: no row) until the next update's role script grants them again
+RESTORE_REFUSE_INDEX_SQL = (
+    "SELECT to_regclass('provenance.model_uses') IS NOT NULL AND to_regprocedure('provenance.withhold()') IS NULL "
+    "AS old \\gset\n"
+    "\\if :old\n"
+    "DO $tb$ DECLARE r text; BEGIN FOR r IN SELECT rolname FROM pg_roles WHERE rolname IN ('tb_audit_writer', "
+    "'tb_console', 'tb_orchestrator') LOOP EXECUTE format('REVOKE ALL ON SCHEMA provenance FROM %I', r); "
+    "EXECUTE format('REVOKE ALL ON provenance.model_calls, provenance.model_uses FROM %I', r); END LOOP; END $tb$;\n"
+    "\\echo 'restore: the release before P-19 asks no provenance marker: its services may not use the index'\n"
+    "\\endif\n"
 )
 #: the line the restore ends with (stdout), read back by the box for the ``update.rolled_back`` event
 RESTORE_SAID = "restore: {n} register event(s) kept; provenance index emptied; rebuild required"
@@ -1153,13 +1190,14 @@ RESTORE_SH = (
     f'adm -d "$db" -tA > "$d/registers" <<\'TBSQL\' || exit 1\n{RESTORE_REGISTERS_SQL}TBSQL\n'
     "k=0\n"
     "while read -r s; do\n"
+    '  c=$(printf \'%s\\n\' \'SELECT count(*) FROM :"s".optout_events;\' | adm -d "$db" -tA -v s="$s") || exit 1\n'
+    '  [ "$c" -gt 0 ] || continue\n'
     "  printf '%s\\n' 'COPY (SELECT id, pid, action, source, note, by, at FROM :\"s\".optout_events) TO STDOUT;' "
-    '| adm -d "$db" -v s="$s" > "$d/live" || exit 1\n'
-    '  [ -s "$d/live" ] || continue\n'
-    '  adm -d "$n" --single-transaction -v s="$s" -f "$d/keep.sql" < "$d/live" || exit 1\n'
-    '  k=$((k + $(wc -l < "$d/live")))\n'
+    '| adm -d "$db" -v s="$s" | adm -d "$n" --single-transaction -v s="$s" -v c="$c" -f "$d/keep.sql" || exit 1\n'
+    "  k=$((k + c))\n"
     'done < "$d/registers"\n'
     f"adm -d \"$n\" <<'TBSQL' || exit 1\n{RESTORE_EMPTY_INDEX_SQL}TBSQL\n"
+    f"adm -d \"$n\" <<'TBSQL' || exit 1\n{RESTORE_REFUSE_INDEX_SQL}TBSQL\n"
     f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_SWAP_SQL}TBSQL\n"
     "made=\n"
     "printf '%s\\n' 'DROP DATABASE IF EXISTS :\"o\" WITH (FORCE);' | adm -d postgres "
@@ -1320,7 +1358,11 @@ def mark_rebuild_required(audit_dir: Path) -> None:
 def restore_said(out: str) -> dict[str, Any]:
     """The ``update.rolled_back`` detail of what ``RESTORE_SH`` printed last (G1, G2's audit half)."""
     m = re.search(r"^restore: (\d+) register event\(s\) kept; provenance index emptied", out, re.M)
-    return {"register_events_kept": int(m.group(1)) if m else None, "provenance_index": "emptied; rebuild required"}
+    said: dict[str, Any] = {"register_events_kept": int(m.group(1)) if m else None,
+                            "provenance_index": "emptied; rebuild required"}  # fmt: skip
+    if re.search(r"^restore: screening held$", out, re.M):  # review P19-2
+        said["screening_hold"] = "held"
+    return said
 
 
 class Box(Protocol):
@@ -3139,6 +3181,8 @@ class ComposeBox(_DockerImages):
                     kept = self.rollback_note["register_events_kept"]
                     print(f"rollback: {kept} opt-out register event(s) kept; the provenance index emptied: run "
                           "trialbox provenance --rebuild", file=sys.stderr)  # fmt: skip
+                    if self.rollback_note.get("screening_hold"):
+                        print(f"rollback: screening held ({RESTORE_HOLD_REASON})", file=sys.stderr)
 
             _with_plain(Path(f), rb, restore)
 

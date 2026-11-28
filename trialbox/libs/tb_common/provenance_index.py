@@ -464,7 +464,9 @@ def _rebuild_locked(con: Any, directory: Path, say: Callable[[str], None]) -> tu
             con.execute("DELETE FROM provenance.model_calls")
     head = ""
     for path in _day_files(directory):
-        if done and path.name <= done:
+        # the recorded file itself is read again (a re-add is a no-op): the drain may have appended to it since, the
+        # chain appending to its newest file only (review P19-4)
+        if done and path.name < done:
             continue
         t0, lines = time.monotonic(), 0
         with con.transaction(), path.open(encoding="utf-8") as fh:
@@ -566,6 +568,10 @@ def search(
         raise ValueError("search: name a model, build, prompt sha, or prompt id (and version)")
     args = {k: (v or None) for k, v in filters.items()}
     rows = con.execute(_SEARCH, {**args, "limit": int(limit)}).fetchall()
+    if read_marker(directory) != m:  # review P19-7: a rebuild began (its marker first) while the query ran
+        raise ProvenanceRebuildRequired(
+            "the provenance index was being rebuilt while it was searched; nothing is shown: search again"
+        )
     keys = ("record_kind", "record_ref", "event", "decision", "by", "at", "call_id", "model", "build_sha",
             "prompt_id", "prompt_version", "prompt_sha")  # fmt: skip
     out = []
