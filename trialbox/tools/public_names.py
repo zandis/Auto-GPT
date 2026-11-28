@@ -46,18 +46,24 @@ class NotChecked(Exception):
 def load_patterns(value: str | None, repo: Path) -> list[re.Pattern[str]]:
     """The compiled patterns of the list the variable names; raises NotChecked when there is none to use."""
     if not value:
-        raise NotChecked(f"{ENV} is not set: tracked files NOT checked (name a pattern file kept outside the repository)")
+        raise NotChecked(
+            f"{ENV} is not set: tracked files NOT checked (name a pattern file kept outside the repository)"
+        )
     path = Path(value).expanduser().resolve()
     try:
         path.relative_to(repo.resolve())
     except ValueError:
         pass
     else:
-        raise NotChecked(f"the pattern file is inside the repository: tracked files NOT checked (keep it outside {repo})")
+        raise NotChecked(
+            f"the pattern file is inside the repository: tracked files NOT checked (keep it outside {repo})"
+        )
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError) as exc:
-        raise NotChecked(f"the pattern file {ENV} names is not readable ({type(exc).__name__}): tracked files NOT checked") from exc
+        raise NotChecked(
+            f"the pattern file {ENV} names is not readable ({type(exc).__name__}): tracked files NOT checked"
+        ) from exc
     patterns: list[re.Pattern[str]] = []
     for line in lines:
         text = line.strip()
@@ -66,7 +72,9 @@ def load_patterns(value: str | None, repo: Path) -> list[re.Pattern[str]]:
         try:
             patterns.append(re.compile(text, re.IGNORECASE))
         except re.error as exc:
-            raise NotChecked(f"pattern {len(patterns) + 1} does not compile ({exc.msg}): tracked files NOT checked") from exc
+            raise NotChecked(
+                f"pattern {len(patterns) + 1} does not compile ({exc.msg}): tracked files NOT checked"
+            ) from exc
     if not patterns:
         raise NotChecked(f"the pattern file {ENV} names holds no patterns: tracked files NOT checked")
     return patterns
