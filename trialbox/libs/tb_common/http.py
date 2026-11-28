@@ -580,12 +580,9 @@ class EgressGuard:
         host = (u.host or "").lower().rstrip(".")
         if scheme not in ("http", "https"):
             raise self._refuse(host, "scheme", f"{scheme}:// is not an HTTP address", request)
-        if scheme == "http" and self.environment not in ("DEV", "TEST"):
-            if (host, u.port or 80) not in self.http_ok:
-                raise self._refuse(
-                    host, "http_outside_dev", f"http://{host} outside DEV and TEST (https only)", request
-                )
-            self.log.warning("plain http to the declared host", extra={"egress_host": host, "caller": self.service})
+        plain = scheme == "http" and self.environment not in ("DEV", "TEST")
+        if plain and (host, u.port or 80) not in self.http_ok:
+            raise self._refuse(host, "http_outside_dev", f"http://{host} outside DEV and TEST (https only)", request)
         if not host:
             raise self._refuse(host, "no_host", "the address has no host", request)
         if _odd_ipv4(host):  # after httpx's own parsing too
@@ -597,6 +594,10 @@ class EgressGuard:
             raise self._refuse(host, "does_not_resolve", f"{host} does not resolve", request)
         for a in addrs:
             cls = address_class(a)
+            if plain and cls != "private" and cls not in NEVER and cls != "invalid":  # clear text only on the LAN
+                raise self._refuse(
+                    host, "http_outside_dev", f"http://{host} resolves to {a} ({cls}): not the LAN", request
+                )
             if cls in NEVER or cls == "invalid":
                 raise self._refuse(host, cls, f"{host} resolves to {a} ({cls}): never a destination", request)
             if cls != "public" and not declared:
@@ -604,6 +605,8 @@ class EgressGuard:
                     host, cls, f"{host}:{port} resolves to {a} ({cls}) and is not on the egress table of "
                     f"{self.service}", request,
                 )  # fmt: skip
+        if plain:
+            self.log.warning("plain http to the declared host", extra={"egress_host": host, "caller": self.service})
         return addrs[0]
 
 

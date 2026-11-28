@@ -218,7 +218,8 @@ def test_an_http_lan_tool_url_works_and_the_page_warns(box: dict[str, Any], edc_
         text = html.unescape(c.get("/admin/edc").text)
     assert 'data-testid="edc-status-up"' in text and 'data-testid="edc-status-plain-http"' in text
     assert "is plain http" in text
-    assert any("plain http" in r.getMessage() and "tool-token" not in repr(r.__dict__) for r in caplog.records)
+    assert [r for r in caplog.records if r.name == "tb.egress" and "plain http" in r.getMessage()]
+    assert not [r for r in caplog.records if "tool-token" in r.getMessage() + repr(r.__dict__)]
 
 
 def test_http_to_another_host_is_still_refused_before_any_call(box: dict[str, Any], edc_env: pytest.MonkeyPatch,
@@ -245,3 +246,19 @@ def test_a_typed_loopback_or_reserved_url_is_not_declared(base: str) -> None:
 
     guard = guard_of(declared_client(base, env={"TB_ENV": "PRODUCTION"}))
     assert guard is not None and guard.declared == set() and guard.http_ok == set()
+
+
+def test_http_to_a_declared_host_on_a_public_address_is_refused_before_any_call() -> None:
+    from tb_common.http import EgressRefused, declared_client
+
+    sent: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return httpx.Response(200, json={})
+
+    client = declared_client("http://edc.example", inner=httpx.MockTransport(answer), env={"TB_ENV": "PRODUCTION"},
+                             resolver=lambda host, port: ["93.184.216.34"])  # fmt: skip
+    with pytest.raises(EgressRefused) as raised:
+        client.get("http://edc.example/api/v1/capabilities")
+    assert raised.value.reason == "http_outside_dev" and sent == []
