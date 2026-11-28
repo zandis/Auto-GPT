@@ -189,6 +189,9 @@
     var dj = document.getElementById("tb-draft"), dv = dj ? JSON.parse(dj.textContent || "null") : null;
     var same = dv && dv.fields ? Array.prototype.filter.call(document.querySelectorAll("form"), function (f) {
       if ((f.getAttribute("action") || "") !== dv.action) return false;
+      var names = {};
+      Array.prototype.forEach.call(f.elements, function (x) { names[x.name] = true; });
+      if (!Object.keys(dv.fields).every(function (n) { return names[n]; })) return false; // every kept name is here
       return Array.prototype.every.call(f.elements, function (x) {
         var v = dv.fields[x.name];
         return x.type !== "hidden" || !v || v.indexOf(x.value) >= 0;

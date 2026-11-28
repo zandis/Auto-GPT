@@ -291,6 +291,9 @@ def test_two_forms_that_cannot_be_told_apart_get_nothing() -> None:
     got = _js([_row("p2"), _row("p2")], kept)
     assert got["values"] == [["fresh", "p2", ""], ["fresh", "p2", ""]] and got["notes"] == []
     assert _js([_row("p1")], kept)["values"] == [["fresh", "p1", ""]]  # no form of that patient: nothing
+    other = {"action": "/studies/GZQO/marks", "fields": [["csrf", "hidden", "fresh"], ["patient_id", "hidden", "p1"],
+                                                        ["note", "text", ""]]}  # fmt: skip
+    assert _js([other], kept)["values"] == [["fresh", "p1", ""]]  # the kept patient field is not on it: nothing
 
 
 def test_discard_undoes_the_refill_but_keeps_what_was_typed_since() -> None:
