@@ -38,7 +38,7 @@ import pytest
 from tb_common.db import Database
 
 from tests import pg_client
-from tests.unit.test_backup_key_ceremony import SITE, Box
+from tests.unit.test_backup_key_ceremony import SITE, Box, _sysfs
 from tools import backup_key_ceremony as bkc
 from tools.trialbox import backup as bk
 from tools.trialbox import restore_drill as rd
@@ -301,18 +301,20 @@ from tools import backup_key_ceremony as b
 cfg = json.loads(sys.argv[1])
 b.DEPLOY = Path(cfg["deploy"]); b.PUB_DIR = b.DEPLOY / "secrets"; b.COMPOSE = cfg["compose"]
 b.is_root = lambda: True; b.harden = lambda: None; b.TTY = cfg["tty"]
+if cfg["console"]: b._local_console = lambda: True  # P01: the pseudo-terminal stands in for the console
 sys.exit(b.main(cfg["argv"]))
 """
 
 
 def _on_a_terminal(
-    box: Box, argv: list[str], answer: Callable[[str], str | None], timeout: float = 60
+    box: Box, argv: list[str], answer: Callable[[str], str | None], timeout: float = 60, console: bool = True
 ) -> tuple[int | None, str]:
     """M-04: ``main(argv)`` in a process of its own whose terminal (``TTY``, stdin, stdout and stderr) is a
     pseudo-terminal; ``answer`` gets what was shown since its last answer and returns what to type, or None. At
     ``timeout`` the process is killed, whatever its prompt said: ``(None, what was shown)``, never a test that hangs."""
     master, slave = pty.openpty()
-    cfg = {"deploy": str(box.deploy), "compose": box.compose, "tty": os.ttyname(slave), "argv": argv}
+    cfg = {"deploy": str(box.deploy), "compose": box.compose, "tty": os.ttyname(slave), "argv": argv,
+           "console": console}  # fmt: skip
     p = subprocess.Popen([sys.executable, "-c", CHILD, json.dumps(cfg)], cwd=ROOT, env=box.env(), stdin=slave,
                          stdout=slave, stderr=slave, start_new_session=True)  # fmt: skip
     os.close(slave)
@@ -789,6 +791,7 @@ def test_a_dev_source_replugged_is_refused_until_it_is_declared_again(
     link = by_uuid / "0f1e2d3c-usb"
     monkeypatch.setattr(bkc, "BY_UUID", by_uuid)
     link.symlink_to("/dev/sdb1")
+    monkeypatch.setattr(bkc, "SYS", _sysfs(tmp_path))  # P05: sdb is a removable disk, as the install declares
     _mounted(tmp_path, monkeypatch, (nas, "8:17", "ext4", "/dev/sdb1", ()))
     bkc.declare_target(str(nas), "install", False, {})
     assert json.loads((box.pub_dir / bkc.TARGET_RECORD).read_text(encoding="utf-8"))["fsuuid"] == link.name
@@ -1537,12 +1540,11 @@ def _write_pass(pp: Path) -> None:
     pp.chmod(0o600)
 
 
-def test_a_kill_after_backup_pub_leaves_no_passphrase_file_and_the_next_start_removes_a_left_one(
-    tmp_path: Path,
-) -> None:
-    """H-08: the install's passphrase file is removed before the ceremony can make backup.pub: the installer killed
-    right after backup.pub is made (before its next line) leaves no passphrase file beside the sealed key. One left
-    beside a sealed key (an older installer killed there) is removed at the next start, before anything else, unless
+def test_a_kill_after_backup_pub_leaves_the_passphrase_file_and_the_next_start_names_it(tmp_path: Path) -> None:
+    """P02/P03 (#1602 fix round, the integrator's ruling; H-08 removed the file before the ceremony and at the next
+    start): the install's passphrase file is removed only once the ceremony has sealed the key, so the installer
+    killed in the ceremony leaves it. The next start does not remove a file it finds beside a sealed key (nothing
+    records it as that key's passphrase): it names it for the operator to remove, unless
     --keep-kek-passphrase-file."""
     secrets = tmp_path / "deploy" / "secrets"
     killed = f"cat >/dev/null\n: > {secrets}/backup-key-0000.sealed\n: > {secrets}/backup.pub\nkill -KILL 0\n"
@@ -1551,13 +1553,13 @@ def test_a_kill_after_backup_pub_leaves_no_passphrase_file_and_the_next_start_re
     _write_pass(pp)
     r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}echo finished\n")
     assert r.returncode < 0 and "finished" not in r.stdout, r.stdout + r.stderr  # killed in the ceremony
-    assert (secrets / "backup.pub").is_file() and not pp.exists()
-    _write_pass(pp)  # left over beside the sealed key
+    assert (secrets / "backup.pub").is_file() and pp.exists()  # left over beside the sealed key
     r = run("echo started\n", keep=True)
-    assert r.returncode == 0 and pp.exists() and "started" in r.stdout, r.stderr
+    assert r.returncode == 0 and pp.exists() and "started" in r.stdout and "beside" not in r.stdout, r.stderr
     r = run("echo started\n")
     assert r.returncode == 0 and "started" in r.stdout, r.stderr
-    assert not pp.exists() and f"the passphrase file {pp} is removed" in r.stdout and PASS not in r.stdout + r.stderr
+    assert pp.exists() and f"the passphrase file {pp} is beside a sealed backup key" in r.stdout
+    assert f"rm -- {pp}" in r.stdout and "is removed" not in r.stdout and PASS not in r.stdout + r.stderr
 
 
 @pytest.mark.parametrize("allexport", [False, True])
@@ -1614,3 +1616,80 @@ def test_the_installer_declares_the_configured_path_as_written(tmp_path: Path, l
     r = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30)
     assert r.returncode == 0, r.stderr
     assert (tmp_path / "got").read_text(encoding="utf-8") == want
+
+
+# ------------------------------------------------------------------------------------------------ fix round (#1602)
+def test_the_key_is_not_shown_on_a_terminal_that_is_not_the_box_console(box: Box) -> None:
+    """P01: a pseudo-terminal (an SSH session's, here) is not the box's console: ``--install`` refuses before a key
+    is made, and nothing of a key is shown there."""
+    rc, shown = _on_a_terminal(box, ["--install"], lambda _text: None, timeout=15, console=False)
+    assert rc == 1 and bkc.NOT_LOCAL_CONSOLE["en"] in shown.replace("\r\n", "\n"), shown
+    assert not LINE.search(shown) and not box.pub.exists() and box.pending() == []
+
+
+@pytest.mark.parametrize(
+    ("dev", "local"), [((4, 1), True), ((4, 63), True), ((4, 64), False), ((136, 3), False), ((0, 0), False)]
+)
+def test_only_a_virtual_console_of_the_box_is_its_console(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dev: tuple[int, int], local: bool
+) -> None:
+    """P01: the controlling terminal (/proc/self/stat) is the box's console only as a virtual console (tty1 to
+    tty63); a serial line (ttyS0: 4:64), a pseudo-terminal (136:3) or none is not."""
+    proc_stat = tmp_path / "stat"
+    proc_stat.write_text(f"4321 (python3 (a) b) S 1 4321 4321 {os.makedev(*dev)} 4321 4194560\n", encoding="utf-8")
+    monkeypatch.setattr(bkc, "PROC_STAT", proc_stat)
+    assert bkc._local_console() is local
+
+
+def test_a_refused_seal_leaves_the_passphrase_file(tmp_path: Path) -> None:
+    """P02: the install's passphrase file is removed only once the key is sealed with it: a ceremony that refuses
+    (the target, say) leaves it, and the install says it stays."""
+    pp, run = _shell_install(tmp_path, "cat >/dev/null\nexit 1\n")
+    key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
+    _write_pass(pp)
+    r = run(f'TB_ENV_SITE=PRODUCTION\n{key_step}for f in "${{FAILS[@]}}"; do echo "FAIL: $f"; done\n')
+    assert r.returncode == 0, r.stderr
+    assert pp.exists() and f"the passphrase file {pp} stays" in r.stdout and "FAIL: no backup key" in r.stdout
+    assert "is removed" not in r.stdout and PASS not in r.stdout + r.stderr
+
+
+def test_bash_xtrace_never_shows_the_passphrase(tmp_path: Path) -> None:
+    """P04: bash -x (xtrace) prints each command with its words expanded; the reader turns it off before the first
+    secret is read, so the trace holds no passphrase (the pipe to the ceremony included). The same line comes before
+    the first read of KP_VALUE in box-install.sh and seal_keys.sh."""
+    pp, run = _shell_install(tmp_path, "cat >/dev/null\n")
+    key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
+    _write_pass(pp)
+    r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}", pre="set -x\n")
+    assert r.returncode == 0 and "+ FAILS=()" in r.stderr, r.stderr  # the trace was on
+    assert PASS not in r.stdout + r.stderr
+    deploy = Path(__file__).resolve().parents[2] / "deploy"
+    for name in ("install.sh", "box-install.sh", "hardening/seal_keys.sh"):
+        text = (deploy / name).read_text(encoding="utf-8")
+        assert -1 < text.find("{ set +x; } 2>/dev/null") < text.find("read -r KP_VALUE"), name
+
+
+@pytest.mark.parametrize(
+    ("mm", "src", "auto"), [("8:33", "/dev/sdc1", False), ("8:49", "/dev/sdd1", True), ("8:17", "/dev/sdb1", True)]
+)
+def test_the_install_declares_by_itself_only_a_share_or_a_removable_disk(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mm: str, src: str, auto: bool
+) -> None:
+    """P05: the install's own declaration (``--operator install``) takes a network share or a disk the kernel calls
+    removable or finds on USB (sdb, sdd); another disk (sdc: a second internal disk) is refused there, and only an
+    operator's declaration takes it."""
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    by_uuid = tmp_path / "by-uuid"
+    by_uuid.mkdir()
+    (by_uuid / "0f1e2d3c").symlink_to(src)
+    monkeypatch.setattr(bkc, "BY_UUID", by_uuid)
+    monkeypatch.setattr(bkc, "SYS", _sysfs(tmp_path))
+    _mounted(tmp_path, monkeypatch, (nas, mm, "ext4", src, ()))
+    if not auto:
+        with pytest.raises(bkc.Stop) as got:
+            bkc.declare_target(str(nas), "install", False, {})
+        assert got.value.text is bkc.TARGET_UNDECLARABLE and not (box.pub_dir / bkc.TARGET_RECORD).exists()
+        assert got.value.fill["why"].startswith("not a network share or a removable disk")
+    bkc.declare_target(str(nas), "install" if auto else "IT Operator", False, {})
+    assert json.loads((box.pub_dir / bkc.TARGET_RECORD).read_text(encoding="utf-8"))["source"] == src
