@@ -441,12 +441,13 @@ class Drain:
         self.index = bool(self._index_installed(say=True))  # said once: the drain asks again before a batch (P-19)
         if self.index:
             self._new_box()
-            self._replay_last()
         self.cursor = last_drained(self.directory)
         if self.cursor is None:
             return
         row = self.con.execute("SELECT at FROM audit.journal WHERE seq = %s", (self.cursor.seq,)).fetchone()
         if row is not None and _same_time(_iso(row[0]), self.cursor.at):
+            if self.index:  # the journal goes on from the chain's line: no restore, so no rebuild comes after it
+                self._replay_last()
             return
         top = self.con.execute("SELECT coalesce(max(seq), 0) FROM audit.journal").fetchone()[0]
         problem = (
