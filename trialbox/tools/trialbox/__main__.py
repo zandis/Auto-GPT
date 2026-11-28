@@ -691,20 +691,20 @@ def _restore_cmd(a: argparse.Namespace, installed: bool) -> int:
         a.file = _resolve_backup(a.file, "restore")
         if a.file is None:
             return 2
+    if a.no_copy and not a.yes_really:  # review R3: the kept copy is the way back if the put-back fails
+        print(say("restore_no_copy"), file=sys.stderr)
+        return 2
     host = installed or not launch.has_libs((*launch.CRYPTO, "psycopg"))
     if host:
         from tools.trialbox import box_restore, update
 
-        if a.no_copy and not a.yes_really:  # review R3: the kept copy is the way back if the put-back fails
-            print(say("restore_no_copy"), file=sys.stderr)
-            return 2
         _restore_defaults(a, update._env_file(a.deploy / ".env"), a.deploy)
     else:
         if a.last or a.restart:
             print("restore: --last and --restart are the host's (the installed trialbox restore)", file=sys.stderr)
             return 2
         _restore_defaults(a, os.environ, Path("deploy"))
-    if not a.yes:
+    if host and not a.no_copy and not a.yes:  # a way back only when a copy is kept
         print(say("restore_way_back", name=a.file.name if a.file else "--last", keep=a.keep_to), file=sys.stderr)
     return box_restore.main(a) if host else _backup_cmd(a)
 

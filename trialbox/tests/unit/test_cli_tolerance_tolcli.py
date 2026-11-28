@@ -180,6 +180,44 @@ def test_u008_no_copy_still_needs_yes_really(
     assert cli.main(argv, installed=True) == 2
     assert step.got is None and "--yes-really" in capsys.readouterr().err
     assert cli.main([*argv, "--yes-really"], installed=True) == 0 and step.got is not None
+    assert "trialbox restore <" not in capsys.readouterr().err  # no copy kept: no way back is promised
+
+
+def test_u008_no_copy_is_refused_in_process_too_and_neither_backend_starts(
+    tmp_path: Path, host_box: tuple[Path, Step], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    deploy, step = host_box
+    ran: list[Any] = []
+    monkeypatch.setattr(cli, "_backup_cmd", lambda a: ran.append(a) or 0)
+    monkeypatch.setattr(launch, "has_libs", lambda *_a, **_k: True)  # a developer's interpreter: not the host
+    (f,) = _backups(tmp_path / "nas", "20261110T194500Z")
+    argv = ["restore", str(f), "--key", "k", "--deploy", str(deploy), "--no-copy"]
+    assert cli.main(argv) == 2
+    assert step.got is None and not ran and "--yes-really" in capsys.readouterr().err
+    assert cli.main([*argv, "--yes-really"]) == 0 and len(ran) == 1  # acknowledged: the in-process restore runs
+    assert "trialbox restore <" not in capsys.readouterr().err  # it keeps no copy here: no way back is promised
+
+
+def test_texts_fall_back_to_english_without_tb_common_or_with_an_unknown_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import builtins
+
+    from tools.trialbox import cli_text
+
+    real = builtins.__import__
+
+    def blocked(name: str, *a: Any, **k: Any) -> Any:
+        if name.startswith("tb_common"):
+            raise ImportError(name)
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", blocked)
+    monkeypatch.setenv("TB_LANG", "ja")
+    assert cli_text.lang() == "en" and cli_text.say("restore_both") == cli_text.TEXTS["restore_both"]["en"]
+    monkeypatch.setattr(builtins, "__import__", real)
+    monkeypatch.setattr(cli_text, "lang", lambda: "xx")  # a code the texts do not carry
+    assert cli_text.say("restore_both") == cli_text.TEXTS["restore_both"]["en"]
 
 
 @pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])

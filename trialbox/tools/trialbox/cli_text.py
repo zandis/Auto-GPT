@@ -86,10 +86,12 @@ TEXTS: dict[str, dict[str, str]] = {
 
 
 def lang() -> str:
-    from tb_common.preflight import lang_of
-
+    try:
+        from tb_common.preflight import lang_of
+    except ImportError:  # a bare host python has no tb_common: English
+        return "en"
     return lang_of(os.environ.get("TB_LANG") or os.environ.get("LC_ALL") or os.environ.get("LANG"))
 
 
 def say(key: str, **values: object) -> str:
-    return TEXTS[key][lang()].format(**values)
+    return TEXTS[key].get(lang(), TEXTS[key]["en"]).format(**values)
