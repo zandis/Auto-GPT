@@ -237,7 +237,7 @@ JA: dict[str, str] = {
     "fd.proc.install-check.title": "設置の確認",
     "fd.proc.install-check.use": "端末で初めて TrialBox を開くとき。",
     "fd.proc.install-check.step.1": "{install}",
-    "fd.proc.install-check.step.2": "ブラウザーでコンソールを開き、管理者から渡されたアカウントでサインインします。",
+    "fd.proc.install-check.step.2": "ブラウザーでコンソールを開き、管理者から渡されたアカウントでログインします。",
     "fd.proc.install-check.step.3": "「{home}」を開きます。証明書の警告なしに開くはずです。",
     "fd.proc.install-check.step.4": (
         "ブラウザーが証明書について警告したら、そこで止めて病院のIT担当に連絡してください。端末が病院の認証局"
