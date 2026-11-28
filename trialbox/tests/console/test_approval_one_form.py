@@ -152,6 +152,27 @@ def test_a_label_saved_in_another_tab_or_language_is_not_written_over(box: dict[
     assert r.status_code == 303
 
 
+def test_a_stale_form_does_not_overwrite_a_saved_edit_of_a_shipped_label(box: dict[str, Any]) -> None:
+    """A criterion with a shipped label: reviewer A saves an edit, reviewer B posts a form shown before it. B's edit is
+    not applied and B is told; A's label stays."""
+    job = _approval_job(box, _gzqo_rows("GZQO-INC-01", "GZQO-EXC-01"))
+    sessions = []
+    for name in ("crc", "crc2"):
+        box["users"].create(name, "coordinator", PW, f"{name}@hospa.test")
+        c, csrf = login(box["app"], name, PW)
+        c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+        sessions.append((c, *_page_and_csrf(c, job.job_id)))  # both were shown the shipped label
+    (a, _, csrf_a), (b, _, csrf_b) = sessions
+    form = {"label_lang": "ja", "label_id": ["GZQO-INC-01"], "label_was": ["18歳以上"]}
+    a.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**form, "csrf": csrf_a, "label_text": ["Aの表示名"]})
+    r = b.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**form, "csrf": csrf_b, "label_text": ["Bの表示名"]},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and r.headers["location"].endswith("done=conflict")
+    assert len(_events(box, "console.criterion_label")) == 1
+    page, _ = _page_and_csrf(b, job.job_id)
+    assert "Aの表示名" in page and "Bの表示名" not in page
+
+
 def test_a_second_edit_from_the_same_starting_label_does_not_overwrite_the_first(box: dict[str, Any]) -> None:
     """Review R1: two staff edit one label from the same shown value; the second save is told, not written."""
     job = _approval_job(box, _rows())

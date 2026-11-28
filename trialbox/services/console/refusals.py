@@ -141,6 +141,11 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "この TrialBox では代諾者による同意を記録していません",
         "此 TrialBox 不記錄法定代理人同意",
     ),
+    "consent by a representative is not recorded on this box: turned on at install (--consent-proxy on)": (
+        "この TrialBox では代諾者による同意を記録していません。病院の IT 担当がインストール時に有効にします"
+        "（install.sh --consent-proxy on）",
+        "此 TrialBox 不記錄法定代理人同意；由醫院資訊人員於安裝時開啟（install.sh --consent-proxy on）",
+    ),
     "give the retry date as YYYY-MM-DD": (
         "再連絡日は YYYY-MM-DD で入力してください",
         "請以 YYYY-MM-DD 輸入再聯絡日期",
@@ -194,6 +199,11 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "此帳號沒有電子郵件信箱，請聯絡管理員",
     ),
     "this job is not waiting for approval": ("このジョブは承認待ちではありません", "此作業並非等待核准"),
+    "the page language changed since this page was shown": (
+        "このページを表示してから言語が変わりました。ページを開き直してください",
+        "顯示此頁後語言已變更，請重新開啟頁面",
+    ),
+    "a JSON object": ("JSON のオブジェクトを送ってください", "請傳送 JSON 物件"),
     "unknown action": ("この操作はありません", "沒有此操作"),
     "unknown study type or cohort kind": (
         "試験の種類またはコホートの種類が正しくありません",

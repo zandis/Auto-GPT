@@ -489,7 +489,7 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             step = totp.verify(secret, code[:32], now, None if enrolling else last)
             if step is None:
                 replay = not enrolling and totp.verify(secret, code[:32], now, None) is not None
-                reason = "replay" if replay else "wrong"
+                reason = "replay" if replay else ("clock" if totp.near_step(secret, code[:32], now) else "wrong")
             elif enrolling:
                 try:
                     us.set_totp(username, sealed_enrol, step)  # type: ignore[arg-type]
@@ -520,11 +520,14 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             _clear(resp, MFA_COOKIE)
             return resp
         session_token = _signed_in(user, h.lang_of(request, None), "password+totp")
+        kept = us.hand_draft(request.cookies.get(h.session_cookie, ""), user.username, session_token)  # T-A030
         # D-279: a password someone else set is replaced first
         done = RedirectResponse("/account" if us.must_change(user.username) else h.home, status_code=303)
         if not us.must_change(user.username):
             next_page.take(request, done)  # D-777: back to the page the session ended on
         done.set_cookie(h.session_cookie, session_token, httponly=True, samesite="strict", secure=h.secure)
+        if kept:
+            next_page.flag_draft(done, h.secure)
         _clear(done, MFA_COOKIE)
         return done
 

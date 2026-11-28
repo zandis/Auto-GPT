@@ -83,7 +83,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
+CONSENT_PROXY=""; CONSENT_PROXY_SET=0; ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
 TEST_BOX=""; TEST_BOX_SET=0; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
@@ -188,6 +188,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --all-questions) ALL_QUESTIONS=1 ;;  # the vendor's: the settings wizard's every question, in place of the four (M1)
     --environment) ENVIRONMENT="$2"; shift ;;
+    --consent-proxy) CONSENT_PROXY_SET=1; case "${2-}" in --*) ;; *) CONSENT_PROXY="${2-}"; [ $# -lt 2 ] || shift ;; esac ;;  # P-23: consent by a representative and assent (CONSENT-PROXY); no value: kept and warned there
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
     --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
     --model-pack) MODEL_PACK="$2"; shift ;;  # H-95: the model pack the software pack needs (else found beside it)
@@ -615,6 +616,10 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;  # H-94 (2): a draft, unmeasured profile is not shown to run on any card
 esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) stop_or_warn gpu-value "$GPU_STUB" "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default"; MODE=stub; GPU=default ;; esac  # D-1091
+# SAFE-1 A1: said at the start, never at the end: with no shipped record the pair runs, labelled "unqualified"
+if [ "$MODE" = gpu ] && ! ls "$ROOT/deploy/qualification/$GPU/"*.json >/dev/null 2>&1; then
+  say "model pair: no shipped qualification record for profile $GPU: the pair will run labelled unqualified (RUNBOOK §11)"
+fi
 # REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
 # check, so a site box is refused before any allowance), and the one card named carries the pair. The GPU check then
 # runs under the mark: the driver below the minimum is a WARN only with a passed probe of this card, this driver and
@@ -1085,7 +1090,32 @@ grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
 TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
 TB_ENV_SITE="$(tb_env_raw deploy/.env)"  # H94-08: as compose reads it (the line above is master's; tests pin its place)
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
-envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# the whole edited file, written beside it with its mode and owner, then renamed over it: deploy/.env is old or new,
+# never without the setting; every line ends in a newline (review R2 and R3 of #1572; box.sh's envset, H-142)
+envset() {
+  local t
+  t="$(mktemp deploy/.env.XXXXXX)" || return 1
+  if { awk -v k="$1=" 'index($0, k) != 1' deploy/.env && printf '%s=%s\n' "$1" "$2"; } > "$t" \
+      && chmod --reference=deploy/.env "$t" && chown --reference=deploy/.env "$t" && mv -f "$t" deploy/.env; then
+    return 0
+  fi
+  rm -f "$t"
+  return 1
+}
+# CONSENT-PROXY (E2E P-23; the integrator's ruling): consent by a legally authorised representative, and assent, are
+# a site's choice at install (dementia and paediatric trials need them): --consent-proxy on|off writes TB_CONSENT_PROXY.
+# Not given: the box keeps what deploy/.env says (the plan writes "on" for a country whose profile asks for it, D-1232),
+# else off. Typed in another case or with spaces, it is read; another word, or none, keeps the box's setting (else off)
+# and warns (review B1/R1 of #1572: CLINICAL TOLERANCE, not a stop)
+_cp="${CONSENT_PROXY//[[:space:]]/}"; _cp="${_cp,,}"
+case "$_cp" in
+  on|off) envset TB_CONSENT_PROXY "$_cp"; echo "    consent by a representative: $_cp (--consent-proxy)" ;;
+  *) if [ "$CONSENT_PROXY_SET" = 1 ]; then
+       _was="$(envget TB_CONSENT_PROXY)"; _why="this box's setting"; [ -n "$_was" ] || { _was=off; _why="the default"; }
+       echo "WARN: --consent-proxy takes on or off, not '$CONSENT_PROXY': consent by a representative stays $_was ($_why); to set it, run the install again with --consent-proxy on (or --consent-proxy off)" >&2
+     fi ;;
+esac
+# ---- end of CONSENT-PROXY
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
 # and `trialbox` command reads them there. No unit, timer or cron file of the host's is a test box's (TB_SYSTEMD=0)
 if [ -n "${TEST_BOX:-}" ]; then
@@ -1834,7 +1864,7 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
   elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
     echo "    rehearsal box: the pair is the media's placeholder pins (candidate, never promoted); nothing to qualify"
   elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
-    FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
+    :  # SAFE-1 A1: not a FAIL, and said at the start of the install: the release's pinned pair runs, labelled
   fi
   set -e
 fi

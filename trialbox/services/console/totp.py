@@ -24,6 +24,7 @@ from tb_common.crypto import aes_decrypt, aes_encrypt, load_or_create_key
 STEP_SECONDS = 30
 DIGITS = 6
 WINDOW = 1  # steps either side of now
+NEAR = 10  # TOL-AUTH (T-A020): steps either side (5 minutes) where a refused code means a clock that is off
 SECRET_BYTES = 20  # 160 bits, RFC 4226 §4 recommends at least 128
 _AAD = b"tb-totp/1:"
 
@@ -76,6 +77,20 @@ def verify(secret_b32: str, code: str, unix_seconds: float, last_step: int | Non
         if hmac.compare_digest(hotp(secret_b32, step), got) and (last_step is None or step > last_step):
             found = step if found is None else max(found, step)
     return found
+
+
+def near_step(secret_b32: str, code: str, unix_seconds: float) -> bool:
+    """TOL-AUTH (T-A020): True when the code is right for a step just outside the window (2 to ``NEAR`` steps off):
+    the phone's clock or the box's is off. It only chooses the message; ``verify`` still refuses the code and the
+    try still counts."""
+    got = clean_code(code)
+    if not got:
+        return False
+    now = step_at(unix_seconds)
+    hit = False
+    for step in range(now - NEAR, now + NEAR + 1):  # every candidate compared, as in verify
+        hit = (hmac.compare_digest(hotp(secret_b32, step), got) and abs(step - now) > WINDOW) or hit
+    return hit
 
 
 def otpauth_uri(secret_b32: str, account: str, issuer: str = "TrialBox") -> str:

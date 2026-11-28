@@ -1228,6 +1228,8 @@ class _Run:
         }
         if reply.opinions:
             meta["opinions"] = list(reply.opinions)
+        if reply.qualification:  # SAFE-1 A1: the page says the model is not qualified on this box
+            meta["qualification"] = reply.qualification
         if reply.verdict not in ("pass", "fail"):  # keep the judge's coded reason (disagree, low_confidence, ...)
             # not_documented is derived below from the check, never taken from a reply
             why = (

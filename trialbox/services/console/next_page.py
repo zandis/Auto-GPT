@@ -15,6 +15,7 @@ from starlette.responses import Response
 from console.local_path import is_local
 
 NEXT_COOKIE = "tb_console_next"
+DRAFT_COOKIE = "tb_console_draft"
 MAX_AGE = 900
 _NOT_KEPT = ("/login", "/logout", "/enrol", "/api/", "/auth/", "/static/")
 
@@ -46,6 +47,12 @@ def remember(resp: Response, page: str, secure: bool) -> None:
     if page:
         resp.set_cookie(NEXT_COOKIE, quote(page, safe=""), max_age=MAX_AGE, httponly=True, samesite="strict",
                         secure=secure)  # fmt: skip
+
+
+def flag_draft(resp: Response, secure: bool) -> None:
+    """TOL-AUTH (T-A030): a form sent after the session ended waits for its page (``UserStore.take_draft``); only
+    while this short cookie is there do pages ask for it, so every other page costs no extra read."""
+    resp.set_cookie(DRAFT_COOKIE, "1", max_age=MAX_AGE, httponly=True, samesite="strict", secure=secure)
 
 
 def take(request: Request, resp: Response) -> None:

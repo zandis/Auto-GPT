@@ -35,7 +35,16 @@ revision differs from them is refused at resolution (``weights_unexpected``), so
 even when the override is edited by hand. ``champion`` is reached only through ``qualify``: ``pin_model --promote``
 writes the build's ``qualification`` reference (record id, record sha256, the weights the record qualified) after
 ``tools.qualify.check_record`` accepts the record. In PRODUCTION a champion without a reference that qualifies
-PRODUCTION for exactly the pinned weights is refused (``champion_unqualified``), whatever the override's status says.
+PRODUCTION for exactly the pinned weights is refused (``champion_unqualified``), whatever the override's status says,
+unless its weights are the release's (below).
+
+**An unqualified pinned pair runs, labelled** (SAFE-1 A1). In PRODUCTION a local build whose pin equals the committed
+``expected.manifest_sha256`` routes with no record (status candidate, qualified or champion; a thinking-only build
+with no thinking-on record too), tried only after every build the rules above route. On VALIDATION and PRODUCTION
+a local build with no record for its weights resolves with ``qualification="unqualified"``: the gateway writes it
+in the call record and the answer, and the page shows it. A pin with nothing expected (trust on first use,
+a hand pin) is never routed this way in PRODUCTION, and ``weights_unexpected``, ``context_unknown``, a rehearsal
+placeholder and a pair put back after this box's canary did not pass (``weights.canary_failed``) stay refused.
 
 **Thinking control** (10E-25). A build can declare ``thinking_control: can_disable`` or ``thinking_only``.
 An omitted field leaves the capability unknown. Judge and verifier routes (including ``second_opinion``) require
@@ -196,6 +205,11 @@ class Build:
         return self.weights.get("trust") == "rehearsal_placeholder"
 
     @property
+    def canary_failed(self) -> bool:
+        """SAFE-1 A1 review B1: ``pin_model --demote-pair`` put it back after this box's canary did not pass."""
+        return bool(self.weights.get("canary_failed"))
+
+    @property
     def qualified_for_production(self) -> bool:
         """A qualification reference that qualifies PRODUCTION for exactly the pinned weights (T-012b)."""
         q = self.qualification or {}
@@ -212,6 +226,7 @@ class Resolved:
     build: Build
     served_name: str
     endpoint: str
+    qualification: str = ""  # SAFE-1 A1: "unqualified" when the build holds no record for its weights
 
 
 def _status_ok(status: Status, role: str, env: Environment) -> bool:
@@ -281,10 +296,30 @@ class Registry:
         if alias not in self.aliases:
             raise RegistryError("alias_unknown", f"alias {alias!r} is not in the registry")
         reasons: list[str] = []
+        labelled: Resolved | None = None  # SAFE-1 A1: the first build that routes only by the rule below
         for b in self.builds:
             if b.alias != alias:
                 continue
-            if not _status_ok(b.status, role, env):
+            unqualified = (
+                env in (Environment.VALIDATION, Environment.PRODUCTION)
+                and b.serving == "vllm"
+                and not b.qualified_for_production
+            )
+            # SAFE-1 A1: in PRODUCTION the release's own weights (the committed manifest) route with no record
+            release_weights = (
+                env == Environment.PRODUCTION
+                and b.serving == "vllm"
+                and not role.startswith("shadow:")
+                and bool(b.expected_sha256)
+                and b.sha256 == b.expected_sha256
+                and not b.rehearsal_placeholder
+                and not b.canary_failed
+            )
+            releases = unqualified and release_weights
+            bypassed = False  # SAFE-1 A1: routed only because these are the release's weights
+            if releases and b.status in (Status.CANDIDATE, Status.QUALIFIED) and not _status_ok(b.status, role, env):
+                bypassed = True
+            elif not _status_ok(b.status, role, env):
                 reasons.append(f"{b.build_id}: status {b.status.value}")
                 continue
             if not b.pinned and not (b.serving == "stub" and env in (Environment.DEV, Environment.TEST)):
@@ -308,13 +343,23 @@ class Registry:
             measuring = env == Environment.TEST or (env == Environment.VALIDATION and qualification_probe)
             if b.thinking_control == "thinking_only" and screening_role in SCREENING_ROLES and not measuring:
                 q = b.qualification or {}
-                if not b.qualified_for_production or q.get("thinking_on_role") != screening_role:
+                measured = b.qualified_for_production and q.get("thinking_on_role") == screening_role
+                if release_weights and not measured:  # SAFE-1 A1: thinking_unmeasured is a label too
+                    bypassed = unqualified = True
+                elif not measured:
                     reasons.append(
                         f"{b.build_id}: thinking-on qualification required / 須有開啟推理模式的資格驗證 / "
                         "推論モードを有効にした適格性確認が必要 [thinking_unmeasured]"
                     )
                     continue
             if env == Environment.PRODUCTION and b.status == Status.CHAMPION and not b.qualified_for_production:
+                bypassed = bypassed or releases
+            if (
+                env == Environment.PRODUCTION
+                and b.status == Status.CHAMPION
+                and not b.qualified_for_production
+                and not releases
+            ):
                 # T-012b (LLM-029): champion only through qualify; an install or a hand edit cannot make one
                 reasons.append(
                     f"{b.build_id}: champion without a qualification record for these weights "
@@ -332,7 +377,13 @@ class Registry:
             if not served:
                 reasons.append(f"{b.build_id}: not served on {endpoint}")
                 continue
-            return Resolved(b, served, endpoint)
+            label = "unqualified" if unqualified else ""
+            if bypassed:
+                labelled = labelled or Resolved(b, served, endpoint, label)
+                continue
+            return Resolved(b, served, endpoint, label)
+        if labelled is not None:
+            return labelled
         code = next((c for c in REFUSAL_ORDER if any(r.endswith(f"[{c}]") for r in reasons)), "no_eligible_build")
         raise RegistryError(code, f"alias {alias!r} on {endpoint}: no routable build ({'; '.join(reasons) or 'none'})")
 

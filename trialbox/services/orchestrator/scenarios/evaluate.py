@@ -232,6 +232,7 @@ class NoteResult:
     # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
+    qualification: str = ""  # SAFE-1 A1: "unqualified" when a model behind the answer holds no record
     # D-1072: on an agreed answer, each model's answer, verified quote and note (``did``), judge first. Published only
     # on a "not eligible" (``note_verdict``, ``engine._map``), so the investigator reads both quotes
     pair_opinions: list[dict[str, Any]] = field(default_factory=list)
@@ -453,6 +454,7 @@ class NoteJudge:
             calls=[call_id],
             model=res.model,
             build_sha=getattr(res, "build_sha", ""),
+            qualification=getattr(res, "qualification", ""),  # SAFE-1 A1
             prompt=f"{res.prompt_id}@{res.prompt_version}",
             prompt_sha=getattr(res, "prompt_sha", ""),
             tokens_in=res.tokens_in,
@@ -492,13 +494,21 @@ class NoteJudge:
         if d.same_model:  # the same build answered twice: the judge did not answer (a failure, review LLM-002)
             self._count(same_model=1, failures=1)
         calls = [*first.calls, *(second.calls if second else [])]  # D-989: the verifier's call counts too
+        qualification = first.qualification or (second.qualification if second else "")  # SAFE-1 A1: either
         t_in = first.tokens_in + (second.tokens_in if second else 0)
         t_out = first.tokens_out + (second.tokens_out if second else 0)
         opinions = [_opinion("judge", first), _opinion("verifier", second)] if d.disagreement and second else []
         if d.verdict != first.predicate:  # the pair (or the confidence floor) did not keep the judge's answer
             # the judge's answer as the pair rule would have floored it alone (review: no keep below the minimum)
             disputed = demote and d.disagreement and bool(opinions) and floor(_vote(first)).verdict in DECIDED
-            kept = replace(first, calls=calls, tokens_in=t_in, tokens_out=t_out, affirmed=False) if disputed else None
+            # SAFE-1 A1: the kept answer is labelled as the pair is (either model unqualified)
+            kept = (
+                replace(
+                    first, calls=calls, tokens_in=t_in, tokens_out=t_out, affirmed=False, qualification=qualification
+                )
+                if disputed
+                else None
+            )
             return replace(
                 first,
                 kept=kept,
@@ -512,6 +522,7 @@ class NoteJudge:
                 tokens_out=t_out,
                 opinions=opinions,
                 calls=calls,
+                qualification=qualification,
             )
         # L3 (#639 7107834329): the pair's answer rests on both quotes, so the one rule reads the verifier's sentence
         # too (never published)
@@ -525,6 +536,7 @@ class NoteJudge:
             calls=calls,
             sentence=sentence,
             affirmed=first.affirmed and (second is None or second.affirmed),  # round 5: both models said it
+            qualification=qualification,
             pair_opinions=[
                 {**_opinion(role, r), "did": next(iter(r.dids), None)}
                 for role, r in (("judge", first), ("verifier", second))
@@ -696,6 +708,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
             confidence=None if verdict == "unknown" else r.confidence,
             reason=why,
             opinions=[Opinion(**o) for o in r.opinions] or None,
+            qualification="unqualified" if r.qualification else None,  # SAFE-1 A1
         ),
         basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
         prov=note_calls(r),

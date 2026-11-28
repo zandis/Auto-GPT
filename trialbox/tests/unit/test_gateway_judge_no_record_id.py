@@ -31,7 +31,7 @@ class _Client:
     def chat(self, messages: Any, labels: Any, **kw: Any) -> Any:
         self.sent.append(messages)
         answer = {"verdict": "unknown", "confidence": 0.0, "quote": None, "quote_date": None, "reason": "stand-in"}
-        return SimpleNamespace(data=answer, call_id="c1", build_sha="b", tokens_in=1, tokens_out=1)
+        return SimpleNamespace(data=answer, call_id="c1", build_sha="b", tokens_in=1, tokens_out=1, qualification="")
 
 
 def _ask(excerpts: list[dict[str, Any]]) -> str:
