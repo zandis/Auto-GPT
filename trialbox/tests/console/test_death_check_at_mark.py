@@ -10,13 +10,16 @@ from typing import Any
 
 from console.backend import Unavailable
 
-from tests.console.test_console_app import _done_screen, _ulid, box, name_pi  # noqa: F401 - box is a fixture
+import tests.console.test_console_app as _app
 from tests.console.test_role_pages import _csrf, _user
+
+box = _app.box  # the fixture, found by name
+_done_screen, _ulid, name_pi = _app._done_screen, _app._ulid, _app.name_pi
 
 A, B = "a" * 32, "b" * 32
 
 
-def test_a_failed_list_check_does_not_hold_the_patient_being_approached(box: dict[str, Any]) -> None:  # noqa: F811
+def test_a_failed_list_check_does_not_hold_the_patient_being_approached(box: dict[str, Any]) -> None:
     bk = box["backend"]
     _done_screen(bk, _ulid(964))
     pi = _user(box, "drsato", "investigator")
@@ -39,7 +42,7 @@ def test_a_failed_list_check_does_not_hold_the_patient_being_approached(box: dic
     assert r.status_code == 409 and [A] in asked  # the one patient died: refused
 
 
-def test_the_one_patient_check_not_answered_still_refuses(box: dict[str, Any]) -> None:  # noqa: F811
+def test_the_one_patient_check_not_answered_still_refuses(box: dict[str, Any]) -> None:
     bk = box["backend"]
     _done_screen(bk, _ulid(965))
     pi = _user(box, "drsato", "investigator")
