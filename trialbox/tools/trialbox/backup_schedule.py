@@ -1808,16 +1808,17 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
     cfg = config(deploy, update._env_file(deploy / ".env"))
     try:
         _route_notes(cfg, has_mta())
-    except ValueError as e:
+    except ValueError:  # its text quotes the value given (an address, a login): never printed, a fixed reason
         try:
             set_env(deploy / ".env", "TB_BACKUP_ALERT_ROUTE", PAGE_ROUTE)
         except OSError as w:
-            print(f"backup-install: {e}; TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} cannot be written to deploy/.env ({w})")
+            print(f"backup-install: the route given cannot carry alerts, and TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} "
+                  f"cannot be written to deploy/.env ({type(w).__name__})")  # fmt: skip
             return 1
         os.environ.pop("TB_BACKUP_ALERT_ROUTE", None)  # a caller's bad value would win over the one written
         cfg = config(deploy, update._env_file(deploy / ".env"))
-        print(f"{ROUTE_DEFAULTED} ({e}): TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} is written to deploy/.env, so the "
-              f"backups run; {cfg.page_watch()}")  # fmt: skip
+        print(f"{ROUTE_DEFAULTED} (the route given cannot carry alerts): TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} is "
+              f"written to deploy/.env, so the backups run; {cfg.page_watch()}")  # fmt: skip
     for x in cfg.setting_errors:  # D-735 (review): a bad setting is said where the backup is installed
         print(f"backup-install: bad setting: {x}")
     root = deploy.resolve().parent

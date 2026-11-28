@@ -97,19 +97,21 @@ def test_a_production_backup_route_that_cannot_alert_installs_the_schedule_on_th
     (deploy / "backup" / "trialbox-backup.cron").write_text(
         (DEPLOY / "backup" / "trialbox-backup.cron").read_text(encoding="utf-8"), encoding="utf-8"
     )
-    (deploy / ".env").write_text("TB_ENV=PRODUCTION\nTB_PG_ARCHIVE_MODE=off\nTB_BACKUP_ALERT_ROUTE=foo\n")
-    with pytest.raises(ValueError, match="TB_BACKUP_ALERT_ROUTE='foo'"):  # as install_cron alone decides
+    given = "smtp://it-login:s3cret@mail.hospital.example"  # a route value that must never reach the log
+    (deploy / ".env").write_text(f"TB_ENV=PRODUCTION\nTB_PG_ARCHIVE_MODE=off\nTB_BACKUP_ALERT_ROUTE={given}\n")
+    with pytest.raises(ValueError, match=re.escape(f"TB_BACKUP_ALERT_ROUTE={given!r}")):  # install_cron alone
         backup_schedule.install_cron(backup_schedule.config(deploy, {"TB_ENV": "PRODUCTION",
-                                                                     "TB_BACKUP_ALERT_ROUTE": "foo"}),
+                                                                     "TB_BACKUP_ALERT_ROUTE": given}),
                                      tmp_path / "c", deploy.parent, has_mta=False)  # fmt: skip
     cron = tmp_path / "cron.d"
     assert backup_schedule.main_install(deploy, cron, first=False) == 0
     out = capsys.readouterr().out
-    assert any(ln.startswith(backup_schedule.ROUTE_DEFAULTED) and "TB_BACKUP_ALERT_ROUTE='foo'" in ln
-               for ln in out.splitlines()), out  # fmt: skip
+    assert any(ln.startswith(backup_schedule.ROUTE_DEFAULTED + " (the route given cannot carry alerts)")
+               and "TB_BACKUP_ALERT_ROUTE=health-page" in ln for ln in out.splitlines()), out  # fmt: skip
+    assert given not in out and "s3cret" not in out and "it-login" not in out  # never the value given
     assert (cron / backup_schedule.CRON_NAME).is_file()
     env = (deploy / ".env").read_text(encoding="utf-8").splitlines()
-    assert "TB_BACKUP_ALERT_ROUTE=health-page" in env and "TB_BACKUP_ALERT_ROUTE=foo" not in env
+    assert "TB_BACKUP_ALERT_ROUTE=health-page" in env and f"TB_BACKUP_ALERT_ROUTE={given}" not in env
     nightly = backup_schedule.config(deploy, update._env_file(deploy / ".env"), process_env=False)
     assert nightly.setting_errors == [] and nightly.alert_page  # the nightly run reads no bad setting: backups run
 
