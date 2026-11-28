@@ -188,7 +188,12 @@ def test_u008_no_copy_is_refused_in_process_too_and_neither_backend_starts(
 ) -> None:
     deploy, step = host_box
     ran: list[Any] = []
-    monkeypatch.setattr(cli, "_backup_cmd", lambda a: ran.append(a) or 0)
+
+    def backup(a: Any) -> int:
+        ran.append(a)
+        return 0
+
+    monkeypatch.setattr(cli, "_backup_cmd", backup)
     monkeypatch.setattr(launch, "has_libs", lambda *_a, **_k: True)  # a developer's interpreter: not the host
     (f,) = _backups(tmp_path / "nas", "20261110T194500Z")
     argv = ["restore", str(f), "--key", "k", "--deploy", str(deploy), "--no-copy"]
