@@ -717,6 +717,16 @@ def watch_state(mk: Any, row: Mapping[str, Any], job_id: str, fired_at: str | No
     return {"cid": w[0], "was": w[1], "now": now, "fired": now != w[1] or rerun or fired_at == mk.at}
 
 
+def new_firings(rows: Sequence[Mapping[str, Any]], marks: Mapping[str, Any], kept: Mapping[str, str]) -> dict[str, str]:
+    """pid -> ``at`` of the current mark, for each row whose watch fires now and whose kept firing is not that mark's
+    (none kept, or one of a mark the PI has since replaced); the one helper both candidate pages keep firings with."""
+    return {
+        r["pid"]: marks[r["pid"]].at
+        for r in rows
+        if (r.get("watch") or {}).get("fired") and kept.get(r["pid"]) != marks[r["pid"]].at
+    }
+
+
 def worklists_for(rows: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
     """The worklists a study's page offers: no clinic list when no listed patient has a visit (the site exports no
     appointment view), so nobody reads an empty visit list as "nobody is coming"."""

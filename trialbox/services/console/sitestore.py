@@ -575,8 +575,9 @@ class SiteStore:
         if fired:
             with self.db.transaction() as tx:
                 tx.executemany(
-                    "UPDATE weekly_seen SET fired_mark = ? WHERE ruleset = ? AND pid = ?",
-                    [(at, ruleset, pid) for pid, at in fired.items()],
+                    "UPDATE weekly_seen SET fired_mark = ? WHERE ruleset = ? AND pid = ? "
+                    "AND (fired_mark IS NULL OR fired_mark < ?)",  # a delayed view keeps a newer mark's firing
+                    [(at, ruleset, pid, at) for pid, at in fired.items()],
                 )
 
     def first_seen(self, ruleset: str) -> dict[str, tuple[str, str]]:
