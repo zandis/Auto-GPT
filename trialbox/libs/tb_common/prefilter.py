@@ -138,6 +138,10 @@ class NightFunnel:
     faults: int = 0
     coded_complete: int | None = None  # None: no job of the night wrote night_open
     open_reasons: tuple[tuple[str, str, str, int], ...] = ()  # (criterion, reason, where, patients), summed
+    # coded_complete and open_reasons add the jobs up, so a patient two jobs both evaluated counts in each: a page shows
+    # these two instead, one number per job that wrote night_open, until the night counts a patient once.
+    job_complete: tuple[int, ...] = ()
+    job_open: tuple[tuple[int, ...], ...] = ()  # per row of open_reasons, in its order: one count per such job
 
     @property
     def in_scope(self) -> int:
@@ -168,6 +172,7 @@ def night_funnel(jobs: Iterable[Any], ruleset: str, run_date: date) -> NightFunn
     n = faults = 0
     done: int | None = None
     opens: dict[tuple[str, str, str], int] = {}
+    per_job: list[tuple[int, dict[tuple[str, str, str], int]]] = []
     for j in jobs:
         if getattr(j, "type", None) != "MICROBATCH" or getattr(j, "state", None) != "done":
             continue
@@ -185,13 +190,17 @@ def night_funnel(jobs: Iterable[Any], ruleset: str, run_date: date) -> NightFunn
         no = getattr(getattr(j, "metrics", None), "night_open", None)
         if no is not None:
             done = (done or 0) + int(no.coded_complete)
-            for o in no.open_reasons:
-                k = (o.criterion, o.reason, o.where)
-                opens[k] = opens.get(k, 0) + int(o.count)
+            mine = {(o.criterion, o.reason, o.where): int(o.count) for o in no.open_reasons}
+            per_job.append((int(no.coded_complete), mine))
+            for k, v in mine.items():
+                opens[k] = opens.get(k, 0) + v
     if not n and not faults:
         return None
     rows = tuple((*k, v) for k, v in sorted(opens.items()))
-    return NightFunnel(rid, run_date, n, drops, remaining_of(drops), faults, done, rows)
+    job_open = tuple(tuple(m.get(k, 0) for _, m in per_job) for k in sorted(opens))
+    return NightFunnel(
+        rid, run_date, n, drops, remaining_of(drops), faults, done, rows, tuple(c for c, _ in per_job), job_open
+    )
 
 
 def publishable(f: NightFunnel, threshold: int = 5) -> list[bool]:

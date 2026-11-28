@@ -1,0 +1,22 @@
+{# The evidence of each criterion as two lists, for and against eligibility, newest first (MATCH-ARCH 1(f)): the coded
+   records and the quotes from the notes apart, a criterion with evidence on both sides marked. Built by
+   console.studies.evidence_sides from what the run stored; needs crits (console.studies.patient_rows). #}
+{% set shown = crits|selectattr('sides.any')|list %}
+{% if shown %}
+<section class="card" data-testid="for-against">
+<h2>{{ t('evfa.title') }}</h2>
+<p class="hint">{{ t('evfa.help') }}</p>
+{% for c in shown %}
+<div class="evfa" data-testid="evfa-{{ c.id }}">
+<h3>{{ given(c.label) }} <span class="hint mono nowrap">{{ c.id }}</span>{% if c.sides.conflict %} <span class="pill warn" data-testid="evfa-conflict-{{ c.id }}">{{ t('evfa.conflict') }}</span>{% endif %}</h3>
+{% for side in ('for', 'against') %}{% set s = c.sides[side] %}
+<div data-testid="evfa-{{ c.id }}-{{ side }}"><h4>{{ t('evfa.for') if side == 'for' else t('evfa.against') }}</h4>
+{% if s.coded %}<p class="hint">{{ t('evfa.coded') }}</p>{% with cid=c.id ~ '-' ~ side, cv={'lines': s.coded, 'more': 0, 'none': false} %}{% include "_coded.html" %}{% endwith %}{% endif %}
+{% if s.notes %}<p class="hint">{{ t('evfa.notes') }}</p>{% for n in s.notes %}<blockquote class="quote">{{ n.quote }}</blockquote>{% if n.date %}<span class="hint">{{ n.date }}</span>{% endif %}{% endfor %}{% endif %}
+{% if not s.coded and not s.notes %}<span class="hint">–</span>{% endif %}
+</div>
+{% endfor %}
+</div>
+{% endfor %}
+</section>
+{% endif %}

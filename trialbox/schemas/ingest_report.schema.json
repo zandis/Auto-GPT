@@ -205,6 +205,14 @@
             "type": "integer"
           },
           "description": "T-693 (D-457): the resource types the cap cut, with the number of their resources"
+        },
+        "patients_sampled": {
+          "type": ["integer", "null"],
+          "description": "U4: the Patients in the sample"
+        },
+        "no_birthdate": {
+          "type": ["integer", "null"],
+          "description": "U4: the sampled Patients with no birthDate, a class of its own outside errors (its own limit)"
         }
       }
     },
@@ -249,6 +257,35 @@
           "type": "integer",
           "minimum": 0,
           "description": "Data Quality Relational checks run after the load (isRequired, isPrimaryKey, isForeignKey)"
+        },
+        "dqd": {
+          "type": "object",
+          "description": "H3-NLP 3.1: the DQD-shaped checks of omop.dqd run after the load; every check that did not pass, in DQD's words",
+          "additionalProperties": false,
+          "required": ["checks", "fail", "known", "failed"],
+          "properties": {
+            "checks": {"type": "integer", "minimum": 0},
+            "fail": {"type": "integer", "minimum": 0},
+            "known": {"type": "integer", "minimum": 0},
+            "failed": {
+              "type": "array",
+              "items": {
+                "title": "DqdCheckRow",
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["checkName", "cdmTableName", "cdmFieldName", "numViolatedRows", "numDenominatorRows", "status", "notes"],
+                "properties": {
+                "checkName": {"type": "string"},
+                "cdmTableName": {"type": "string"},
+                "cdmFieldName": {"type": ["string", "null"]},
+                "numViolatedRows": {"type": "integer"},
+                "numDenominatorRows": {"type": "integer"},
+                  "status": {"enum": ["fail", "known"]},
+                  "notes": {"type": "string"}
+                }
+              }
+            }
+          }
         },
         "relational_failed": {
           "type": "object",

@@ -37,6 +37,12 @@ def _refused(env: str) -> bool:
     return env not in rc1_refusals.ALLOWED
 
 
+def _refused_a2(env: str) -> bool:
+    """SAFE-1 A2 (the owner's decision of 2026-11-28): support exports and key ceremonies run in every known
+    environment, PRODUCTION and unset too; an unknown name is still refused."""
+    return env not in ("", "PRODUCTION", "DEV", "TEST", "VALIDATION")
+
+
 def _said(key: str, env: str, lang: str = "en") -> str:
     return rc1_refusals.text(key, lang, environment=env or "PRODUCTION")
 
@@ -108,7 +114,7 @@ def test_no_support_export_on_a_production_box(
         monkeypatch.delenv(k, raising=False)
     deploy = _deploy(tmp_path, env)
     usb = tmp_path / "usb"
-    if _refused(env):
+    if _refused_a2(env):
         with pytest.raises(sb.BundleRefused) as got:
             sb.build(deploy, usb, commands=False, say=lambda _: None)
         assert str(got.value) == _said("rc1.support_exports", env)
@@ -120,21 +126,27 @@ def test_no_support_export_on_a_production_box(
         assert out.is_file() and out.parent == usb
 
 
-@pytest.mark.parametrize(("box", "caller"), [("PRODUCTION", "DEV"), ("DEV", "PRODUCTION"), ("", "DEV"),
-                                             ("PILOT", "TEST")])  # fmt: skip
+@pytest.mark.parametrize(("box", "caller", "refused_as"),
+                         [("PILOT", "TEST", "PILOT"), ("PRODUCTION", "PILOT", "PILOT"), ("PILOT", "PRODUCTION", "PILOT"),
+                          ("", "PILOT", "PILOT"), ("PRODUCTION", "DEV", ""), ("DEV", "PRODUCTION", ""), ("", "DEV", "")])  # fmt: skip
 def test_a_support_export_asks_with_the_stricter_of_the_box_and_its_caller(
-    box: str, caller: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    box: str, caller: str, refused_as: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The review of R22-34: ``TB_ENV=DEV trialbox support-bundle`` on a PRODUCTION box is refused, and so is a box
-    whose ``deploy/.env`` writes no ``TB_ENV`` (PRODUCTION by the one rule) whatever its caller says."""
+    """The review of R22-34: the box's ``deploy/.env`` and the caller's ``TB_ENV`` are both asked, the stricter wins.
+    SAFE-1 A2: PRODUCTION (and a ``.env`` with no ``TB_ENV``) makes the bundle; an unknown name on either side refuses
+    it, so ``TB_ENV=PILOT trialbox support-bundle`` on a PRODUCTION box is refused, and so is the reverse."""
     from tools import support_bundle as sb
 
     deploy = _deploy(tmp_path, box)
     monkeypatch.setenv("TB_ENV", caller)
-    with pytest.raises(sb.BundleRefused) as got:
-        sb.build(deploy, tmp_path / "usb", commands=False, say=lambda _: None)
-    assert str(got.value) == _said("rc1.support_exports", box if box != "DEV" else caller)
-    assert not (tmp_path / "usb").exists()
+    if refused_as:
+        with pytest.raises(sb.BundleRefused) as got:
+            sb.build(deploy, tmp_path / "usb", commands=False, say=lambda _: None)
+        assert str(got.value) == _said("rc1.support_exports", refused_as)
+        assert not (tmp_path / "usb").exists()
+    else:
+        out = sb.build(deploy, tmp_path / "usb", commands=False, say=lambda _: None)
+        assert out.is_file() and out.parent == tmp_path / "usb"
 
 
 # ---------------------------------------------------------------------------------------------- unattended updates
@@ -221,7 +233,7 @@ def test_no_key_ceremony_on_a_production_box(
     priv, pub = tmp_path / "it" / "backup.key", tmp_path / "box" / "backup.pub"
     with pytest.raises(bkc.Stop) as got:
         bkc.run(stick, "operator", "witness", {"TB_ENV": env} if env else {})
-    if _refused(env):
+    if _refused_a2(env):
         assert got.value.text is rc1_refusals.TEXTS["rc1.key_ceremonies"] and passed == []
         for lang in rc1_refusals.LANGS:
             assert got.value.say(lang) == _said("rc1.key_ceremonies", env, lang)

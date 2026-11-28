@@ -398,6 +398,8 @@ METADATA_ADDRESSES = frozenset(
 )
 #: classes refused even when the destination is declared: nothing legitimate lives there
 NEVER = ("metadata", "link_local", "unspecified", "multicast", "broadcast")
+#: the classes that are not public and not NEVER: used only when the destination is declared
+DECLARABLE = ("loopback", "private", "shared", "reserved")
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 _SHARED = ipaddress.ip_network("100.64.0.0/10")
 _SITE_LOCAL = ipaddress.ip_network("fec0::/10")
@@ -547,6 +549,7 @@ class EgressGuard:
         extra: Iterable[tuple[str, int]] = (),
         env: Mapping[str, str] | None = None,
         resolver: Resolver | None = None,
+        http_ok: Iterable[tuple[str, int]] = (),
     ) -> None:
         from tb_common.config import environment_name
 
@@ -554,6 +557,8 @@ class EgressGuard:
         self.service = service
         self.declared = declared_egress(service, e) | {(h.lower().rstrip("."), int(p)) for h, p in extra}
         self.environment = environment_name(e)
+        #: named destinations that may use plain ``http`` outside DEV and TEST (a WARN each time)
+        self.http_ok = {(h.lower().rstrip("."), int(p)) for h, p in http_ok}
         self.resolver = resolver or resolve_now
         self.log = logging.getLogger("tb.egress")
 
@@ -575,7 +580,8 @@ class EgressGuard:
         host = (u.host or "").lower().rstrip(".")
         if scheme not in ("http", "https"):
             raise self._refuse(host, "scheme", f"{scheme}:// is not an HTTP address", request)
-        if scheme == "http" and self.environment not in ("DEV", "TEST"):
+        plain = scheme == "http" and self.environment not in ("DEV", "TEST")
+        if plain and (host, u.port or 80) not in self.http_ok:
             raise self._refuse(host, "http_outside_dev", f"http://{host} outside DEV and TEST (https only)", request)
         if not host:
             raise self._refuse(host, "no_host", "the address has no host", request)
@@ -588,6 +594,10 @@ class EgressGuard:
             raise self._refuse(host, "does_not_resolve", f"{host} does not resolve", request)
         for a in addrs:
             cls = address_class(a)
+            if plain and cls != "private" and cls not in NEVER and cls != "invalid":  # clear text only on the LAN
+                raise self._refuse(
+                    host, "http_outside_dev", f"http://{host} resolves to {a} ({cls}): not the LAN", request
+                )
             if cls in NEVER or cls == "invalid":
                 raise self._refuse(host, cls, f"{host} resolves to {a} ({cls}): never a destination", request)
             if cls != "public" and not declared:
@@ -595,6 +605,8 @@ class EgressGuard:
                     host, cls, f"{host}:{port} resolves to {a} ({cls}) and is not on the egress table of "
                     f"{self.service}", request,
                 )  # fmt: skip
+        if plain:
+            self.log.warning("plain http to the declared host", extra={"egress_host": host, "caller": self.service})
         return addrs[0]
 
 
@@ -631,13 +643,51 @@ def guarded_client(
     verify: Any = True,
     timeout: Any = 30.0,
     follow_redirects: bool = False,
+    http_ok: Iterable[tuple[str, int]] = (),
 ) -> httpx.Client:
     """The HTTP client for a call a person or an outside document can steer (D-450). ``service``: whose egress
     table applies (default ``TB_SERVICE_NAME``). The proxy variables of the environment are not used: a proxy would
     connect on the guard's behalf to whatever it is told."""
     e = os.environ if env is None else env
-    guard = EgressGuard(service or e.get("TB_SERVICE_NAME") or "", extra, e, resolver)
+    guard = EgressGuard(service or e.get("TB_SERVICE_NAME") or "", extra, e, resolver, http_ok)
     return httpx.Client(
         transport=GuardedTransport(guard, inner, verify), timeout=timeout, follow_redirects=follow_redirects,
         trust_env=False,
     )  # fmt: skip
+
+
+def declared_host(url: str) -> tuple[str, int] | None:
+    """``url``'s host and port as httpx reads them (the reading a request's host and the guard's check use, so a caller
+    that names the host and the client it declares it on cannot disagree), or None: no host, or not a valid address."""
+    try:
+        u = httpx.URL(url)
+        host, port = u.host, u.port  # read here: a malformed internationalised name raises on reading the host
+    except (httpx.InvalidURL, UnicodeError):
+        return None
+    return (host, port or (443 if u.scheme == "https" else 80)) if host else None
+
+
+def _own_machine(host: str) -> bool:
+    """A loopback or reserved literal address, or ``localhost``: the box itself, never declared from a typed URL."""
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    return address_class(host) in ("loopback", "reserved")
+
+
+def declared_client(url: str, service: str | None = None, **kw: Any) -> httpx.Client:
+    """:func:`guarded_client` with ``url``'s own host and port declared (:func:`declared_host`), as the operator who set
+    that URL declared it (P-13 ruling, the EDC tool door): a metadata or link-local address, or any other host, is
+    still refused. Plain ``http`` to that declared host is let through outside DEV and TEST (a WARN is logged and the
+    page shows one); ``http`` to any other host stays refused. A loopback or reserved host is not declared from a typed
+    URL (the box's own services); a caller that means one passes it in ``extra``."""
+    where = declared_host(url)
+    if where and _own_machine(where[0]):
+        where = None
+    plain = [where] if where and httpx.URL(url).scheme == "http" else []
+    return guarded_client(service, extra=[where] if where else [], http_ok=plain, **kw)
+
+
+def guard_of(client: httpx.Client) -> EgressGuard | None:
+    """The guard a :func:`guarded_client` checks each request with; None for any other client."""
+    t = client._transport
+    return t.guard if isinstance(t, GuardedTransport) else None

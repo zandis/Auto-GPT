@@ -349,6 +349,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "terminology.remove": ("Site code list removed", "施設コード表の削除", "移除院內代碼表"),
     "ingest.backfill": ("Past records loaded", "過去記録の取込", "匯入過往紀錄"),
     "ingest.failed": ("Nightly load failed", "夜間取込の失敗", "夜間匯入失敗"),
+    "ingest.site_needs": (
+        "Nightly load ran with site information still needed",
+        "まだ必要な施設情報がある状態で夜間取込を実行",
+        "在仍缺少院方資料的情況下執行夜間匯入",
+    ),
     "lake.rebuild.source": ("Data store rebuilt from a source", "ソースからのデータ再構築", "自來源重建資料"),
     "retention.deleted": (
         "Kept files deleted at the end of retention",
@@ -488,6 +493,23 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "ops.watchdog.restart": ("Service restarted", "サービスの再起動", "重新啟動服務"),
     "ops.watchdog.restart_failed": ("Service restart failed", "サービス再起動の失敗", "重新啟動服務失敗"),
     "ops.watchdog.gave_up": ("Service restarts stopped", "サービス再起動の停止", "停止重新啟動服務"),
+    # R1+1 P-27: events their writers name through a module constant (the walk read literals only)
+    "backup.restore_drill": ("Restore rehearsal", "復元の予行演習", "還原演練"),
+    "dataops.decide": (
+        "Held data batch accepted or rejected",
+        "保留データバッチの承認・却下",
+        "接受或駁回暫停的資料批次",
+    ),
+    "dataops.step": ("Data batch step", "データバッチの手順", "資料批次步驟"),
+    "demo.ack": ("Demonstration acknowledged", "デモンストレーションの確認", "示範確認"),
+    "demo.refused": ("Refused on the demonstration box", "デモンストレーション機での拒否", "示範機上遭拒"),
+    "egress.leave": ("Data left the box", "本機からのデータ送出", "資料離開本機"),
+    "feedback.add": ("Feedback sent", "フィードバックの送信", "送出意見回饋"),
+    "flow.export": ("Export recorded", "書き出しの記録", "匯出紀錄"),
+    "keys.ceremony": ("Key ceremony recorded", "鍵の手続きの記録", "金鑰程序紀錄"),
+    "role.acting": ("Acting role changed", "役割の切替", "切換角色"),
+    "service.route_refused": ("Service call refused", "サービス呼び出しの拒否", "服務呼叫遭拒"),
+    "terminology.update": ("Terminology updated", "用語集の更新", "術語集更新"),
 }
 
 #: detail keys the browser shows (``console.audit_page.SHOWN``)

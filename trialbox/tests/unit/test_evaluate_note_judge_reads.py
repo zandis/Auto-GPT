@@ -226,6 +226,7 @@ class Answer(NoteJudge):
         source: str = "chunks",
         verify: bool = True,
         primary: LlmClient | None = None,
+        demote: bool = False,
     ) -> NoteResult:
         self.asked = (criterion_text, note_question, index_date, excerpts, source)
         return self.answer

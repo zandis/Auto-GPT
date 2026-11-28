@@ -36,8 +36,9 @@
 <p class="hint">{{ t('stillneeded.open.intro') }}</p>
 {% for s in open_studies %}<article data-testid="sn-open-{{ s.study }}">
 <h3>{{ s.study }} · {{ s.date }}</h3>
-{% if s.coded_complete is not none %}<p class="hint" data-testid="sn-open-complete-{{ s.study }}">{{ t('stillneeded.open.complete', n=s.coded_complete) }}</p>{% endif %}
-<div class="tablewrap"><table data-testid="sn-open-table-{{ s.study }}"><thead><tr><th scope="col">{{ t('stillneeded.open.criterion') }}</th><th scope="col">{{ t('stillneeded.open.reason') }}</th><th scope="col">{{ t('stillneeded.open.where') }}</th>{% if s.coded_complete is not none %}<th scope="col">{{ t('stillneeded.open.patients') }}</th>{% endif %}</tr></thead>
+{% if s.coded_complete is not none %}<p class="hint" data-testid="sn-open-complete-{{ s.study }}">{{ t('stillneeded.open.complete', n=s.coded_complete) }}</p>
+{% if s.open_jobs > 1 or s.open_jobs < s.jobs %}<p class="hint" data-testid="sn-open-partial-{{ s.study }}">{{ t('stillneeded.open.partial', k=s.open_jobs, n=s.jobs) }}</p>{% endif %}{% endif %}
+<div class="tablewrap"><table data-testid="sn-open-table-{{ s.study }}"><thead><tr><th scope="col">{{ t('stillneeded.open.criterion') }}</th><th scope="col">{{ t('stillneeded.open.reason') }}</th><th scope="col">{{ t('stillneeded.open.where') }}</th>{% if s.coded_complete is not none %}<th scope="col">{{ t('stillneeded.open.patients_by_job' if s.open_jobs > 1 else 'stillneeded.open.patients') }}</th>{% endif %}</tr></thead>
 <tbody>{% for r in s.rows %}<tr data-kind="{{ r.kind }}" data-reason="{{ r.reason }}"><th scope="row">{{ r.criterion }}</th><td>{{ r.label }}</td><td>{{ t('stillneeded.open.where.' ~ r.where) }}{% if r.kind == 'product' %} <span class="pill warn">{{ t('stillneeded.open.defect') }}</span>{% endif %}</td>{% if s.coded_complete is not none %}<td>{{ r.count }}</td>{% endif %}</tr>{% endfor %}</tbody></table></div>
 </article>{% endfor %}
 </section>

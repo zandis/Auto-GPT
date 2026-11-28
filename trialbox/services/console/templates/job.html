@@ -72,7 +72,8 @@
 {% for r in night.rows %}<tr data-stage="{{ r.key }}"><th scope="row">{{ t('job.prefilter.' ~ r.key) }}</th><td>{{ r.removed }}</td><td>{{ r.left }}</td></tr>
 {% endfor %}<tr data-stage="listed"><th scope="row">{{ t('job.prefilter.listed') }}</th><td></td><td>{{ night.listed }}</td></tr></tbody></table>
 {% if night.coded_complete is not none %}<p class="hint" data-testid="night-coded-complete">{{ t('job.prefilter.coded_complete', n=night.coded_complete) }}</p>
-{% endif %}</section>
+{% if night.open_jobs > 1 or night.open_jobs < night.jobs %}<p class="hint" data-testid="night-open-partial">{{ t('job.prefilter.open_partial', k=night.open_jobs, n=night.jobs) }}</p>
+{% endif %}{% endif %}</section>
 {% endif %}{% if recheck %}
 <section class="card" data-testid="recheck-share">
 <h2>{{ t('job.recheck.title') }}</h2>

@@ -8,7 +8,8 @@ Policy:
 * **Trivy**: a CRITICAL or HIGH finding with a fixed version fails unless allow-listed. Trivy's own UNKNOWN (a CVE
   not scored yet) counts as HIGH. A finding whose severity is missing or anything else (a trailing space, lower case)
   fails always. Findings with no fix yet and MEDIUM/LOW are listed but do not fail (``--fail-unfixed`` /
-  ``--severity`` tighten this).
+  ``--severity`` tighten this). A CRITICAL finding with a fixed version in an image is never allow-listed: it stops
+  the release until the image moves to the fix (release hygiene item 1).
 * A Trivy report must show what it scanned: non-empty ``Results`` with OS packages, and the language package types
   expected for the image (Python packages in the TrialBox images, jars in the JVM image). An empty report fails.
 * The Trivy database must be at most ``MAX_DB_AGE_DAYS`` old (its ``UpdatedAt``), Java database included.
@@ -280,6 +281,10 @@ def gate(
     the scanned image: an allow-list entry scoped to an image accepts findings of that image only. ``digests``: the
     repository digests recorded for the scanned content; a D-622 entry accepts the pinned content by them too. When
     such an entry does not apply because the scan was not of the pinned digest, an error says so plainly.
+
+    Release hygiene item 1: in an image scan (``subject`` given) no entry accepts a CRITICAL finding that has a fixed
+    version. It fails, and an error names it: the image moves to the fix or the release stops. The locked packages'
+    audit (no image) and every other finding keep the dated entries.
     """
     result = GateResult(errors=list(errors or []))
     used: set[int] = set()
@@ -288,6 +293,12 @@ def gate(
         # D-622: an entry for every id accepts findings nobody has read; one the scanner could not grade or name
         # is not among them
         if entry is not None and entry.id == EVERY_ID and (f.severity.startswith(INVALID) or f.id == "?"):
+            entry = None
+        if entry is not None and subject and f.severity == "CRITICAL" and f.fixed:
+            result.errors.append(
+                f"{f.id} in {f.package} {f.version} of {subject} is a fixable CRITICAL (fixed in {f.fixed}): no "
+                "allow-list entry accepts it; move the image to the fixed version"
+            )
             entry = None
         if entry is not None:
             used.add(id(entry))

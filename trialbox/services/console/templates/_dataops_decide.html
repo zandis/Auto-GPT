@@ -1,7 +1,7 @@
 {# T-112b (D-443): the steward's accept or reject of one held night ``b``, with a reason. #}
 <form method="post" action="/data-ops/batches/{{ b.id }}/decide" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
 <fieldset><legend class="sr">{{ t('dataops.col.decide') }}</legend>
-{% if can_accept %}<label><input type="radio" name="decision" value="accept" required> {{ t('dataops.accept') }}</label><br>{% endif %}
+{% if can_accept %}<label><input type="radio" name="decision" value="accept" required> {{ t('dataops.accept') }}</label><br><span class="hint" data-testid="accept-baseline">{{ t('dataops.accept_baseline') }}</span><br>{% endif %}
 <label><input type="radio" name="decision" value="reject" required> {{ t('dataops.reject') }}</label></fieldset>
 <label for="why-{{ b.id }}">{{ t('dataops.reason') }}</label> <input id="why-{{ b.id }}" name="reason" maxlength="500" required>
 <button type="submit" data-testid="decide-{{ b.id }}">{{ t('dataops.submit') }}</button></form>

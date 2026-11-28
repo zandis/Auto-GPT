@@ -16,6 +16,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_common.config import environment_name
+from tb_common.rank_key import coded_counts, stored_rank_key
+from tb_common.reasons import Reason
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job
 
@@ -263,6 +265,8 @@ def feas_report(
         }
         for s in result.get("sensitivity") or []
     ]
+    for r in funnel_rows:  # lane K: each attrition row opens its own threshold variants (the what-if toggle)
+        r["variants"] = [s for s in sens if s["criterion"] == r["id"]]
     potential = next(
         (s.get("remaining") for s in result.get("sensitivity") or [] if s.get("variant") == "unknown_as_pass"), None
     )
@@ -509,8 +513,15 @@ def weekly_rows(
             }
         )
     order = {"high": 0, "review": 1}
-    rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2), x["pid"]))
+    rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2),
+                             second_opinion_differs(x["criteria"]), x["pid"]))  # fmt: skip
     return rows
+
+
+def second_opinion_differs(crits: Sequence[Mapping[str, Any]]) -> bool:
+    """A criterion of the row stands on the judge's answer that the second model did not confirm (BENCH-2 §2): the
+    row sorts below the unflagged ones of its tier, never off the list."""
+    return any((c.get("evidence") or {}).get("reason") == Reason.SECOND_OPINION_DIFFERS.value for c in crits)
 
 
 # ---------------------------------------------------------------------------------------------- amendment re-screen
@@ -725,7 +736,7 @@ def week_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
 
 def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta]) -> list[dict[str, Any]]:
     """Every criterion of one patient for the patient page: protocol text, result, verbatim dated evidence, source."""
-    out = []
+    out: list[dict[str, Any]] = []
     order = {c: i for i, c in enumerate(crit)}
     for v in sorted(criteria, key=lambda v: order.get(str(v.get("id")), 10_000)):
         cid = str(v.get("id"))
@@ -745,6 +756,7 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
                 "reason": ev.get("reason"),
+                "needs": ev.get("needs"),  # H-7: the view, field and concept the site must supply for an open answer
                 # both quotes (D-120); each says where it came from: the test model, a recorded run or a synthetic
                 # example (T-515)
                 "opinions": [view(o, test_model_in_use()) for o in ev.get("opinions") or [] if o.get("quote")],
@@ -755,6 +767,38 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
         )
         verdicts = {o.get("verdict") for o in ev.get("opinions") or [] if o.get("quote")}
         out[-1]["disagree"] = len(verdicts) > 1  # the two checks differ (T-515)
+        out[-1]["sides"] = evidence_sides(v, out[-1]["coded"], out[-1]["opinions"])
+    return out
+
+
+def evidence_sides(
+    v: Mapping[str, Any], coded: Mapping[str, Any], opinions: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """The evidence of one criterion as two lists, **for** and **against** eligibility (MATCH-ARCH 1(f)); each keeps the
+    coded records and the quotes from the notes apart, newest first. "For" is the side of ``pass`` (an inclusion met,
+    an exclusion not present) and "against" the side of ``fail``, whatever the criterion's kind. The coded records stand
+    on the side of the criterion's own verdict; a criterion with no answer has records that decide nothing and they stay
+    in the evidence column, not on a side. Each model's quote stands on its own side (``opinions``), else the verdict's
+    quote on the verdict's. A held-back "not met" (one model's, or given while notes could not exclude) is still shown
+    on the against side: it is evidence, and it excludes nobody. ``conflict``: both sides hold evidence."""
+    word = str(v.get("verdict") or "")
+    ev = v.get("evidence") or {}
+    side_of = {"pass": "for", "fail": "against"}
+    out: dict[str, Any] = {s: {"coded": [], "notes": []} for s in ("for", "against")}
+    if word in side_of:
+        out[side_of[word]]["coded"] = list(coded.get("lines") or [])
+    if opinions:
+        for o in opinions:
+            if o.get("quote") and o.get("verdict") in side_of:
+                out[side_of[str(o["verdict"])]]["notes"].append(
+                    {"quote": o["quote"], "date": o.get("quote_date") or "", "role": o.get("role") or ""}
+                )
+    elif ev.get("quote") and word in side_of:
+        out[side_of[word]]["notes"].append({"quote": ev["quote"], "date": ev.get("quote_date") or "", "role": ""})
+    for s in ("for", "against"):
+        out[s]["notes"].sort(key=lambda n: n["date"], reverse=True)  # newest first, undated last
+    out["any"] = any(out[s][k] for s in ("for", "against") for k in ("coded", "notes"))
+    out["conflict"] = all(out[s]["coded"] or out[s]["notes"] for s in ("for", "against"))
     return out
 
 
@@ -770,12 +814,43 @@ def n_open(row: Mapping[str, Any]) -> int:
     return len(getattr(fit, "open", []) or [])
 
 
+def closeness_key(row: Mapping[str, Any], crit: Mapping[str, CriterionMeta]) -> tuple[Any, ...]:
+    """The "closest to eligible" order of one list row (MATCH-ARCH 1(e), :mod:`tb_common.rank_key`): tier, open
+    criteria fewest first, how hard they are to close, evidence for, then the visit and the pseudonym. An order, not a
+    probability; it drops nobody."""
+    return stored_rank_key(
+        row.get("tier"),
+        row.get("criteria") or [],
+        {cid: m.cls for cid, m in crit.items()},
+        row.get("visit_text"),
+        str(row.get("pid") or ""),
+    )
+
+
+def coded_complete(row: Mapping[str, Any], crit: Mapping[str, CriterionMeta]) -> tuple[int, int]:
+    """``(answered, total)`` of the criteria the records answer, for the row header (F17 5b): a count, never a tier.
+    The total is the study's structured criteria, so one the row holds no verdict for is still one of them."""
+    verdicts = row.get("criteria") or []
+    classes = {cid: m.cls for cid, m in crit.items()}
+    answered, _ = coded_counts(verdicts, classes)
+    return answered, sum(c == "structured" for c in classes.values())
+
+
+def n_not_documented(row: Mapping[str, Any]) -> int:
+    """How many criteria of the row are exclusions the notes do not mention (BENCH-2 §2): still open, but sorted as
+    lighter than a real unknown, below the fully decided rows."""
+    return sum(1 for c in row.get("criteria") or [] if (c.get("evidence") or {}).get("reason") == "not_documented")
+
+
 def worklist_sorted(rows: Sequence[dict[str, Any]], key: str) -> list[dict[str, Any]]:
     """The clinic list stays in visit order; every other list puts the fewest unknowns first (the patients closest
     to a decision), then the visit (none last), then the pseudonym (D-120)."""
     if key == "clinic":
         return list(rows)
-    return sorted(rows, key=lambda r: (n_open(r), r["visit"] is None, r["visit_text"] or "9", r["pid"]))
+    return sorted(rows, key=lambda r: (n_open(r) - min(n_not_documented(r), n_open(r)),
+                                       min(n_not_documented(r), n_open(r)),
+                                       second_opinion_differs(r.get("criteria") or []),
+                                       r["visit"] is None, r["visit_text"] or "9", r["pid"]))  # fmt: skip
 
 
 def paged(rows: Sequence[dict[str, Any]], page: int, size: int = PAGE_SIZE) -> tuple[list[dict[str, Any]], int, int]:

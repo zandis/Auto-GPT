@@ -2012,6 +2012,25 @@ def fail_running_jobs(src: DbSource, when: datetime, made: str) -> list[dict[str
 HOLD_FLAG = "screening.after_restore"  # tb_common.flags: the hold a restore that is not complete leaves (D-522)
 
 
+#: P19-DESIGN-3 R6: the backup's provenance index is not served; it is written again from the restored chain
+EMPTY_INDEX_SQL = (
+    "DO $tb$ BEGIN IF to_regclass('provenance.model_uses') IS NOT NULL THEN "
+    "TRUNCATE provenance.model_uses, provenance.model_calls; END IF; END $tb$"
+)
+
+
+def empty_index(src: DbSource) -> None:
+    """The restored database's provenance index emptied (its rows may name a patient who opted out after the
+    backup): the drain writes none and nothing is served until ``trialbox provenance --rebuild``. A tb_prefix run
+    (tests) shares the database: its schemas hold no index of their own."""
+    if src.prefix:
+        return
+    import psycopg
+
+    with psycopg.connect(src.dsn, autocommit=True) as con:
+        con.execute(EMPTY_INDEX_SQL)
+
+
 def _hold_flags(env: Mapping[str, str], audit_dir: Path | None) -> Any:
     from tb_common.audit import AuditLog
     from tb_common.flags import Flags
@@ -2604,6 +2623,7 @@ def _restore_inside(
                         f"the opt-outs recorded after the backup could not be put back ({type(e).__name__}); do "
                         "not start the services: those patients would be listed again"
                     ) from e
+                empty_index(srcs["trialbox_wf"])  # P19-DESIGN-3 R6: before any service starts
                 # D-573: the stores go back to their services' roles. After the running jobs were failed and the
                 # opt-outs kept (both are rows, written as trialbox): a failure here leaves neither undone. Not
                 # set: said in the result and by the command, see roles_ok
@@ -2639,6 +2659,11 @@ def _restore_inside(
             since, since_from = snapshot_time(manifest)
             audit_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
             reapply = events_to_reapply(audit_dir, since)  # D-455 (M3): read from the restored chain, before our events
+            if audit_dir is not None and Path(audit_dir).is_dir():
+                # P19-DESIGN-3 §4: a restored marker may say verified; the index is rebuilt from the restored chain
+                from tb_common import provenance_index
+
+                provenance_index.require_rebuild(Path(audit_dir), "backup restore")
             if "audit" in asides:
                 # review M2 (a gap of T-691): the chain the box wrote after the backup's copy of it is in the folder set
                 # aside, not in the restored one. Its events are listed too (an erasure, a break-glass, a signature)

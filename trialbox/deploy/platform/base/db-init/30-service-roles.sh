@@ -341,6 +341,46 @@ CREATE TABLE IF NOT EXISTS model_uses (
 CREATE INDEX IF NOT EXISTS model_uses_call ON model_uses (call_id);
 CREATE INDEX IF NOT EXISTS model_uses_pid ON model_uses (pid);
 RESET search_path;
+-- P-19: the opt-out register (optout.optout_events) is the one authority on which use rows stay out, asked inside
+-- the database on every insert. The role script gives the three functions to provenance_keeper, the one role that
+-- may read the register here, and grants EXECUTE (D-997's grants live there, as the tables' owner does).
+-- A use row of time p_at is withheld while the patient's opt-out is in force, and when its event is not after the
+-- latest lift (rows erased before a lift stay erased; a back-dated row falls on the withheld side). No register
+-- table yet: nobody has opted out (tb_common.optout.opted_out reads it the same way)
+CREATE OR REPLACE FUNCTION provenance.withheld(p_pid text, p_at timestamptz) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+DECLARE
+  last_action text;
+BEGIN
+  IF p_pid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                                  WHERE n.nspname = 'optout' AND c.relname = 'optout_events') THEN
+    RETURN false;
+  END IF;
+  SELECT e.action INTO last_action FROM optout.optout_events e WHERE e.pid = p_pid ORDER BY e.at DESC, e.id DESC
+    LIMIT 1;
+  IF last_action IS NULL THEN
+    RETURN false;
+  END IF;
+  RETURN last_action = 'opt_out' OR coalesce(p_at <= (SELECT max(e.at)::timestamptz FROM optout.optout_events e
+                                                       WHERE e.pid = p_pid AND e.action = 'lift'), true);
+END
+$fn$;
+-- the lock (apart from audit.append's 211394) orders an insert against the console's opt-out transaction
+CREATE OR REPLACE FUNCTION provenance.withhold() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+BEGIN
+  PERFORM pg_advisory_xact_lock(211989);
+  IF NEW.pid IS NOT NULL AND provenance.withheld(NEW.pid, NEW.at) THEN
+    RETURN NULL;
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+CREATE OR REPLACE TRIGGER model_uses_withhold BEFORE INSERT ON provenance.model_uses
+  FOR EACH ROW EXECUTE FUNCTION provenance.withhold();
+-- P19-DESIGN-3: nothing repairs the index in place any more (an earlier script's sweep goes)
+DROP FUNCTION IF EXISTS provenance.sweep();
+REVOKE ALL ON FUNCTION provenance.withheld(text, timestamptz), provenance.withhold() FROM PUBLIC;
 -- END PROVENANCE INDEX
 ALTER SCHEMA provenance OWNER TO audit_writer;
 ALTER TABLE provenance.model_calls OWNER TO audit_writer;
@@ -351,6 +391,33 @@ GRANT USAGE ON SCHEMA provenance TO tb_audit_writer, tb_console, tb_orchestrator
 GRANT SELECT, INSERT ON provenance.model_calls, provenance.model_uses TO tb_audit_writer;
 GRANT SELECT ON provenance.model_calls, provenance.model_uses TO tb_console, tb_orchestrator;
 GRANT DELETE ON provenance.model_uses TO tb_orchestrator;
+-- P-19: the index's two functions (withheld, the trigger's withhold) run as provenance_keeper, the one role here
+-- that may read the opt-out register; no login role is a member. The register's schema is made above (SERVICE
+-- SCHEMAS); its table by the first service that opens it, signed in as its own login role (review P19-G3), so the
+-- keeper's read is granted for the tables those roles and the group make there
+DO $keeper$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'provenance_keeper') THEN
+    CREATE ROLE provenance_keeper NOLOGIN NOINHERIT;
+  END IF;
+  IF to_regclass('optout.optout_events') IS NOT NULL THEN
+    GRANT SELECT ON optout.optout_events TO provenance_keeper;
+  END IF;
+END
+$keeper$;
+GRANT USAGE ON SCHEMA optout TO provenance_keeper;
+ALTER DEFAULT PRIVILEGES FOR ROLE tbs_optout, tb_console, tb_orchestrator IN SCHEMA optout
+  GRANT SELECT ON TABLES TO provenance_keeper;
+GRANT USAGE ON SCHEMA provenance TO provenance_keeper;
+GRANT SELECT, INSERT, DELETE ON provenance.model_uses TO provenance_keeper;
+ALTER FUNCTION provenance.withheld(text, timestamptz) OWNER TO provenance_keeper;
+ALTER FUNCTION provenance.withhold() OWNER TO provenance_keeper;
+-- review P19-X6: withheld() answers for any pseudonym, so only the administrator's check asks it (the trigger runs
+-- as its owner). The REVOKEs take back an earlier script's grants on a box that ran it (P19-DESIGN-3: the register
+-- is never coupled to the index, so its group has nothing in schema provenance)
+REVOKE EXECUTE ON FUNCTION provenance.withheld(text, timestamptz) FROM tb_audit_writer, tb_orchestrator, tb_console;
+GRANT EXECUTE ON FUNCTION provenance.withheld(text, timestamptz) TO trialbox;
+REVOKE USAGE ON SCHEMA provenance FROM tbs_optout;
 ALTER ROLE tb_audit_writer PASSWORD :'pw_audit_writer';
 SQL
 # D-541: inside `hapi`, what HAPI made while it signed in as the superuser becomes the FHIR store's own (tables with

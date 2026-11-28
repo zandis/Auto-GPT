@@ -1,0 +1,6109 @@
+{
+ "caveat": "working estimate: NOT for FACTS or any external figure until FU-1652. Known measurement limits N1-N3: N1 Japanese and English findings are paired by order of certainty, which can mis-pair; N2 a second positive with the same English wording in one report is dropped; N3 a report with one unmatched tag leaves the denominator.",
+ "ja": {
+  "findings": 1690,
+  "hit": 190,
+  "missed": 17,
+  "no_key": 1483,
+  "miss_rate": 0.8876
+ },
+ "en": {
+  "findings": 1690,
+  "hit": 207,
+  "missed": 0,
+  "no_key": 1483,
+  "miss_rate": 0.8775
+ },
+ "fix_list_ja": [
+  {
+   "ja": "腫瘤",
+   "en": "mass",
+   "n": 24
+  },
+  {
+   "ja": "腫瘤性病変",
+   "en": "mass lesion",
+   "n": 15
+  },
+  {
+   "ja": "皮疹",
+   "en": "skin rash",
+   "n": 14
+  },
+  {
+   "ja": "無気肺",
+   "en": "atelectasis",
+   "n": 10
+  },
+  {
+   "ja": "気腫性変化",
+   "en": "emphysematous changes",
+   "n": 9
+  },
+  {
+   "ja": "紅斑",
+   "en": "erythema",
+   "n": 7
+  },
+  {
+   "ja": "小結節",
+   "en": "nodules",
+   "n": 6
+  },
+  {
+   "ja": "浮腫",
+   "en": "edema",
+   "n": 6
+  },
+  {
+   "ja": "浸潤",
+   "en": "infiltration",
+   "n": 6
+  },
+  {
+   "ja": "浸潤",
+   "en": "invaded",
+   "n": 6
+  },
+  {
+   "ja": "病変",
+   "en": "lesion",
+   "n": 6
+  },
+  {
+   "ja": "貧血",
+   "en": "anemia",
+   "n": 6
+  },
+  {
+   "ja": "すりガラス影",
+   "en": "ground-glass shadow",
+   "n": 5
+  },
+  {
+   "ja": "リンパ節",
+   "en": "lymph node",
+   "n": 5
+  },
+  {
+   "ja": "浸潤",
+   "en": "invades",
+   "n": 5
+  },
+  {
+   "ja": "浸潤",
+   "en": "invasion",
+   "n": 5
+  },
+  {
+   "ja": "発熱",
+   "en": "fever",
+   "n": 5
+  },
+  {
+   "ja": "結節影",
+   "en": "nodular shadows",
+   "n": 5
+  },
+  {
+   "ja": "腫大",
+   "en": "swollen",
+   "n": 5
+  },
+  {
+   "ja": "腹水",
+   "en": "ascites",
+   "n": 5
+  },
+  {
+   "ja": "不整形腫瘤",
+   "en": "irregular mass",
+   "n": 4
+  },
+  {
+   "ja": "壁肥厚",
+   "en": "wall thickening",
+   "n": 4
+  },
+  {
+   "ja": "硬結",
+   "en": "induration",
+   "n": 4
+  },
+  {
+   "ja": "結節",
+   "en": "nodules",
+   "n": 4
+  },
+  {
+   "ja": "腫大",
+   "en": "enlarged",
+   "n": 4
+  },
+  {
+   "ja": "腫瘤影",
+   "en": "mass",
+   "n": 4
+  },
+  {
+   "ja": "腫瘤性病変",
+   "en": "neoplastic lesion",
+   "n": 4
+  },
+  {
+   "ja": "転移",
+   "en": "metastasis",
+   "n": 4
+  },
+  {
+   "ja": "転移リンパ節",
+   "en": "metastatic lymph nodes",
+   "n": 4
+  },
+  {
+   "ja": "閉塞",
+   "en": "obstructed",
+   "n": 4
+  },
+  {
+   "ja": "リンパ節",
+   "en": "lymph nodes",
+   "n": 3
+  },
+  {
+   "ja": "下痢",
+   "en": "diarrhea",
+   "n": 3
+  },
+  {
+   "ja": "嘔吐",
+   "en": "vomiting",
+   "n": 3
+  },
+  {
+   "ja": "多発肝転移",
+   "en": "multiple liver metastases",
+   "n": 3
+  },
+  {
+   "ja": "多発肺内転移",
+   "en": "multiple intrapulmonary metastases",
+   "n": 3
+  },
+  {
+   "ja": "気管支透亮像",
+   "en": "air bronchogram",
+   "n": 3
+  },
+  {
+   "ja": "浮腫性紅斑",
+   "en": "edematous erythema",
+   "n": 3
+  },
+  {
+   "ja": "浸潤",
+   "en": "infiltrated",
+   "n": 3
+  },
+  {
+   "ja": "炎症細胞浸潤",
+   "en": "inflammatory cell infiltration",
+   "n": 3
+  },
+  {
+   "ja": "狭窄",
+   "en": "narrowed",
+   "n": 3
+  },
+  {
+   "ja": "結石",
+   "en": "stones",
+   "n": 3
+  },
+  {
+   "ja": "結節",
+   "en": "nodule",
+   "n": 3
+  },
+  {
+   "ja": "結節影",
+   "en": "nodular shadow",
+   "n": 3
+  },
+  {
+   "ja": "肝機能障害",
+   "en": "liver dysfunction",
+   "n": 3
+  },
+  {
+   "ja": "胆道閉鎖症",
+   "en": "biliary atresia",
+   "n": 3
+  },
+  {
+   "ja": "腫瘍",
+   "en": "mass",
+   "n": 3
+  },
+  {
+   "ja": "腺癌",
+   "en": "adenocarcinoma",
+   "n": 3
+  },
+  {
+   "ja": "黄疸",
+   "en": "jaundice",
+   "n": 3
+  },
+  {
+   "ja": "GGN",
+   "en": "ggn",
+   "n": 2
+  },
+  {
+   "ja": "consolidation",
+   "en": "consolidation",
+   "n": 2
+  },
+  {
+   "ja": "pureGGN",
+   "en": "pure ggn",
+   "n": 2
+  },
+  {
+   "ja": "spicula",
+   "en": "spicula",
+   "n": 2
+  },
+  {
+   "ja": "spiculaや胸膜嵌入像",
+   "en": "spicula and pleural intrusion",
+   "n": 2
+  },
+  {
+   "ja": "すりガラス影",
+   "en": "ground glass shadows",
+   "n": 2
+  },
+  {
+   "ja": "すりガラス影",
+   "en": "ground-glass shadows",
+   "n": 2
+  },
+  {
+   "ja": "すりガラス状結節",
+   "en": "ground-glass nodule",
+   "n": 2
+  },
+  {
+   "ja": "すりガラス結節",
+   "en": "ground-glass nodule",
+   "n": 2
+  },
+  {
+   "ja": "サルコイドーシス",
+   "en": "sarcoidosis",
+   "n": 2
+  },
+  {
+   "ja": "シャント",
+   "en": "shunt",
+   "n": 2
+  },
+  {
+   "ja": "スピキュラ",
+   "en": "spicula",
+   "n": 2
+  },
+  {
+   "ja": "ブラ",
+   "en": "bulla",
+   "n": 2
+  },
+  {
+   "ja": "リンパ節腫大",
+   "en": "lymphadenopathy",
+   "n": 2
+  },
+  {
+   "ja": "リンパ節転移",
+   "en": "lymph node metastasis",
+   "n": 2
+  },
+  {
+   "ja": "不整形結節",
+   "en": "irregular nodules",
+   "n": 2
+  },
+  {
+   "ja": "低分化型腺癌",
+   "en": "poorly differentiated adenocarcinoma",
+   "n": 2
+  },
+  {
+   "ja": "低吸収腫瘤",
+   "en": "low-absorption mass",
+   "n": 2
+  },
+  {
+   "ja": "便潜血陽性",
+   "en": "positive fecal occult blood",
+   "n": 2
+  },
+  {
+   "ja": "充実性結節",
+   "en": "solid nodule",
+   "n": 2
+  },
+  {
+   "ja": "充実部",
+   "en": "solid part",
+   "n": 2
+  },
+  {
+   "ja": "呼吸困難",
+   "en": "dyspnea",
+   "n": 2
+  },
+  {
+   "ja": "多発結節",
+   "en": "multiple nodules",
+   "n": 2
+  },
+  {
+   "ja": "子宮筋腫",
+   "en": "uterine fibroids",
+   "n": 2
+  },
+  {
+   "ja": "小水疱",
+   "en": "vesicles",
+   "n": 2
+  },
+  {
+   "ja": "小結節",
+   "en": "small nodules",
+   "n": 2
+  },
+  {
+   "ja": "小腸出血",
+   "en": "small bowel hemorrhage",
+   "n": 2
+  },
+  {
+   "ja": "左胸水貯留",
+   "en": "left pleural effusion",
+   "n": 2
+  },
+  {
+   "ja": "意識障害",
+   "en": "impaired consciousness",
+   "n": 2
+  },
+  {
+   "ja": "慢性肝障害",
+   "en": "chronic liver damage",
+   "n": 2
+  },
+  {
+   "ja": "扁平上皮癌",
+   "en": "squamous cell carcinoma",
+   "n": 2
+  },
+  {
+   "ja": "気管支喘息",
+   "en": "bronchial asthma",
+   "n": 2
+  },
+  {
+   "ja": "気管支喘息発作",
+   "en": "bronchial asthma attacks",
+   "n": 2
+  },
+  {
+   "ja": "気腫",
+   "en": "emphysema",
+   "n": 2
+  },
+  {
+   "ja": "浮腫性硬化",
+   "en": "edematous sclerosis",
+   "n": 2
+  },
+  {
+   "ja": "浸潤影",
+   "en": "infiltrative shadow",
+   "n": 2
+  },
+  {
+   "ja": "炎症",
+   "en": "inflammation",
+   "n": 2
+  },
+  {
+   "ja": "炎症性細胞浸潤",
+   "en": "inflammatory cell infiltration",
+   "n": 2
+  },
+  {
+   "ja": "狭窄",
+   "en": "stenosis",
+   "n": 2
+  },
+  {
+   "ja": "狭窄",
+   "en": "stenotic",
+   "n": 2
+  },
+  {
+   "ja": "痙攣",
+   "en": "convulsions",
+   "n": 2
+  },
+  {
+   "ja": "癒着",
+   "en": "adherent",
+   "n": 2
+  },
+  {
+   "ja": "皮膚筋炎",
+   "en": "dermatomyositis",
+   "n": 2
+  },
+  {
+   "ja": "石灰化",
+   "en": "calcification",
+   "n": 2
+  },
+  {
+   "ja": "空洞",
+   "en": "cavity",
+   "n": 2
+  },
+  {
+   "ja": "筋力低下",
+   "en": "muscle weakness",
+   "n": 2
+  },
+  {
+   "ja": "糖尿病",
+   "en": "diabetes mellitus",
+   "n": 2
+  },
+  {
+   "ja": "紅色丘疹",
+   "en": "erythematous papules",
+   "n": 2
+  },
+  {
+   "ja": "線状影",
+   "en": "linear shadow",
+   "n": 2
+  },
+  {
+   "ja": "縦隔リンパ節",
+   "en": "mediastinal lymph nodes",
+   "n": 2
+  },
+  {
+   "ja": "肝機能異常",
+   "en": "liver function abnormalities",
+   "n": 2
+  },
+  {
+   "ja": "肝障害",
+   "en": "liver damage",
+   "n": 2
+  },
+  {
+   "ja": "肥厚",
+   "en": "thickening",
+   "n": 2
+  },
+  {
+   "ja": "胸壁浸潤",
+   "en": "chest wall infiltration",
+   "n": 2
+  },
+  {
+   "ja": "胸水",
+   "en": "pleural effusion",
+   "n": 2
+  },
+  {
+   "ja": "胸膜浸潤",
+   "en": "pleural infiltration",
+   "n": 2
+  },
+  {
+   "ja": "脂肪肝",
+   "en": "fatty liver",
+   "n": 2
+  },
+  {
+   "ja": "腫大",
+   "en": "swelling",
+   "n": 2
+  },
+  {
+   "ja": "腫大したリンパ節",
+   "en": "enlarged lymph nodes",
+   "n": 2
+  },
+  {
+   "ja": "腫大リンパ節",
+   "en": "enlarged lymph nodes",
+   "n": 2
+  },
+  {
+   "ja": "腫大リンパ節",
+   "en": "swelling lymph nodes",
+   "n": 2
+  },
+  {
+   "ja": "腫瘍",
+   "en": "tumors",
+   "n": 2
+  },
+  {
+   "ja": "腫瘤",
+   "en": "obstructed",
+   "n": 2
+  },
+  {
+   "ja": "腫瘤",
+   "en": "spicula",
+   "n": 2
+  },
+  {
+   "ja": "腫瘤影",
+   "en": "mass shadow",
+   "n": 2
+  },
+  {
+   "ja": "腫瘤影",
+   "en": "shadow of a mass",
+   "n": 2
+  },
+  {
+   "ja": "腹部膨満",
+   "en": "abdominal distension",
+   "n": 2
+  },
+  {
+   "ja": "膠原線維",
+   "en": "collagen fibers",
+   "n": 2
+  },
+  {
+   "ja": "膿疱性乾癬",
+   "en": "pustular psoriasis",
+   "n": 2
+  },
+  {
+   "ja": "萎縮",
+   "en": "atrophic",
+   "n": 2
+  },
+  {
+   "ja": "転移",
+   "en": "metastases",
+   "n": 2
+  },
+  {
+   "ja": "途絶",
+   "en": "disrupted",
+   "n": 2
+  },
+  {
+   "ja": "進展",
+   "en": "extends",
+   "n": 2
+  },
+  {
+   "ja": "閉塞",
+   "en": "blocked",
+   "n": 2
+  },
+  {
+   "ja": "閉塞",
+   "en": "occluded",
+   "n": 2
+  },
+  {
+   "ja": "閉塞性無気肺",
+   "en": "obstructive atelectasis",
+   "n": 2
+  },
+  {
+   "ja": "食道静脈瘤",
+   "en": "esophageal varices",
+   "n": 2
+  },
+  {
+   "ja": "骨硬化像",
+   "en": "osteosclerosis",
+   "n": 2
+  },
+  {
+   "ja": "高アンモニア血症",
+   "en": "hyperammonemia",
+   "n": 2
+  },
+  {
+   "ja": "ＨＳ",
+   "en": "hs",
+   "n": 2
+  },
+  {
+   "ja": "Ｒａｙｎａｕｄ現象",
+   "en": "raynaud's phenomenon",
+   "n": 2
+  },
+  {
+   "ja": "MX",
+   "en": "mx",
+   "n": 1
+  },
+  {
+   "ja": "consolidation",
+   "en": "pleural invagination",
+   "n": 1
+  },
+  {
+   "ja": "part-solidGGN",
+   "en": "part-solid ggn",
+   "n": 1
+  },
+  {
+   "ja": "solid-part",
+   "en": "solid part",
+   "n": 1
+  },
+  {
+   "ja": "solidpart",
+   "en": "solid part",
+   "n": 1
+  },
+  {
+   "ja": "spicula",
+   "en": "spiculated",
+   "n": 1
+  },
+  {
+   "ja": "spiculation",
+   "en": "irregular mass",
+   "n": 1
+  },
+  {
+   "ja": "spiculaや胸膜嵌入像",
+   "en": "spicula and pleural indentation",
+   "n": 1
+  },
+  {
+   "ja": "spiculaや胸膜陥入像",
+   "en": "spicula and pleural invagination",
+   "n": 1
+  },
+  {
+   "ja": "γＧＴＰ高値",
+   "en": "considerably elevated γ-gtp level",
+   "n": 1
+  },
+  {
+   "ja": "⼤動脈下リンパ節(#5)",
+   "en": "large subarterial lymph node (# 5)",
+   "n": 1
+  },
+  {
+   "ja": "⾻折",
+   "en": "fracture",
+   "n": 1
+  },
+  {
+   "ja": "⾻硬化像",
+   "en": "sclerositic image",
+   "n": 1
+  },
+  {
+   "ja": "⾻硬化性変化",
+   "en": "sclerotic changes",
+   "n": 1
+  },
+  {
+   "ja": "あせも様皮疹",
+   "en": "skin rash",
+   "n": 1
+  },
+  {
+   "ja": "うつ病",
+   "en": "depression",
+   "n": 1
+  },
+  {
+   "ja": "すりガラス影",
+   "en": "ground glass opacity",
+   "n": 1
+  },
+  {
+   "ja": "すりガラス状結節",
+   "en": "ground glass nodule",
+   "n": 1
+  },
+  {
+   "ja": "すりガラス陰影",
+   "en": "solid mass",
+   "n": 1
+  },
+  {
+   "ja": "てんかん発作",
+   "en": "epileptic seizures",
+   "n": 1
+  },
+  {
+   "ja": "びまん性汎細気管支炎の急性増悪",
+   "en": "acute exacerbation of diffuse panbronchiolitis",
+   "n": 1
+  },
+  {
+   "ja": "びまん性紅斑",
+   "en": "diffuse erythema",
+   "n": 1
+  },
+  {
+   "ja": "びまん性骨硬化像",
+   "en": "diffuse osteosclerosis",
+   "n": 1
+  },
+  {
+   "ja": "びらん",
+   "en": "erosion",
+   "n": 1
+  },
+  {
+   "ja": "びらん面",
+   "en": "eroded surface",
+   "n": 1
+  },
+  {
+   "ja": "ふらつき、肉眼的血尿",
+   "en": "lightheadedness and gross hematuria",
+   "n": 1
+  },
+  {
+   "ja": "やや肥満",
+   "en": "slightly obese",
+   "n": 1
+  },
+  {
+   "ja": "アスピリン喘息",
+   "en": "aspirin induced asthma",
+   "n": 1
+  },
+  {
+   "ja": "アスペルギルス症と気管支肺炎",
+   "en": "aspergillosis and bronchopneumonia",
+   "n": 1
+  },
+  {
+   "ja": "アミラーゼ上昇",
+   "en": "elevated amylase",
+   "n": 1
+  },
+  {
+   "ja": "アルコール多飲",
+   "en": "alcoholic cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "アルコール性慢性膵炎、膵石",
+   "en": "alcoholic chronic pancreatitis and pancreatic stones",
+   "n": 1
+  },
+  {
+   "ja": "アルコール性肝硬変",
+   "en": "alcoholic cirrhosis of the liver",
+   "n": 1
+  },
+  {
+   "ja": "アルコール性肝硬変",
+   "en": "heavy consumption of alcohol",
+   "n": 1
+  },
+  {
+   "ja": "アレルギー",
+   "en": "allergic reaction",
+   "n": 1
+  },
+  {
+   "ja": "アンチトロンビンＩＩＩ、 ＦＤＰ、 Ｄダイマーの高値",
+   "en": "elevated levels of antithrombin iii, fdp, and d-dimer",
+   "n": 1
+  },
+  {
+   "ja": "イレウス",
+   "en": "an ileus",
+   "n": 1
+  },
+  {
+   "ja": "イレウス",
+   "en": "ileus",
+   "n": 1
+  },
+  {
+   "ja": "イレウス症状",
+   "en": "ileus symptoms",
+   "n": 1
+  },
+  {
+   "ja": "カルシウム結石",
+   "en": "calcium stone",
+   "n": 1
+  },
+  {
+   "ja": "コントロール不良",
+   "en": "less controllable",
+   "n": 1
+  },
+  {
+   "ja": "シャント",
+   "en": "cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "ストレス",
+   "en": "stressful situations",
+   "n": 1
+  },
+  {
+   "ja": "スピキュラ、胸膜ひきつれ像",
+   "en": "spicula, pleura, muscle contractions",
+   "n": 1
+  },
+  {
+   "ja": "スピキュラ、胸膜引き攣れを伴う腫瘤性病変",
+   "en": "neoplastic lesion accompanying spicula as well as tightening of the pleura",
+   "n": 1
+  },
+  {
+   "ja": "スピクラ",
+   "en": "spicules",
+   "n": 1
+  },
+  {
+   "ja": "ダンピング症候群",
+   "en": "dumping syndrome",
+   "n": 1
+  },
+  {
+   "ja": "ドーム状痒疹様小結節",
+   "en": "domed prurigo-like nodules",
+   "n": 1
+  },
+  {
+   "ja": "ニボルマブ関連胆管炎",
+   "en": "histopathological findings",
+   "n": 1
+  },
+  {
+   "ja": "バザン硬結性紅斑",
+   "en": "erythema induratum bazin",
+   "n": 1
+  },
+  {
+   "ja": "ブレ",
+   "en": "blurring",
+   "n": 1
+  },
+  {
+   "ja": "ヘリナトロープ様紅斑",
+   "en": "heliotrope rash",
+   "n": 1
+  },
+  {
+   "ja": "ヘルニア門",
+   "en": "hernia portal",
+   "n": 1
+  },
+  {
+   "ja": "ミオクローヌス",
+   "en": "myoclonus",
+   "n": 1
+  },
+  {
+   "ja": "ミオクローヌスおよび感情失禁",
+   "en": "myoclonus and emotional incontinence",
+   "n": 1
+  },
+  {
+   "ja": "リストカット",
+   "en": "cutting her wrists",
+   "n": 1
+  },
+  {
+   "ja": "リンパ濾胞様集簇を伴う小円形細胞の浸潤，細胆管，小葉間胆管の著減，Ｓｅｐｔａｌ ｂｉｌｅ ｄｕｃｔ大の胆管管腔の乳頭状拡張および一部その近傍に胆管の集合",
+   "en": "marked reduction of fine bile ducts and interlobular bile ducts, papillary dilatation of the bile duct lumen of the size of a septal bile duct and aggregation of bile ducts in the vicinity",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球",
+   "en": "lymphocytes",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球と組織球浸潤",
+   "en": "lymphocytic and histiocytic infiltrates",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球を主体とした炎症細胞浸潤，膠原線維の増生",
+   "en": "increased collagen fibers and inflammatory cell infiltration, mainly lymphocytes",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球形質細胞浸潤",
+   "en": "lymphoplasmacytic infiltration",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球様細胞",
+   "en": "infiltration",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球浸潤",
+   "en": "benign lymphocytic infiltration",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球浸潤",
+   "en": "lymphocytic infiltration",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球浸潤",
+   "en": "lymphoid infiltration",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球浸潤，胆管上皮障害",
+   "en": "damage to the bile duct epithelium, along with lymphocytic infiltration",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球集簇",
+   "en": "lymphocyte aggregation",
+   "n": 1
+  },
+  {
+   "ja": "リンパ球，組織球，好酸球，好中球よりなる炎症細胞浸潤",
+   "en": "inflammatory cell infiltration consisting of lymphocytes, histiocytes, eosinophils and neutrophils",
+   "n": 1
+  },
+  {
+   "ja": "リンパ節",
+   "en": "non-cheese granulomas",
+   "n": 1
+  },
+  {
+   "ja": "リンパ節腫脹",
+   "en": "lymphadenoma",
+   "n": 1
+  },
+  {
+   "ja": "一過性低γグロブリン血症",
+   "en": "transient hypogammaglobulinemia",
+   "n": 1
+  },
+  {
+   "ja": "上葉無気肺",
+   "en": "upper lobe atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "上行結腸癌",
+   "en": "japanese blood-sucking worm eggs",
+   "n": 1
+  },
+  {
+   "ja": "下痢症状",
+   "en": "diarrhea",
+   "n": 1
+  },
+  {
+   "ja": "下血",
+   "en": "rectal bleeding",
+   "n": 1
+  },
+  {
+   "ja": "下血を伴うイレウス症状",
+   "en": "ileus associated with hypovolemia",
+   "n": 1
+  },
+  {
+   "ja": "下部消化管出血",
+   "en": "lower gastrointestinal bleeding",
+   "n": 1
+  },
+  {
+   "ja": "不全角化細胞を有する角栓",
+   "en": "parakeratotic cells with keratotic plugs",
+   "n": 1
+  },
+  {
+   "ja": "不整型欠損",
+   "en": "irregular defects",
+   "n": 1
+  },
+  {
+   "ja": "不整形低エコー腫瘤",
+   "en": "irregular hypoechoic mass",
+   "n": 1
+  },
+  {
+   "ja": "不整形結節",
+   "en": "accessory tumour nodules",
+   "n": 1
+  },
+  {
+   "ja": "不整形腫瘤",
+   "en": "spiculated",
+   "n": 1
+  },
+  {
+   "ja": "不整形腫瘤性病変",
+   "en": "irregular mass lesion",
+   "n": 1
+  },
+  {
+   "ja": "不整形陰影",
+   "en": "irregular shadow",
+   "n": 1
+  },
+  {
+   "ja": "不整形陰影やすりガラス影",
+   "en": "irregular shadows and ground glass shadows",
+   "n": 1
+  },
+  {
+   "ja": "不明瞭化",
+   "en": "obscured",
+   "n": 1
+  },
+  {
+   "ja": "不眠症",
+   "en": "insomnia",
+   "n": 1
+  },
+  {
+   "ja": "丘疹",
+   "en": "papules",
+   "n": 1
+  },
+  {
+   "ja": "両側ブドウ膜炎",
+   "en": "bilateral uveitis",
+   "n": 1
+  },
+  {
+   "ja": "両側少量胸水",
+   "en": "small amount of pleural effusion",
+   "n": 1
+  },
+  {
+   "ja": "両側肺門リンパ節腫脹",
+   "en": "bilateral hilar lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "両側胸水",
+   "en": "pleural effusion on both sides",
+   "n": 1
+  },
+  {
+   "ja": "両側腋窩リンパ節",
+   "en": "axillary lymph nodes on both sides",
+   "n": 1
+  },
+  {
+   "ja": "両側腎嚢胞",
+   "en": "bilateral renal cysts",
+   "n": 1
+  },
+  {
+   "ja": "両腎嚢胞",
+   "en": "bilateral renal cysts",
+   "n": 1
+  },
+  {
+   "ja": "中～低分化腺癌",
+   "en": "moderately to poorly differentiated adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "主病巣・肝転移",
+   "en": "main lesion and liver metastasis",
+   "n": 1
+  },
+  {
+   "ja": "乳アレルギー",
+   "en": "milk allergy",
+   "n": 1
+  },
+  {
+   "ja": "乾性ラ音",
+   "en": "dry rales",
+   "n": 1
+  },
+  {
+   "ja": "乾性咳嗽と微熱",
+   "en": "dry cough and low-grade fever",
+   "n": 1
+  },
+  {
+   "ja": "乾癬型薬疹",
+   "en": "psoriasis type drug eruption",
+   "n": 1
+  },
+  {
+   "ja": "乾酪壊死",
+   "en": "nodules surrounded by epithelioid cells and lymphocytes",
+   "n": 1
+  },
+  {
+   "ja": "二次性変化",
+   "en": "secondary changes",
+   "n": 1
+  },
+  {
+   "ja": "亢進",
+   "en": "ca stones",
+   "n": 1
+  },
+  {
+   "ja": "交通外傷による外傷性腹壁ヘルニア",
+   "en": "traumatic abdominal wall hernia caused by traffic trauma",
+   "n": 1
+  },
+  {
+   "ja": "交通外傷による横隔膜ヘルニア",
+   "en": "diaphragmatic hernia",
+   "n": 1
+  },
+  {
+   "ja": "交通外傷による骨盤骨折と尿管損傷",
+   "en": "a pelvic fracture and ureteral injury due to traffic accident related trauma",
+   "n": 1
+  },
+  {
+   "ja": "人工肛門脱落",
+   "en": "prolapse of the colostomy",
+   "n": 1
+  },
+  {
+   "ja": "低アルブミン血症",
+   "en": "hypoalbuminemia",
+   "n": 1
+  },
+  {
+   "ja": "低分化腺癌",
+   "en": "poorly differentiated adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "低吸収域",
+   "en": "low-absorption area",
+   "n": 1
+  },
+  {
+   "ja": "低吸収病変",
+   "en": "hypoabsorptive lesions",
+   "n": 1
+  },
+  {
+   "ja": "低吸収腫瘤",
+   "en": "hypoabsorptive mass",
+   "n": 1
+  },
+  {
+   "ja": "低吸収腫瘤",
+   "en": "low-absorption masses",
+   "n": 1
+  },
+  {
+   "ja": "低栄養状態",
+   "en": "status",
+   "n": 1
+  },
+  {
+   "ja": "低蛋白血症",
+   "en": "hypoproteinemia",
+   "n": 1
+  },
+  {
+   "ja": "低集積",
+   "en": "hypointense",
+   "n": 1
+  },
+  {
+   "ja": "住宅関連過敏性肺炎",
+   "en": "housing-related hypersensitivity pneumonitis",
+   "n": 1
+  },
+  {
+   "ja": "体重増加不良",
+   "en": "ventricular septal defect",
+   "n": 1
+  },
+  {
+   "ja": "依存症やうつ状態",
+   "en": "dependency and depression",
+   "n": 1
+  },
+  {
+   "ja": "便中好酸球",
+   "en": "eosinophils in stool",
+   "n": 1
+  },
+  {
+   "ja": "便潜血",
+   "en": "fecal occult blood",
+   "n": 1
+  },
+  {
+   "ja": "便潜血陽性",
+   "en": "positive for occult blood in the stool",
+   "n": 1
+  },
+  {
+   "ja": "便秘・体重減少",
+   "en": "constipation and weight loss",
+   "n": 1
+  },
+  {
+   "ja": "便秘症",
+   "en": "constipation",
+   "n": 1
+  },
+  {
+   "ja": "倦怠感",
+   "en": "malaise",
+   "n": 1
+  },
+  {
+   "ja": "側方リンパ節",
+   "en": "lateral lymph node",
+   "n": 1
+  },
+  {
+   "ja": "充実性成分",
+   "en": "solid component",
+   "n": 1
+  },
+  {
+   "ja": "充実性成分および気管⽀拡張",
+   "en": "solid components and tracheal dilatation",
+   "n": 1
+  },
+  {
+   "ja": "充実性病変",
+   "en": "solid lesion",
+   "n": 1
+  },
+  {
+   "ja": "充実性腫瘍",
+   "en": "solid tumorous",
+   "n": 1
+  },
+  {
+   "ja": "充実性腫瘍性病変",
+   "en": "solid neoplastic lesions",
+   "n": 1
+  },
+  {
+   "ja": "充実性部分",
+   "en": "shadow with ground glass like appearance",
+   "n": 1
+  },
+  {
+   "ja": "充実腺管癌",
+   "en": "ductal carcinoma en bloc",
+   "n": 1
+  },
+  {
+   "ja": "先天的脆弱",
+   "en": "dilatation",
+   "n": 1
+  },
+  {
+   "ja": "免疫機能低下",
+   "en": "immunocompromised",
+   "n": 1
+  },
+  {
+   "ja": "免疫異常",
+   "en": "immune abnormalities",
+   "n": 1
+  },
+  {
+   "ja": "全周性腫瘤",
+   "en": "circumferential mass",
+   "n": 1
+  },
+  {
+   "ja": "全身倦怠感",
+   "en": "general malaise",
+   "n": 1
+  },
+  {
+   "ja": "全身倦怠感および食欲不振",
+   "en": "general malaise and loss of appetite",
+   "n": 1
+  },
+  {
+   "ja": "全身倦怠感，食欲不振",
+   "en": "general malaise, appetite loss",
+   "n": 1
+  },
+  {
+   "ja": "全身性強皮症",
+   "en": "partial depigmentation",
+   "n": 1
+  },
+  {
+   "ja": "全身掻痒感",
+   "en": "pruritus",
+   "n": 1
+  },
+  {
+   "ja": "全身状態の悪化",
+   "en": "general condition deteriorated",
+   "n": 1
+  },
+  {
+   "ja": "全身皮膚色素沈着",
+   "en": "generalized hyperpigmentation",
+   "n": 1
+  },
+  {
+   "ja": "内臓悪性腫瘍の皮膚転移",
+   "en": "skin metastasis of visceral malignancies",
+   "n": 1
+  },
+  {
+   "ja": "円形単核球浸潤",
+   "en": "round monocyte infiltration",
+   "n": 1
+  },
+  {
+   "ja": "再出血",
+   "en": "rebleeding",
+   "n": 1
+  },
+  {
+   "ja": "再活性化",
+   "en": "reactivation",
+   "n": 1
+  },
+  {
+   "ja": "再燃",
+   "en": "relapse",
+   "n": 1
+  },
+  {
+   "ja": "冠攣縮",
+   "en": "coronary spasm",
+   "n": 1
+  },
+  {
+   "ja": "冠攣縮性狭心症",
+   "en": "coronary spasm angina",
+   "n": 1
+  },
+  {
+   "ja": "凝固能延長，血球減少，黄疸の進行",
+   "en": "prolongation of coagulation, hematopenia and the progression of jaundice",
+   "n": 1
+  },
+  {
+   "ja": "凝血塊",
+   "en": "adherent clots",
+   "n": 1
+  },
+  {
+   "ja": "出血",
+   "en": "bleeding",
+   "n": 1
+  },
+  {
+   "ja": "出血",
+   "en": "hemorrhage",
+   "n": 1
+  },
+  {
+   "ja": "出血",
+   "en": "in pre-shock",
+   "n": 1
+  },
+  {
+   "ja": "出血合併症",
+   "en": "bleeding complications",
+   "n": 1
+  },
+  {
+   "ja": "出血壊死巣",
+   "en": "hemorrhagic necrosis",
+   "n": 1
+  },
+  {
+   "ja": "出血性ショック",
+   "en": "hemorrhagic shock",
+   "n": 1
+  },
+  {
+   "ja": "出血性ショック死",
+   "en": "cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "出血性ショック状態",
+   "en": "hemorrhagic shock",
+   "n": 1
+  },
+  {
+   "ja": "出血性合併症",
+   "en": "hemorrhagic complications",
+   "n": 1
+  },
+  {
+   "ja": "出血性胆嚢炎",
+   "en": "hemorrhagic cholecystitis",
+   "n": 1
+  },
+  {
+   "ja": "出血性膀胱炎",
+   "en": "hemorrhagic cystitis",
+   "n": 1
+  },
+  {
+   "ja": "分葉状腫瘤性病変",
+   "en": "lobular mass lesion",
+   "n": 1
+  },
+  {
+   "ja": "切除不能多発肝転移再発",
+   "en": "recurrence of multiple unresectable liver metastases",
+   "n": 1
+  },
+  {
+   "ja": "前立腺肥大症",
+   "en": "benign prostatic hyperplasia",
+   "n": 1
+  },
+  {
+   "ja": "前立腺肥大症",
+   "en": "benign prostatic hyperplasia (bph)",
+   "n": 1
+  },
+  {
+   "ja": "前立腺肥大（以下ＢＰＨ）",
+   "en": "benign prostatic hyperplasia (bph)",
+   "n": 1
+  },
+  {
+   "ja": "副作用",
+   "en": "side effect",
+   "n": 1
+  },
+  {
+   "ja": "副作用",
+   "en": "side effects",
+   "n": 1
+  },
+  {
+   "ja": "副脾，両腎嚢胞",
+   "en": "accessory spleen and bilateral renal cysts",
+   "n": 1
+  },
+  {
+   "ja": "副腎転移",
+   "en": "adrenal metastasis",
+   "n": 1
+  },
+  {
+   "ja": "副腫瘍結節",
+   "en": "irregular nodules",
+   "n": 1
+  },
+  {
+   "ja": "動揺",
+   "en": "shaking",
+   "n": 1
+  },
+  {
+   "ja": "動脈硬化",
+   "en": "arteriosclerosis",
+   "n": 1
+  },
+  {
+   "ja": "十二指腸閉鎖症",
+   "en": "duodenal atresia",
+   "n": 1
+  },
+  {
+   "ja": "卵巣嚢腫",
+   "en": "ovarian cyst",
+   "n": 1
+  },
+  {
+   "ja": "原発巣",
+   "en": "primary tumour",
+   "n": 1
+  },
+  {
+   "ja": "原発巣、転移リンパ節",
+   "en": "primary tumor and metastatic lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "原発性胆汁性肝硬変",
+   "en": "primary biliary cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "原発性胆汁性肝硬変（ＰＢＣ）第３期",
+   "en": "primary biliary cirrhosis (pbc) stage 3",
+   "n": 1
+  },
+  {
+   "ja": "原発性胆汁性胆管炎",
+   "en": "primary biliary cholangitis",
+   "n": 1
+  },
+  {
+   "ja": "反り返り",
+   "en": "flexion",
+   "n": 1
+  },
+  {
+   "ja": "受傷",
+   "en": "injured",
+   "n": 1
+  },
+  {
+   "ja": "受動性無気肺",
+   "en": "passive atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "口側断端陽性",
+   "en": "positive oral margins",
+   "n": 1
+  },
+  {
+   "ja": "口側病変",
+   "en": "mouth lesion",
+   "n": 1
+  },
+  {
+   "ja": "右ブドウ膜炎",
+   "en": "uveitis in the right eye",
+   "n": 1
+  },
+  {
+   "ja": "右上葉気管支周囲リンパ節",
+   "en": "right upper lobe peribronchial lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "右上葉無気肺",
+   "en": "right upper lobe atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "右下葉無気肺",
+   "en": "atelectasis in the lower right lobe",
+   "n": 1
+  },
+  {
+   "ja": "右乳房腫瘤",
+   "en": "mass in the right breast",
+   "n": 1
+  },
+  {
+   "ja": "右副腎結節",
+   "en": "right adrenal nodule",
+   "n": 1
+  },
+  {
+   "ja": "右卵巣未熟奇形腫",
+   "en": "immature teratoma of the right ovary",
+   "n": 1
+  },
+  {
+   "ja": "右卵巣線維腫",
+   "en": "tubular adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "右横隔膜ヘルニア",
+   "en": "right diaphragmatic hernia",
+   "n": 1
+  },
+  {
+   "ja": "右肺門リンパ節",
+   "en": "right hilar lymph node",
+   "n": 1
+  },
+  {
+   "ja": "右顔面チック様痙攣，腎嚢腫",
+   "en": "right facial tic, renal cyst",
+   "n": 1
+  },
+  {
+   "ja": "同側縦隔・肺門リンパ節",
+   "en": "pathological swelling",
+   "n": 1
+  },
+  {
+   "ja": "同側肺⾨部〜縦隔リンパ節転移",
+   "en": "ipsilateral lung to mediastinal lymph node metastasis",
+   "n": 1
+  },
+  {
+   "ja": "同時性多発大腸癌",
+   "en": "psoriasis vulgaris",
+   "n": 1
+  },
+  {
+   "ja": "吐血・黒色便",
+   "en": "hematemesis and black stool",
+   "n": 1
+  },
+  {
+   "ja": "含気",
+   "en": "air",
+   "n": 1
+  },
+  {
+   "ja": "呑気症",
+   "en": "aerophagia",
+   "n": 1
+  },
+  {
+   "ja": "味覚異常",
+   "en": "dysgeusia",
+   "n": 1
+  },
+  {
+   "ja": "味覚異常、食思不振",
+   "en": "dysgeusia and anorexia",
+   "n": 1
+  },
+  {
+   "ja": "味覚障害と食思不振",
+   "en": "taste disorder and anorexia",
+   "n": 1
+  },
+  {
+   "ja": "呼吸停止",
+   "en": "respiratory arrest",
+   "n": 1
+  },
+  {
+   "ja": "呼吸状態の悪化",
+   "en": "increased muscle tension",
+   "n": 1
+  },
+  {
+   "ja": "呼吸状態の悪化",
+   "en": "muscle tension",
+   "n": 1
+  },
+  {
+   "ja": "呼吸苦",
+   "en": "respiratory distress",
+   "n": 1
+  },
+  {
+   "ja": "咳嗽，全身倦怠感，微熱，関節痛，筋肉痛",
+   "en": "cough, general malaise, low-grade fever, arthralgia, myalgia",
+   "n": 1
+  },
+  {
+   "ja": "咽喉違和感",
+   "en": "throat discomfort",
+   "n": 1
+  },
+  {
+   "ja": "喘鳴",
+   "en": "wheezing",
+   "n": 1
+  },
+  {
+   "ja": "嘔吐",
+   "en": "vomit",
+   "n": 1
+  },
+  {
+   "ja": "嘔気",
+   "en": "nausea",
+   "n": 1
+  },
+  {
+   "ja": "嚢胞変性や液体貯留",
+   "en": "cyst degeneration and fluid retention",
+   "n": 1
+  },
+  {
+   "ja": "嚢腫様病変",
+   "en": "cyst-like lesions",
+   "n": 1
+  },
+  {
+   "ja": "嚥下障害",
+   "en": "dysphagia",
+   "n": 1
+  },
+  {
+   "ja": "四肢筋力の低下",
+   "en": "muscle weakness in the extremities",
+   "n": 1
+  },
+  {
+   "ja": "圧排",
+   "en": "drain",
+   "n": 1
+  },
+  {
+   "ja": "圧排",
+   "en": "drained",
+   "n": 1
+  },
+  {
+   "ja": "圧排",
+   "en": "excluded",
+   "n": 1
+  },
+  {
+   "ja": "圧痛",
+   "en": "tenderness",
+   "n": 1
+  },
+  {
+   "ja": "圧痛所見",
+   "en": "tender findings",
+   "n": 1
+  },
+  {
+   "ja": "増強効果",
+   "en": "enhancement effect",
+   "n": 1
+  },
+  {
+   "ja": "壁肥厚",
+   "en": "wall",
+   "n": 1
+  },
+  {
+   "ja": "壊死",
+   "en": "necrosis",
+   "n": 1
+  },
+  {
+   "ja": "壊死",
+   "en": "necrotic",
+   "n": 1
+  },
+  {
+   "ja": "壊死",
+   "en": "skin lesions",
+   "n": 1
+  },
+  {
+   "ja": "壊死を伴う肉芽腫",
+   "en": "granuloma with necrosis",
+   "n": 1
+  },
+  {
+   "ja": "壊死を伴った類上皮細胞肉芽腫",
+   "en": "necrosis in conjunction with epithelioid cell granulomas",
+   "n": 1
+  },
+  {
+   "ja": "壊死後性肝硬変",
+   "en": "post necrotizing cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "壊死後性肝硬変像",
+   "en": "liver found with post necrotic cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "変形",
+   "en": "abnormalities",
+   "n": 1
+  },
+  {
+   "ja": "変形",
+   "en": "misshapen",
+   "n": 1
+  },
+  {
+   "ja": "変形性膝関節症",
+   "en": "osteoarthritis of the knee",
+   "n": 1
+  },
+  {
+   "ja": "外傷",
+   "en": "surface wound",
+   "n": 1
+  },
+  {
+   "ja": "外傷による発赤",
+   "en": "redness due to trauma",
+   "n": 1
+  },
+  {
+   "ja": "外傷性腹壁ヘルニア",
+   "en": "traumatic abdominal wall hernia",
+   "n": 1
+  },
+  {
+   "ja": "外傷性腹壁ヘルニア",
+   "en": "traumatic ventral wall hernia",
+   "n": 1
+  },
+  {
+   "ja": "外性器形成不全",
+   "en": "ambiguous external genitalia",
+   "n": 1
+  },
+  {
+   "ja": "多⾓形⼩結節",
+   "en": "polymorphic small nodule",
+   "n": 1
+  },
+  {
+   "ja": "多形滲出性紅斑像",
+   "en": "erythema multiforme",
+   "n": 1
+  },
+  {
+   "ja": "多形紅斑",
+   "en": "erythema multiforme",
+   "n": 1
+  },
+  {
+   "ja": "多形紅斑型薬疹",
+   "en": "erythema multiforme drug eruption",
+   "n": 1
+  },
+  {
+   "ja": "多形紅斑型薬疹",
+   "en": "polymorphic erythematous drug eruption",
+   "n": 1
+  },
+  {
+   "ja": "多発⾻転移",
+   "en": "multiple metastases",
+   "n": 1
+  },
+  {
+   "ja": "多発リンパ節転移",
+   "en": "multiple lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "多発小結節",
+   "en": "multiple nodules",
+   "n": 1
+  },
+  {
+   "ja": "多発性皮膚腫瘍",
+   "en": "multiple cutaneous tumour",
+   "n": 1
+  },
+  {
+   "ja": "多発病変",
+   "en": "0-iia+iic lesions",
+   "n": 1
+  },
+  {
+   "ja": "多発筋炎",
+   "en": "polymyositis",
+   "n": 1
+  },
+  {
+   "ja": "多発結節",
+   "en": "pulmonary nodules",
+   "n": 1
+  },
+  {
+   "ja": "多発結節影、浸潤影",
+   "en": "multiple nodular shadows and infiltrative shadows",
+   "n": 1
+  },
+  {
+   "ja": "多発腫⼤",
+   "en": "multiple tumours",
+   "n": 1
+  },
+  {
+   "ja": "多発腫瘤",
+   "en": "multiple masses",
+   "n": 1
+  },
+  {
+   "ja": "多発転移",
+   "en": "multiple metastases",
+   "n": 1
+  },
+  {
+   "ja": "多発骨転移",
+   "en": "multiple bone metastases",
+   "n": 1
+  },
+  {
+   "ja": "多発骨転移・頸椎病的骨折",
+   "en": "multiple bone metastases and pathological fractures of the cervical spine",
+   "n": 1
+  },
+  {
+   "ja": "多量タール便排泄",
+   "en": "considerable quantity of tar feces was discharged",
+   "n": 1
+  },
+  {
+   "ja": "大動脈弁狭窄症",
+   "en": "aortic valve stenosis",
+   "n": 1
+  },
+  {
+   "ja": "大結節性硬変肝",
+   "en": "large nodular cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "女性化乳房",
+   "en": "gynecomastia",
+   "n": 1
+  },
+  {
+   "ja": "好中球の浸潤",
+   "en": "neutrophilic infiltration",
+   "n": 1
+  },
+  {
+   "ja": "好中球浸潤",
+   "en": "neutrophil infiltration",
+   "n": 1
+  },
+  {
+   "ja": "好中球減少",
+   "en": "reduced level of neutrophils",
+   "n": 1
+  },
+  {
+   "ja": "好酸球を中心とする浸潤",
+   "en": "infiltrates, mainly eosinophils",
+   "n": 1
+  },
+  {
+   "ja": "好酸球増多",
+   "en": "eosinophilia",
+   "n": 1
+  },
+  {
+   "ja": "好酸球増多を伴う急性肝不全",
+   "en": "acute hepatic failure with eosinophilia",
+   "n": 1
+  },
+  {
+   "ja": "好酸球性胃腸炎",
+   "en": "eosinophilic gastroenteritis",
+   "n": 1
+  },
+  {
+   "ja": "好酸球数増加",
+   "en": "eosinophil count increased",
+   "n": 1
+  },
+  {
+   "ja": "好酸球浸潤",
+   "en": "eosinophilic infiltration",
+   "n": 1
+  },
+  {
+   "ja": "妊娠",
+   "en": "gangrene and pruritus",
+   "n": 1
+  },
+  {
+   "ja": "子宮平滑肉腫の肺脾臓転移",
+   "en": "pulmonary and splenic metastasis of uterine leiomyosarcoma",
+   "n": 1
+  },
+  {
+   "ja": "子宮筋腫",
+   "en": "uterine fibroid",
+   "n": 1
+  },
+  {
+   "ja": "容積は減少",
+   "en": "volume loss",
+   "n": 1
+  },
+  {
+   "ja": "対側縦隔、同側縦隔リンパ節腫大",
+   "en": "contralateral and ipsilateral mediastinal lymph node enlargement",
+   "n": 1
+  },
+  {
+   "ja": "対側縦隔リンパ節転移",
+   "en": "contralateral mediastinal lymph node metastasis",
+   "n": 1
+  },
+  {
+   "ja": "尋常性乾癬",
+   "en": "psoriasis",
+   "n": 1
+  },
+  {
+   "ja": "尋常性乾癬",
+   "en": "simultaneous multiple colorectal carcinoma",
+   "n": 1
+  },
+  {
+   "ja": "尋常性天疱瘡",
+   "en": "pemphigus vulgaris",
+   "n": 1
+  },
+  {
+   "ja": "小結節",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "小結節",
+   "en": "nodule",
+   "n": 1
+  },
+  {
+   "ja": "小結節",
+   "en": "tubercle",
+   "n": 1
+  },
+  {
+   "ja": "小網内穿通による膿瘍形成",
+   "en": "perforating the reticulum to form an abscess",
+   "n": 1
+  },
+  {
+   "ja": "小腫瘤",
+   "en": "small mass",
+   "n": 1
+  },
+  {
+   "ja": "小腸異常血管",
+   "en": "gastrointestinal bleeding",
+   "n": 1
+  },
+  {
+   "ja": "小膿瘍",
+   "en": "bile nephrosis",
+   "n": 1
+  },
+  {
+   "ja": "小顎症",
+   "en": "micrognathia",
+   "n": 1
+  },
+  {
+   "ja": "少量吐血",
+   "en": "low level of hematemesis",
+   "n": 1
+  },
+  {
+   "ja": "尿中銅増加",
+   "en": "increased level of urinary copper",
+   "n": 1
+  },
+  {
+   "ja": "尿管ステント閉塞",
+   "en": "ureteral stent obstruction",
+   "n": 1
+  },
+  {
+   "ja": "尿管狭窄",
+   "en": "postrenal renal failure",
+   "n": 1
+  },
+  {
+   "ja": "尿路上皮癌",
+   "en": "urothelial carcinoma",
+   "n": 1
+  },
+  {
+   "ja": "尿路閉塞",
+   "en": "urinary tract obstruction",
+   "n": 1
+  },
+  {
+   "ja": "尿閉",
+   "en": "urinary retention",
+   "n": 1
+  },
+  {
+   "ja": "屈曲を呈する筋緊張",
+   "en": "considerable contortion due to muscle tension",
+   "n": 1
+  },
+  {
+   "ja": "嵌頓",
+   "en": "interpenetrating",
+   "n": 1
+  },
+  {
+   "ja": "巌痒を伴う淡紅色丘疹",
+   "en": "pale red to pale reddish-brown papules with pruritus",
+   "n": 1
+  },
+  {
+   "ja": "左上葉無気肺",
+   "en": "left upper lobe atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "左室内血栓症",
+   "en": "thrombosis in the left ventricle",
+   "n": 1
+  },
+  {
+   "ja": "左心房浸潤、多発肺転移",
+   "en": "left atrium infiltration, multiple lung metastases",
+   "n": 1
+  },
+  {
+   "ja": "左肺門、縦隔リンパ節転移",
+   "en": "metastasis to the left hilar and mediastinal lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "左肺門リンパ節の腫大",
+   "en": "enlargement of the left hilar lymph node",
+   "n": 1
+  },
+  {
+   "ja": "左肺門部リンパ節",
+   "en": "left hilar lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "左肺門部肺癌",
+   "en": "local infiltration",
+   "n": 1
+  },
+  {
+   "ja": "左胸⽔",
+   "en": "left-side pleural effusion",
+   "n": 1
+  },
+  {
+   "ja": "左胸水",
+   "en": "left pleural effusion",
+   "n": 1
+  },
+  {
+   "ja": "左胸水",
+   "en": "pleural effusion on the left side",
+   "n": 1
+  },
+  {
+   "ja": "左腋窩リンパ節腫大",
+   "en": "left axillary lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "左腋窩リンパ節転移、子宮転移、腹膜播種",
+   "en": "left axillary lymph node metastasis, uterine metastasis, and peritoneal dissemination",
+   "n": 1
+  },
+  {
+   "ja": "左鎖骨上窩リンパ節",
+   "en": "left supraclavicular lymph node",
+   "n": 1
+  },
+  {
+   "ja": "巨大脾腫ならびに脾腎シャント",
+   "en": "giant splenomegaly, a splenic renal shunt",
+   "n": 1
+  },
+  {
+   "ja": "巨大脾腫ならびに血小板減少",
+   "en": "alcoholic cirrhosis complicated by gastric varices",
+   "n": 1
+  },
+  {
+   "ja": "巨大腫瘤と腹水",
+   "en": "a large mass and ascites",
+   "n": 1
+  },
+  {
+   "ja": "巨細胞性動脈炎",
+   "en": "giant cell arteritis",
+   "n": 1
+  },
+  {
+   "ja": "引き込み",
+   "en": "retraction",
+   "n": 1
+  },
+  {
+   "ja": "強度ＡＣＰ",
+   "en": "severe acp",
+   "n": 1
+  },
+  {
+   "ja": "形質細胞",
+   "en": "plasma cells",
+   "n": 1
+  },
+  {
+   "ja": "後天性慢性偽性腸閉塞症",
+   "en": "acquired chronic pseudo-intestinal obstruction",
+   "n": 1
+  },
+  {
+   "ja": "後腹膜腫瘤",
+   "en": "idiopathic retroperitoneal hematoma",
+   "n": 1
+  },
+  {
+   "ja": "徐脈",
+   "en": "bradycardia",
+   "n": 1
+  },
+  {
+   "ja": "微熱及び全身倦怠感",
+   "en": "low-grade fever and general malaise",
+   "n": 1
+  },
+  {
+   "ja": "微細石灰化結節影",
+   "en": "minute calcification nodule shadows",
+   "n": 1
+  },
+  {
+   "ja": "心不全",
+   "en": "heart failure",
+   "n": 1
+  },
+  {
+   "ja": "心嚢液",
+   "en": "pericardial fluid",
+   "n": 1
+  },
+  {
+   "ja": "心嚢液貯留",
+   "en": "pericardial effusion",
+   "n": 1
+  },
+  {
+   "ja": "心室中隔欠損症",
+   "en": "poor weight gain",
+   "n": 1
+  },
+  {
+   "ja": "心房細動",
+   "en": "atrial fibrillation",
+   "n": 1
+  },
+  {
+   "ja": "心拡大",
+   "en": "ventricular dilatation",
+   "n": 1
+  },
+  {
+   "ja": "心窩部重感",
+   "en": "heartburn",
+   "n": 1
+  },
+  {
+   "ja": "心身症",
+   "en": "psychosomatic disorder",
+   "n": 1
+  },
+  {
+   "ja": "急性出血性壊疽性胆嚢炎",
+   "en": "acute hemorrhagic gangrenous cholecystitis",
+   "n": 1
+  },
+  {
+   "ja": "急性肝不全",
+   "en": "acute liver failure",
+   "n": 1
+  },
+  {
+   "ja": "急性肝障害",
+   "en": "acute hepatic impairment",
+   "n": 1
+  },
+  {
+   "ja": "急性胃潰瘍による出血",
+   "en": "bleeding caused by an acute gastric ulcer",
+   "n": 1
+  },
+  {
+   "ja": "急性胆嚢炎",
+   "en": "acute cholecystitis",
+   "n": 1
+  },
+  {
+   "ja": "悪性腫瘍を合併した皮膚筋炎",
+   "en": "dermatomyositis complicated by malignancy",
+   "n": 1
+  },
+  {
+   "ja": "情緒，行動の男性化",
+   "en": "acting as if she were a boy, both physically and emotionally",
+   "n": 1
+  },
+  {
+   "ja": "意識レベル低下，下血",
+   "en": "decreased consciousness and a bloody bowel discharge",
+   "n": 1
+  },
+  {
+   "ja": "意識障害，高アンモニア血症",
+   "en": "impaired consciousness and hyperammonemia",
+   "n": 1
+  },
+  {
+   "ja": "感情失禁",
+   "en": "emotional incontinence",
+   "n": 1
+  },
+  {
+   "ja": "慢性便秘症",
+   "en": "chronic constipation",
+   "n": 1
+  },
+  {
+   "ja": "慢性心不全急性増悪",
+   "en": "acute exacerbation of chronic heart failure",
+   "n": 1
+  },
+  {
+   "ja": "慢性炎症性変化",
+   "en": "chronic inflammatory changes",
+   "n": 1
+  },
+  {
+   "ja": "慢性癒着性イレウス・難治性下痢症",
+   "en": "chronic adhesive ileus and intractable diarrhea",
+   "n": 1
+  },
+  {
+   "ja": "慢性肝障害",
+   "en": "chronic liver disease",
+   "n": 1
+  },
+  {
+   "ja": "慢性肝障害",
+   "en": "cirrhosis of the liver",
+   "n": 1
+  },
+  {
+   "ja": "慢性膵炎",
+   "en": "chronic pancreatitis",
+   "n": 1
+  },
+  {
+   "ja": "慢性非化膿性破壊性胆管炎",
+   "en": "non-pyogenic destructive cholangitis",
+   "n": 1
+  },
+  {
+   "ja": "慢性非化膿性破壊性胆管炎，著明な胆汁うっ滞",
+   "en": "chronic non-pyogenic destructive cholangitis, marked bile stasis",
+   "n": 1
+  },
+  {
+   "ja": "扁平黄色腫",
+   "en": "flat xanthoma",
+   "n": 1
+  },
+  {
+   "ja": "手動弁",
+   "en": "\"hand motion\" (hm)",
+   "n": 1
+  },
+  {
+   "ja": "手足関節腫脹",
+   "en": "joints of the hands and feet",
+   "n": 1
+  },
+  {
+   "ja": "打ち抜き像",
+   "en": "punched-out image",
+   "n": 1
+  },
+  {
+   "ja": "抑うつ状態",
+   "en": "depressed",
+   "n": 1
+  },
+  {
+   "ja": "抗ミトコンドリア抗体",
+   "en": "anti-mitochondrial antibodies",
+   "n": 1
+  },
+  {
+   "ja": "抗平滑筋抗体",
+   "en": "anti-smooth muscle antibodies",
+   "n": 1
+  },
+  {
+   "ja": "抗酸菌染色",
+   "en": "antimicrobial staining",
+   "n": 1
+  },
+  {
+   "ja": "抗ＤＮＡ抗体",
+   "en": "anti-dna antibody",
+   "n": 1
+  },
+  {
+   "ja": "抗Ｓｃｌ７０",
+   "en": "anti-scl70",
+   "n": 1
+  },
+  {
+   "ja": "拡大，線維増生，胆細管増殖，グ鞘間橋形成",
+   "en": "enlargement, fibrosis, proliferation of bile ducts and the formation of intergubernaculum bridges",
+   "n": 1
+  },
+  {
+   "ja": "拡張",
+   "en": "congenital weakness",
+   "n": 1
+  },
+  {
+   "ja": "拡張",
+   "en": "dilated",
+   "n": 1
+  },
+  {
+   "ja": "拡張",
+   "en": "extended",
+   "n": 1
+  },
+  {
+   "ja": "拡張を伴う大腸ガス像",
+   "en": "colonic gas with dilatation",
+   "n": 1
+  },
+  {
+   "ja": "拡張像",
+   "en": "expanded image",
+   "n": 1
+  },
+  {
+   "ja": "持続高値",
+   "en": "persistently high levels",
+   "n": 1
+  },
+  {
+   "ja": "挙上",
+   "en": "raised",
+   "n": 1
+  },
+  {
+   "ja": "挙上",
+   "en": "ulcers",
+   "n": 1
+  },
+  {
+   "ja": "排便困難、下痢",
+   "en": "dyschezia and diarrhea",
+   "n": 1
+  },
+  {
+   "ja": "排液",
+   "en": "drainage",
+   "n": 1
+  },
+  {
+   "ja": "排液量が過多",
+   "en": "excessive drainage",
+   "n": 1
+  },
+  {
+   "ja": "接触",
+   "en": "contact",
+   "n": 1
+  },
+  {
+   "ja": "接触皮膚炎及び光アレルギー性接触皮膚炎",
+   "en": "contact dermatitis and photoallergic contact dermatitis",
+   "n": 1
+  },
+  {
+   "ja": "掻痒感持続",
+   "en": "pruritus persisted",
+   "n": 1
+  },
+  {
+   "ja": "掻破痕",
+   "en": "excoriation",
+   "n": 1
+  },
+  {
+   "ja": "摂食障害",
+   "en": "feeding disorder",
+   "n": 1
+  },
+  {
+   "ja": "播種病変",
+   "en": "disseminated lesions",
+   "n": 1
+  },
+  {
+   "ja": "放屁",
+   "en": "flatulence",
+   "n": 1
+  },
+  {
+   "ja": "放屁，腹部膨満",
+   "en": "flatulence and abdominal distension",
+   "n": 1
+  },
+  {
+   "ja": "断裂",
+   "en": "tear",
+   "n": 1
+  },
+  {
+   "ja": "断裂",
+   "en": "tears",
+   "n": 1
+  },
+  {
+   "ja": "新規病変",
+   "en": "new lesions",
+   "n": 1
+  },
+  {
+   "ja": "新鮮血",
+   "en": "fresh blood",
+   "n": 1
+  },
+  {
+   "ja": "日本住血吸虫卵",
+   "en": "ascending colon carcinoma",
+   "n": 1
+  },
+  {
+   "ja": "日本住血吸虫卵の集簇巣",
+   "en": "nests of japanese blood-sucking worm eggs",
+   "n": 1
+  },
+  {
+   "ja": "日本住血吸虫症",
+   "en": "japanese blood-sucking worm disease",
+   "n": 1
+  },
+  {
+   "ja": "早期皮疹",
+   "en": "dermatomyositis",
+   "n": 1
+  },
+  {
+   "ja": "易疲労感",
+   "en": "fatigued",
+   "n": 1
+  },
+  {
+   "ja": "昭６２年１月",
+   "en": "january 1987",
+   "n": 1
+  },
+  {
+   "ja": "暗赤色便",
+   "en": "dark red stool",
+   "n": 1
+  },
+  {
+   "ja": "有害事象",
+   "en": "adverse events",
+   "n": 1
+  },
+  {
+   "ja": "未分化腺癌",
+   "en": "undifferentiated adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "未発達",
+   "en": "underdeveloped",
+   "n": 1
+  },
+  {
+   "ja": "末梢気道障害",
+   "en": "peripheral airway obstruction",
+   "n": 1
+  },
+  {
+   "ja": "栄養障害",
+   "en": "nutritional impairment",
+   "n": 1
+  },
+  {
+   "ja": "核片",
+   "en": "nuclear fragmentation",
+   "n": 1
+  },
+  {
+   "ja": "核異常のあるリンパ球",
+   "en": "lymphocytes with nuclear abnormalities",
+   "n": 1
+  },
+  {
+   "ja": "桿菌",
+   "en": "bacilli",
+   "n": 1
+  },
+  {
+   "ja": "棘融解",
+   "en": "spicule melting",
+   "n": 1
+  },
+  {
+   "ja": "椎体浸潤",
+   "en": "vertebral body invasion",
+   "n": 1
+  },
+  {
+   "ja": "機能性イレウス状態",
+   "en": "psychomotor retardation",
+   "n": 1
+  },
+  {
+   "ja": "毛細血管拡張",
+   "en": "telangiectasia",
+   "n": 1
+  },
+  {
+   "ja": "気管⽀拡張",
+   "en": "tracheal dilatation",
+   "n": 1
+  },
+  {
+   "ja": "気管分岐下リンパ節",
+   "en": "subtracheal lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "気管周囲リンパ節",
+   "en": "paratracheal lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "気管支拡張像",
+   "en": "bronchiectasis",
+   "n": 1
+  },
+  {
+   "ja": "気管支浸潤",
+   "en": "bronchial infiltration",
+   "n": 1
+  },
+  {
+   "ja": "気管支途絶像",
+   "en": "bronchial disruption",
+   "n": 1
+  },
+  {
+   "ja": "気管支閉塞",
+   "en": "atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "気腫性胆嚢炎",
+   "en": "emphysematous cholecystitis",
+   "n": 1
+  },
+  {
+   "ja": "気腫性胆嚢炎",
+   "en": "intra-abdominal free gas",
+   "n": 1
+  },
+  {
+   "ja": "気腫性胆嚢炎",
+   "en": "perforation of the common bile duct",
+   "n": 1
+  },
+  {
+   "ja": "気腫状変化",
+   "en": "emphysemic change",
+   "n": 1
+  },
+  {
+   "ja": "水様便",
+   "en": "watery stools",
+   "n": 1
+  },
+  {
+   "ja": "水泡性類天庖瘡",
+   "en": "bullous pemphigoid",
+   "n": 1
+  },
+  {
+   "ja": "水痘",
+   "en": "chicken pox",
+   "n": 1
+  },
+  {
+   "ja": "水腎症",
+   "en": "thinning",
+   "n": 1
+  },
+  {
+   "ja": "水頭症",
+   "en": "hydrocephalus",
+   "n": 1
+  },
+  {
+   "ja": "汎発性化膿性腹膜炎・消化管穿孔",
+   "en": "generalized pyogenic peritonitis and perforation of the gastrointestinal tract",
+   "n": 1
+  },
+  {
+   "ja": "汎発性強皮症",
+   "en": "generalized scleroderma",
+   "n": 1
+  },
+  {
+   "ja": "汎血球減少",
+   "en": "pancytopenia",
+   "n": 1
+  },
+  {
+   "ja": "沈着",
+   "en": "deposited",
+   "n": 1
+  },
+  {
+   "ja": "泡沫細胞",
+   "en": "foam cells",
+   "n": 1
+  },
+  {
+   "ja": "浮腫状硬化",
+   "en": "scleroderma",
+   "n": 1
+  },
+  {
+   "ja": "浮腫，呼吸困難",
+   "en": "edema and dyspnea",
+   "n": 1
+  },
+  {
+   "ja": "海綿状浮腫",
+   "en": "spongiform edema",
+   "n": 1
+  },
+  {
+   "ja": "海綿状膿疱",
+   "en": "spongy pustules",
+   "n": 1
+  },
+  {
+   "ja": "浸出性紅斑",
+   "en": "erythema exsudativum",
+   "n": 1
+  },
+  {
+   "ja": "浸潤",
+   "en": "light reddish-brown patches",
+   "n": 1
+  },
+  {
+   "ja": "浸潤",
+   "en": "lymphocyte-like cells",
+   "n": 1
+  },
+  {
+   "ja": "浸潤",
+   "en": "right ovarian fibroma",
+   "n": 1
+  },
+  {
+   "ja": "浸潤し、骨破壊",
+   "en": "infiltration and bone destruction",
+   "n": 1
+  },
+  {
+   "ja": "浸潤するリンパ球",
+   "en": "infiltrating lymphocytes",
+   "n": 1
+  },
+  {
+   "ja": "浸潤を触れる紅斑",
+   "en": "erythematous plaques",
+   "n": 1
+  },
+  {
+   "ja": "浸潤リンパ球",
+   "en": "infiltrating lymphocytes",
+   "n": 1
+  },
+  {
+   "ja": "浸潤影",
+   "en": "infiltrative shadows",
+   "n": 1
+  },
+  {
+   "ja": "浸潤影、すりガラス影",
+   "en": "infiltration shadows and ground-glass shadowing",
+   "n": 1
+  },
+  {
+   "ja": "浸潤影およびすりガラス影",
+   "en": "infiltration shadows and ground glass shadows",
+   "n": 1
+  },
+  {
+   "ja": "浸潤性乳管癌",
+   "en": "invasive ductal carcinoma of the breast",
+   "n": 1
+  },
+  {
+   "ja": "浸潤性暗紅色斑",
+   "en": "dark red spot infiltrates",
+   "n": 1
+  },
+  {
+   "ja": "浸潤性紅褐色斑",
+   "en": "reddish-brown infiltrate",
+   "n": 1
+  },
+  {
+   "ja": "浸潤癌",
+   "en": "invasive carcinoma",
+   "n": 1
+  },
+  {
+   "ja": "消化管出血",
+   "en": "abnormal small bowel vessels",
+   "n": 1
+  },
+  {
+   "ja": "消化管出血",
+   "en": "gastrointestinal bleeding",
+   "n": 1
+  },
+  {
+   "ja": "消化管神経の異常に起因する病変",
+   "en": "lesions arose from abnormalities in the nerves of the gastrointestinal tract",
+   "n": 1
+  },
+  {
+   "ja": "消化管穿孔",
+   "en": "gastrointestinal perforation",
+   "n": 1
+  },
+  {
+   "ja": "液状変性",
+   "en": "liquefaction degeneration",
+   "n": 1
+  },
+  {
+   "ja": "液状変性",
+   "en": "liquid degeneration",
+   "n": 1
+  },
+  {
+   "ja": "淡紅色～淡紅褐色丘疹",
+   "en": "pale red to pale reddish-brown papules",
+   "n": 1
+  },
+  {
+   "ja": "淡紅褐色斑",
+   "en": "infiltration",
+   "n": 1
+  },
+  {
+   "ja": "深部静脈血栓症",
+   "en": "cholecystitis",
+   "n": 1
+  },
+  {
+   "ja": "深部静脈血栓症、肺塞栓",
+   "en": "deep vein thrombosis and pulmonary embolism",
+   "n": 1
+  },
+  {
+   "ja": "混合性換気障害，拡散能低下，ＳｐＯ２低下",
+   "en": "mixed ventilatory impairment, decreased diffusion capacity, and decreased spo2",
+   "n": 1
+  },
+  {
+   "ja": "減⾼",
+   "en": "decrease",
+   "n": 1
+  },
+  {
+   "ja": "温熱葦麻疹",
+   "en": "warm reed measles",
+   "n": 1
+  },
+  {
+   "ja": "溶解像",
+   "en": "images of fusion",
+   "n": 1
+  },
+  {
+   "ja": "溶骨性変化",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "溶骨性変化",
+   "en": "osteolytic changes",
+   "n": 1
+  },
+  {
+   "ja": "漏出",
+   "en": "leaking",
+   "n": 1
+  },
+  {
+   "ja": "潮紅，苔癬化",
+   "en": "plethora and lichenification",
+   "n": 1
+  },
+  {
+   "ja": "潰瘍",
+   "en": "raised",
+   "n": 1
+  },
+  {
+   "ja": "潰瘍化",
+   "en": "ulcerated",
+   "n": 1
+  },
+  {
+   "ja": "潰瘍化",
+   "en": "ulceration",
+   "n": 1
+  },
+  {
+   "ja": "潰瘍性大腸炎",
+   "en": "ulcerative colitis",
+   "n": 1
+  },
+  {
+   "ja": "濃度",
+   "en": "density",
+   "n": 1
+  },
+  {
+   "ja": "濃度の高い部分",
+   "en": "high concentration part",
+   "n": 1
+  },
+  {
+   "ja": "濃度上昇域",
+   "en": "high-density area",
+   "n": 1
+  },
+  {
+   "ja": "濃染",
+   "en": "enhancement",
+   "n": 1
+  },
+  {
+   "ja": "濃染する腫瘤",
+   "en": "darkly stained mass",
+   "n": 1
+  },
+  {
+   "ja": "炎症の波及により脆弱",
+   "en": "fragile",
+   "n": 1
+  },
+  {
+   "ja": "炎症の波及による破綻",
+   "en": "disruption due to the spillover of inflammation",
+   "n": 1
+  },
+  {
+   "ja": "炎症像とｆｒｅｅＡｉｒ",
+   "en": "inflammatory images and freeair",
+   "n": 1
+  },
+  {
+   "ja": "炎症反応",
+   "en": "inflammatory reaction",
+   "n": 1
+  },
+  {
+   "ja": "炎症反応上昇を伴う肝機能障害",
+   "en": "liver dysfunction with an inflammatory reaction",
+   "n": 1
+  },
+  {
+   "ja": "炎症瘢痕と思われる索状影",
+   "en": "cord-like shadow that appears to be an inflamed scar",
+   "n": 1
+  },
+  {
+   "ja": "炎症細胞浸潤",
+   "en": "severe infiltration of inflammatory cells",
+   "n": 1
+  },
+  {
+   "ja": "炎症細胞浸潤と内皮炎",
+   "en": "inflammatory cell infiltration and endotheliitis",
+   "n": 1
+  },
+  {
+   "ja": "無気肺",
+   "en": "atelactasis",
+   "n": 1
+  },
+  {
+   "ja": "無気肺",
+   "en": "atelectatic",
+   "n": 1
+  },
+  {
+   "ja": "無気肺",
+   "en": "bronchial obstruction",
+   "n": 1
+  },
+  {
+   "ja": "熱発",
+   "en": "fever",
+   "n": 1
+  },
+  {
+   "ja": "熱発",
+   "en": "fever developed",
+   "n": 1
+  },
+  {
+   "ja": "特発性後腹膜血腫",
+   "en": "retroperitoneal mass",
+   "n": 1
+  },
+  {
+   "ja": "狭小化",
+   "en": "narrowing",
+   "n": 1
+  },
+  {
+   "ja": "狭窄",
+   "en": "lesions (multiple stones in the small pancreatic duct, fibrosis of the parenchyma and small necrotic foci)",
+   "n": 1
+  },
+  {
+   "ja": "狭窄",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "狭窄もしくは閉塞",
+   "en": "constricted or completely sealed",
+   "n": 1
+  },
+  {
+   "ja": "狭窄所見",
+   "en": "stenosis",
+   "n": 1
+  },
+  {
+   "ja": "狭窄部",
+   "en": "stenosis",
+   "n": 1
+  },
+  {
+   "ja": "環状紅斑",
+   "en": "erythema annulare",
+   "n": 1
+  },
+  {
+   "ja": "異型リンパ球の浸潤",
+   "en": "atypical lymphocytes",
+   "n": 1
+  },
+  {
+   "ja": "異常血管",
+   "en": "abnormal vessels",
+   "n": 1
+  },
+  {
+   "ja": "異常造影効果を有する不整形腫瘤",
+   "en": "irregular mass with an abnormal contrast effect",
+   "n": 1
+  },
+  {
+   "ja": "異常高集積",
+   "en": "abnormally hyperintense",
+   "n": 1
+  },
+  {
+   "ja": "疼痛と瘙痒",
+   "en": "erythematous plaques",
+   "n": 1
+  },
+  {
+   "ja": "病変（小膵管内多数結石，実質の線維化，小壊死巣）",
+   "en": "stenotic",
+   "n": 1
+  },
+  {
+   "ja": "病理組織像",
+   "en": "cholangitis involving nivolumab",
+   "n": 1
+  },
+  {
+   "ja": "病的リンパ節腫大",
+   "en": "pathological lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "病的依存症やうつ状態",
+   "en": "pathological dependency and depression",
+   "n": 1
+  },
+  {
+   "ja": "病的腫大",
+   "en": "ipsilateral mediastinal/hilar lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "病的腫大",
+   "en": "pathological enlargements",
+   "n": 1
+  },
+  {
+   "ja": "病的腫大したリンパ節",
+   "en": "pathologically swollen lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "病的腫大リンパ節",
+   "en": "pathological swollen lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "病的腫大リンパ節",
+   "en": "pathologically swollen",
+   "n": 1
+  },
+  {
+   "ja": "症候性原発性胆汁性胆管炎",
+   "en": "symptomatic primary cholangitis",
+   "n": 1
+  },
+  {
+   "ja": "痒疹様小結節",
+   "en": "prurigo-like nodules",
+   "n": 1
+  },
+  {
+   "ja": "痰",
+   "en": "sputum",
+   "n": 1
+  },
+  {
+   "ja": "瘙痒ある紅斑",
+   "en": "amyctic erythema",
+   "n": 1
+  },
+  {
+   "ja": "瘙痒を伴った紅斑，水疱，びらん",
+   "en": "erythema, bullae and erosions associated with pruritus",
+   "n": 1
+  },
+  {
+   "ja": "瘙痒性皮疹",
+   "en": "pruritic skin rash",
+   "n": 1
+  },
+  {
+   "ja": "瘙痒性皮疹",
+   "en": "pruritis",
+   "n": 1
+  },
+  {
+   "ja": "瘙痒性皮疹",
+   "en": "pruritus",
+   "n": 1
+  },
+  {
+   "ja": "瘙痒性紅斑",
+   "en": "pruritic rash",
+   "n": 1
+  },
+  {
+   "ja": "瘙痒感",
+   "en": "pruritus",
+   "n": 1
+  },
+  {
+   "ja": "瘢痕狭窄",
+   "en": "scar stenosis",
+   "n": 1
+  },
+  {
+   "ja": "瘤",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "癌性腹膜炎",
+   "en": "cancerous peritonitis",
+   "n": 1
+  },
+  {
+   "ja": "癒着性イレウス",
+   "en": "adhesive ileus",
+   "n": 1
+  },
+  {
+   "ja": "発汗",
+   "en": "extreme muscle tension",
+   "n": 1
+  },
+  {
+   "ja": "発熱",
+   "en": "the fever",
+   "n": 1
+  },
+  {
+   "ja": "発熱・皮疹",
+   "en": "fever and skin rash",
+   "n": 1
+  },
+  {
+   "ja": "発熱，リンパ節腫脹を伴う重症型薬疹",
+   "en": "severe form of drug eruption with fever and lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "発熱，全身紅斑",
+   "en": "fever, generalized erythema",
+   "n": 1
+  },
+  {
+   "ja": "発熱，咳嗽",
+   "en": "fever and a cough",
+   "n": 1
+  },
+  {
+   "ja": "発熱，嚥下障害",
+   "en": "fever and dysphagia",
+   "n": 1
+  },
+  {
+   "ja": "発熱，発疹",
+   "en": "fever and skin rash",
+   "n": 1
+  },
+  {
+   "ja": "発熱，紅斑",
+   "en": "fever and erythema",
+   "n": 1
+  },
+  {
+   "ja": "発疹性黄色腫",
+   "en": "eruptive xanthoma",
+   "n": 1
+  },
+  {
+   "ja": "発育障害",
+   "en": "developmental disability",
+   "n": 1
+  },
+  {
+   "ja": "発達遅滞",
+   "en": "developmental delay",
+   "n": 1
+  },
+  {
+   "ja": "白内障",
+   "en": "cataracts",
+   "n": 1
+  },
+  {
+   "ja": "白血球増多，異型リンパ球出現，ＨＨＶ－６１ｇＧ上昇，ＨＨＶ－７１ｇＧ上昇，ＤＬＳＴ陽性",
+   "en": "increased white blood cell count (eosinophils), manifestation of atypical lymphocytes, elevated hhv-61gg, elevated hhv-71gg, and positive dlst",
+   "n": 1
+  },
+  {
+   "ja": "白血球増多，血清ＩｇＥ高値",
+   "en": "leukocytosis, high serum ige",
+   "n": 1
+  },
+  {
+   "ja": "皮下結節",
+   "en": "subcutaneous nodules",
+   "n": 1
+  },
+  {
+   "ja": "皮疹",
+   "en": "pemphigus",
+   "n": 1
+  },
+  {
+   "ja": "皮疹",
+   "en": "rash",
+   "n": 1
+  },
+  {
+   "ja": "皮疹",
+   "en": "scarring",
+   "n": 1
+  },
+  {
+   "ja": "皮疹を伴った汎発性強皮症",
+   "en": "skin rash",
+   "n": 1
+  },
+  {
+   "ja": "皮膚サルコイド",
+   "en": "epithelioid cell granuloma",
+   "n": 1
+  },
+  {
+   "ja": "皮膚炎",
+   "en": "dermatitis",
+   "n": 1
+  },
+  {
+   "ja": "皮膚病変",
+   "en": "necrosis",
+   "n": 1
+  },
+  {
+   "ja": "皮膚病変",
+   "en": "skin lesions",
+   "n": 1
+  },
+  {
+   "ja": "皮膚筋炎",
+   "en": "early stage skin rash",
+   "n": 1
+  },
+  {
+   "ja": "皮膚結節",
+   "en": "skin nodules",
+   "n": 1
+  },
+  {
+   "ja": "直接浸潤",
+   "en": "direct infiltration",
+   "n": 1
+  },
+  {
+   "ja": "直接浸潤",
+   "en": "direct invasion",
+   "n": 1
+  },
+  {
+   "ja": "直腸壁肥厚所見",
+   "en": "rectal wall thickening",
+   "n": 1
+  },
+  {
+   "ja": "直腸癌",
+   "en": "mds",
+   "n": 1
+  },
+  {
+   "ja": "直腸膣瘻を伴う高位鎖肛，腸回転異常症，心室中隔欠損症",
+   "en": "high imperforate anus with a rectovaginal fistula, intestinal malrotation, and ventricular septal defect",
+   "n": 1
+  },
+  {
+   "ja": "真皮上層血管周囲性小円形細胞浸潤",
+   "en": "perivascular small round cell infiltration in the upper dermis",
+   "n": 1
+  },
+  {
+   "ja": "石灰化を伴う日本住血吸虫卵",
+   "en": "japanese blood-sucking worm eggs with calcification",
+   "n": 1
+  },
+  {
+   "ja": "石灰化を伴った不整形結節",
+   "en": "irregular nodules with calcification",
+   "n": 1
+  },
+  {
+   "ja": "石灰化結節影",
+   "en": "calcified nodular shadow",
+   "n": 1
+  },
+  {
+   "ja": "破壊",
+   "en": "damage",
+   "n": 1
+  },
+  {
+   "ja": "破綻血管",
+   "en": "ruptured vessel",
+   "n": 1
+  },
+  {
+   "ja": "硬化像",
+   "en": "sclerotic image",
+   "n": 1
+  },
+  {
+   "ja": "硬化像",
+   "en": "sclerotic images",
+   "n": 1
+  },
+  {
+   "ja": "空洞を伴う腫瘤性病変",
+   "en": "mass lesion with a cavity",
+   "n": 1
+  },
+  {
+   "ja": "空洞形成性病変",
+   "en": "cavitary lesion",
+   "n": 1
+  },
+  {
+   "ja": "穿孔",
+   "en": "boring",
+   "n": 1
+  },
+  {
+   "ja": "穿孔",
+   "en": "perforation",
+   "n": 1
+  },
+  {
+   "ja": "穿孔部位",
+   "en": "perforation",
+   "n": 1
+  },
+  {
+   "ja": "等濃度腫瘤",
+   "en": "isointense mass",
+   "n": 1
+  },
+  {
+   "ja": "筋性防御を伴う圧痛",
+   "en": "tenderness with muscular defense",
+   "n": 1
+  },
+  {
+   "ja": "筋緊張",
+   "en": "is severely handicapped, both mentally and physically",
+   "n": 1
+  },
+  {
+   "ja": "筋緊張の亢進",
+   "en": "worsening respiratory status",
+   "n": 1
+  },
+  {
+   "ja": "筋緊張尤進",
+   "en": "sweating",
+   "n": 1
+  },
+  {
+   "ja": "管状腺癌",
+   "en": "invasion",
+   "n": 1
+  },
+  {
+   "ja": "米粒大赤褐色丘疹",
+   "en": "rice-grain sized reddish brown papules",
+   "n": 1
+  },
+  {
+   "ja": "粒状影",
+   "en": "granular shadows",
+   "n": 1
+  },
+  {
+   "ja": "粒状影、結節影",
+   "en": "micronodules and nodules",
+   "n": 1
+  },
+  {
+   "ja": "精神運動発達遅滞",
+   "en": "functional ileus",
+   "n": 1
+  },
+  {
+   "ja": "糖尿病",
+   "en": "diabetes",
+   "n": 1
+  },
+  {
+   "ja": "紅斑・紫斑",
+   "en": "erythema and purpura",
+   "n": 1
+  },
+  {
+   "ja": "紅斑局面",
+   "en": "erythematous phase",
+   "n": 1
+  },
+  {
+   "ja": "紅斑鱗屑局面",
+   "en": "erythematous scaly patches",
+   "n": 1
+  },
+  {
+   "ja": "紅斑，丘疹",
+   "en": "erythematous plaques and papules",
+   "n": 1
+  },
+  {
+   "ja": "紅斑，爪変形",
+   "en": "erythema and nail deformation",
+   "n": 1
+  },
+  {
+   "ja": "紅斑，膿疱",
+   "en": "erythema and pustules",
+   "n": 1
+  },
+  {
+   "ja": "紅斑，麟屑，膿疱",
+   "en": "erythema, desquamation, and pustules",
+   "n": 1
+  },
+  {
+   "ja": "索状影",
+   "en": "a cord-like shadow",
+   "n": 1
+  },
+  {
+   "ja": "索状影",
+   "en": "cord-like shadow",
+   "n": 1
+  },
+  {
+   "ja": "索状影",
+   "en": "cord-like shadows",
+   "n": 1
+  },
+  {
+   "ja": "索状影",
+   "en": "linear shadow",
+   "n": 1
+  },
+  {
+   "ja": "紫斑色凍瘡様皮疹",
+   "en": "purpuric frostbite-like eruptions",
+   "n": 1
+  },
+  {
+   "ja": "紫紅色斑",
+   "en": "purplish-red spots",
+   "n": 1
+  },
+  {
+   "ja": "細気管支炎所見",
+   "en": "findings indicate bronchiolitis",
+   "n": 1
+  },
+  {
+   "ja": "細気管支障害",
+   "en": "bronchial involvement",
+   "n": 1
+  },
+  {
+   "ja": "組織障害",
+   "en": "tissue damage",
+   "n": 1
+  },
+  {
+   "ja": "結石",
+   "en": "stone",
+   "n": 1
+  },
+  {
+   "ja": "結石",
+   "en": "ulcer",
+   "n": 1
+  },
+  {
+   "ja": "結節上の強いＦＤＧ集積",
+   "en": "strong fdg accumulation on the nodule",
+   "n": 1
+  },
+  {
+   "ja": "結節影、腫瘤陰影",
+   "en": "nodular shadows and mass shadows",
+   "n": 1
+  },
+  {
+   "ja": "結節性病変",
+   "en": "nodular lesion",
+   "n": 1
+  },
+  {
+   "ja": "結節様陰影やすりガラス影",
+   "en": "nodular shadows and ground-glass shadows",
+   "n": 1
+  },
+  {
+   "ja": "緊張",
+   "en": "tension",
+   "n": 1
+  },
+  {
+   "ja": "緊満性水疱",
+   "en": "tense blisters",
+   "n": 1
+  },
+  {
+   "ja": "総排泄腔外反症",
+   "en": "cloacal exstropy",
+   "n": 1
+  },
+  {
+   "ja": "総胆管嚢腫",
+   "en": "common bile duct cysts",
+   "n": 1
+  },
+  {
+   "ja": "総胆管拡張",
+   "en": "common bile duct dilatation",
+   "n": 1
+  },
+  {
+   "ja": "総胆管結石",
+   "en": "common bile duct stones",
+   "n": 1
+  },
+  {
+   "ja": "緑内障による眼圧上昇",
+   "en": "elevated intraocular pressure due to glaucoma",
+   "n": 1
+  },
+  {
+   "ja": "緑色化，結節状隆起",
+   "en": "greening and nodular elevation",
+   "n": 1
+  },
+  {
+   "ja": "線状索状影",
+   "en": "linear cord-like shadows",
+   "n": 1
+  },
+  {
+   "ja": "線状黄色腫",
+   "en": "linear xanthoma",
+   "n": 1
+  },
+  {
+   "ja": "線維化を伴う壁肥厚",
+   "en": "fibrosis-accompanied wall thickening",
+   "n": 1
+  },
+  {
+   "ja": "縦隔リンパ節",
+   "en": "mediastinal lymph node",
+   "n": 1
+  },
+  {
+   "ja": "縦隔リンパ節腫大や胸水",
+   "en": "mediastinal lymphadenopathy or pleural effusion",
+   "n": 1
+  },
+  {
+   "ja": "縦隔浸潤",
+   "en": "mediastinal infiltration",
+   "n": 1
+  },
+  {
+   "ja": "縦隔肺門リンパ節",
+   "en": "accumulation",
+   "n": 1
+  },
+  {
+   "ja": "耳下腺造影，Ｓｃｈｉｒｍｅｒ試験陽性",
+   "en": "parotid gland imaging was carried out and schirmer test was positive",
+   "n": 1
+  },
+  {
+   "ja": "肉眼的血尿",
+   "en": "gross hematuria",
+   "n": 1
+  },
+  {
+   "ja": "肉芽腫形成",
+   "en": "granuloma formation",
+   "n": 1
+  },
+  {
+   "ja": "肝不全状態",
+   "en": "liver failure",
+   "n": 1
+  },
+  {
+   "ja": "肝内結石",
+   "en": "intrahepatic stones",
+   "n": 1
+  },
+  {
+   "ja": "肝動脈血流低下",
+   "en": "decreased hepatic artery blood flow",
+   "n": 1
+  },
+  {
+   "ja": "肝外シャント",
+   "en": "extrahepatic shunt",
+   "n": 1
+  },
+  {
+   "ja": "肝性昏睡",
+   "en": "hepatic coma",
+   "n": 1
+  },
+  {
+   "ja": "肝性昏睡",
+   "en": "obstructive jaundice",
+   "n": 1
+  },
+  {
+   "ja": "肝性昏睡 ＩＩＩ度",
+   "en": "hepatic coma, grade 3",
+   "n": 1
+  },
+  {
+   "ja": "肝性昏睡Ｉ度",
+   "en": "hepatic coma, grade 1",
+   "n": 1
+  },
+  {
+   "ja": "肝性脳症",
+   "en": "hepatic encephalopathy",
+   "n": 1
+  },
+  {
+   "ja": "肝機能増悪傾向",
+   "en": "liver function had tended to worsen",
+   "n": 1
+  },
+  {
+   "ja": "肝機能異常",
+   "en": "abnormal liver function",
+   "n": 1
+  },
+  {
+   "ja": "肝機能障害",
+   "en": "hepatic dysfunction",
+   "n": 1
+  },
+  {
+   "ja": "肝機能障害",
+   "en": "hepatoma",
+   "n": 1
+  },
+  {
+   "ja": "肝機能障害，血小板減少",
+   "en": "liver dysfunction and thrombocytopenia",
+   "n": 1
+  },
+  {
+   "ja": "肝硬変",
+   "en": "cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "肝硬変",
+   "en": "cirrhotic",
+   "n": 1
+  },
+  {
+   "ja": "肝硬変",
+   "en": "hemorrhagic shock",
+   "n": 1
+  },
+  {
+   "ja": "肝硬変",
+   "en": "shunt",
+   "n": 1
+  },
+  {
+   "ja": "肝硬変・肝細胞癌",
+   "en": "cirrhosis and hepatocellular carcinoma",
+   "n": 1
+  },
+  {
+   "ja": "肝硬変症",
+   "en": "chronic liver disorders",
+   "n": 1
+  },
+  {
+   "ja": "肝細胞壊死",
+   "en": "hepatocellular necrosis",
+   "n": 1
+  },
+  {
+   "ja": "肝細胞壊死，炎症性細胞浸潤",
+   "en": "hepatocellular necrosis and inflammatory cell infiltration",
+   "n": 1
+  },
+  {
+   "ja": "肝細胞癌（ＨＣＣ）",
+   "en": "decompensated stage c cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "肝細胞脱落，出血，マクロファージ，リンパ球，形質細胞浸潤",
+   "en": "hepatocyte shedding, hemorrhage, and infiltration of macrophages, lymphocytes, and plasma cells",
+   "n": 1
+  },
+  {
+   "ja": "肝胆道系酵素の上昇",
+   "en": "increase in hepatobiliary enzymes",
+   "n": 1
+  },
+  {
+   "ja": "肝脾腫大",
+   "en": "hepatosplenomegaly",
+   "n": 1
+  },
+  {
+   "ja": "肝脾腫，眼瞼黄色腫",
+   "en": "hepatosplenomegaly, eyelid xanthoma",
+   "n": 1
+  },
+  {
+   "ja": "肝腫",
+   "en": "hepatic dysfunction",
+   "n": 1
+  },
+  {
+   "ja": "肝萎縮",
+   "en": "hepatic atrophy",
+   "n": 1
+  },
+  {
+   "ja": "肝転移巣",
+   "en": "liver metastases",
+   "n": 1
+  },
+  {
+   "ja": "肝酵素上昇",
+   "en": "elevated liver enzymes",
+   "n": 1
+  },
+  {
+   "ja": "肝酵素上昇",
+   "en": "liver enzymes level",
+   "n": 1
+  },
+  {
+   "ja": "肝障害",
+   "en": "liver disorder",
+   "n": 1
+  },
+  {
+   "ja": "肝障害，黄疸",
+   "en": "jaundice and liver failure",
+   "n": 1
+  },
+  {
+   "ja": "肺内腫瘤",
+   "en": "intrapulmonary mass",
+   "n": 1
+  },
+  {
+   "ja": "肺扁平上皮癌",
+   "en": "epidermoid carcinoma",
+   "n": 1
+  },
+  {
+   "ja": "肺炎や無気肺",
+   "en": "pneumonia and atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "肺病変",
+   "en": "pulmonary lesions",
+   "n": 1
+  },
+  {
+   "ja": "肺癌",
+   "en": "bone metastasis",
+   "n": 1
+  },
+  {
+   "ja": "肺癌",
+   "en": "lower right lobe tracheal obstruction and lower right lobe atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "肺癌",
+   "en": "right upper lobe bronchial blockage and right upper lobe atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "肺腺癌",
+   "en": "lung adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "肺腺癌病変",
+   "en": "lung adenocarcinoma lesion",
+   "n": 1
+  },
+  {
+   "ja": "肺転移を伴う外陰部悪性黒色腫",
+   "en": "vulvar malignant melanoma and lung metastasis",
+   "n": 1
+  },
+  {
+   "ja": "肺転移巣",
+   "en": "lung metastases",
+   "n": 1
+  },
+  {
+   "ja": "肺転移巣",
+   "en": "lung metastatic lesions",
+   "n": 1
+  },
+  {
+   "ja": "肺門および縦隔リンパ節",
+   "en": "enlarged",
+   "n": 1
+  },
+  {
+   "ja": "胃平滑筋肉腫",
+   "en": "gastric leiomyosarcoma",
+   "n": 1
+  },
+  {
+   "ja": "胃拡張",
+   "en": "gastric dilatation",
+   "n": 1
+  },
+  {
+   "ja": "胃拡張と食物残渣",
+   "en": "gastric dilatation and accumulation of food residue",
+   "n": 1
+  },
+  {
+   "ja": "胃瘻合併症",
+   "en": "gastrostomy complications",
+   "n": 1
+  },
+  {
+   "ja": "胃癌",
+   "en": "extramural invasion",
+   "n": 1
+  },
+  {
+   "ja": "胃癌",
+   "en": "travel abnormality",
+   "n": 1
+  },
+  {
+   "ja": "胃管癌",
+   "en": "gastric tube carcinoma",
+   "n": 1
+  },
+  {
+   "ja": "胃腎シャント",
+   "en": "gastrorenal shunt",
+   "n": 1
+  },
+  {
+   "ja": "胃軸捻",
+   "en": "gastric volvulus",
+   "n": 1
+  },
+  {
+   "ja": "胃静脈瘤",
+   "en": "gastric varices",
+   "n": 1
+  },
+  {
+   "ja": "胃静脈瘤合併アルコール性肝硬変",
+   "en": "giant splenomegaly and thrombocytopenia",
+   "n": 1
+  },
+  {
+   "ja": "胃食道逆流症",
+   "en": "gastroesophageal reflux disease",
+   "n": 1
+  },
+  {
+   "ja": "胃食道静脈瘤破裂",
+   "en": "rupture of gastroesophageal varices",
+   "n": 1
+  },
+  {
+   "ja": "胆嚢壊死による出血",
+   "en": "hemorrhage due to gallbladder necrosis",
+   "n": 1
+  },
+  {
+   "ja": "胆嚢結石",
+   "en": "gallbladder stones",
+   "n": 1
+  },
+  {
+   "ja": "胆嚢結石と胆泥",
+   "en": "gallbladder stones and biliary sludge",
+   "n": 1
+  },
+  {
+   "ja": "胆嚢胆管結石症",
+   "en": "high confluence of pancreatic and bile ducts",
+   "n": 1
+  },
+  {
+   "ja": "胆嚢腫大",
+   "en": "enlarged gallbladder",
+   "n": 1
+  },
+  {
+   "ja": "胆汁うっ滞",
+   "en": "bile stasis",
+   "n": 1
+  },
+  {
+   "ja": "胆汁うっ滞",
+   "en": "cholestasis",
+   "n": 1
+  },
+  {
+   "ja": "胆汁うっ滞性肝不全",
+   "en": "bile stasis liver failure",
+   "n": 1
+  },
+  {
+   "ja": "胆泥",
+   "en": "bile mud",
+   "n": 1
+  },
+  {
+   "ja": "胆石",
+   "en": "gallstones",
+   "n": 1
+  },
+  {
+   "ja": "胆石性胆嚢炎",
+   "en": "deep vein thrombosis",
+   "n": 1
+  },
+  {
+   "ja": "胆石性胆嚢炎",
+   "en": "gallstone cholecystitis",
+   "n": 1
+  },
+  {
+   "ja": "胆石症",
+   "en": "cholelithiasis",
+   "n": 1
+  },
+  {
+   "ja": "胆管炎",
+   "en": "biliary atresia",
+   "n": 1
+  },
+  {
+   "ja": "胆管炎",
+   "en": "cholangitis",
+   "n": 1
+  },
+  {
+   "ja": "胆管炎や亜イレウス",
+   "en": "cholangitis and subileus",
+   "n": 1
+  },
+  {
+   "ja": "胆管炎を伴った出血性胆嚢炎",
+   "en": "hemorrhagic cholecystitis with cholangitis",
+   "n": 1
+  },
+  {
+   "ja": "胆管炎を伴った胆石胆嚢炎",
+   "en": "cholelithiasis with cholangitis",
+   "n": 1
+  },
+  {
+   "ja": "胆道系酵素の急激な上昇",
+   "en": "rapid increase in biliary enzymes",
+   "n": 1
+  },
+  {
+   "ja": "胆道閉鎖症",
+   "en": "cholangitis",
+   "n": 1
+  },
+  {
+   "ja": "胆道閉鎖症",
+   "en": "pathological dependency",
+   "n": 1
+  },
+  {
+   "ja": "背部皮疹",
+   "en": "dorsal eruption",
+   "n": 1
+  },
+  {
+   "ja": "胸壁浸潤",
+   "en": "infiltrated the chest wall",
+   "n": 1
+  },
+  {
+   "ja": "胸壁浸潤",
+   "en": "infiltration of the chest wall",
+   "n": 1
+  },
+  {
+   "ja": "胸壁浸潤",
+   "en": "invading",
+   "n": 1
+  },
+  {
+   "ja": "胸腹水",
+   "en": "thoracoabdominal effusion",
+   "n": 1
+  },
+  {
+   "ja": "胸膜嵌入像",
+   "en": "pleural infiltration images",
+   "n": 1
+  },
+  {
+   "ja": "胸膜転移再発",
+   "en": "renal cell carcinoma",
+   "n": 1
+  },
+  {
+   "ja": "胸膜陥⼊像",
+   "en": "pleural indentation",
+   "n": 1
+  },
+  {
+   "ja": "胸膜陥入像",
+   "en": "pleural indentation",
+   "n": 1
+  },
+  {
+   "ja": "胸膜陥入像やspicula",
+   "en": "spicula, and pleural invagination",
+   "n": 1
+  },
+  {
+   "ja": "胸部下部食道傍リンパ節（１１０）",
+   "en": "lower thoracic paraoesophageal lymph nodes (110)",
+   "n": 1
+  },
+  {
+   "ja": "脂漏性湿疹",
+   "en": "seborrheic eczema",
+   "n": 1
+  },
+  {
+   "ja": "脂漏性皮膚炎",
+   "en": "seborrheic dermatitis",
+   "n": 1
+  },
+  {
+   "ja": "脂肪浸潤",
+   "en": "fatty infiltration",
+   "n": 1
+  },
+  {
+   "ja": "脂肪織濃度",
+   "en": "concentration of adipose tissue",
+   "n": 1
+  },
+  {
+   "ja": "脱出",
+   "en": "prolapsed",
+   "n": 1
+  },
+  {
+   "ja": "脱毛",
+   "en": "hair loss",
+   "n": 1
+  },
+  {
+   "ja": "脱毛性紅斑",
+   "en": "erythema + hair loss (alopecia)",
+   "n": 1
+  },
+  {
+   "ja": "脱毛斑",
+   "en": "alopecia",
+   "n": 1
+  },
+  {
+   "ja": "脱水",
+   "en": "encephalopathy",
+   "n": 1
+  },
+  {
+   "ja": "脱水",
+   "en": "thrombus formation",
+   "n": 1
+  },
+  {
+   "ja": "脳性麻痺",
+   "en": "cerebral palsy",
+   "n": 1
+  },
+  {
+   "ja": "脳性麻痺 精神発達遅滞",
+   "en": "cerebral palsy and mental disability",
+   "n": 1
+  },
+  {
+   "ja": "脳症",
+   "en": "dehydration",
+   "n": 1
+  },
+  {
+   "ja": "脾機能が著明に亢進した肝硬変に合併した胃静脈瘤",
+   "en": "gastric varices associated with cirrhosis with marked hypersplenism",
+   "n": 1
+  },
+  {
+   "ja": "脾機能亢進",
+   "en": "hypersplenism",
+   "n": 1
+  },
+  {
+   "ja": "脾機能亢進に伴う血小板数低値",
+   "en": "hypersplenism coupled with a low platelet count",
+   "n": 1
+  },
+  {
+   "ja": "脾腎シャント",
+   "en": "c-type cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "脾腎シャント",
+   "en": "decompensated cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "脾腎シャント",
+   "en": "splenic renal shunt",
+   "n": 1
+  },
+  {
+   "ja": "脾腎シャント",
+   "en": "splenic-renal shunt",
+   "n": 1
+  },
+  {
+   "ja": "脾静脈損傷による腹腔内出血",
+   "en": "intra-abdominal bleeding due to a splenic vein injury",
+   "n": 1
+  },
+  {
+   "ja": "腋窩リンパ節",
+   "en": "axillary lymph node",
+   "n": 1
+  },
+  {
+   "ja": "腎嚢胞",
+   "en": "renal cysts",
+   "n": 1
+  },
+  {
+   "ja": "腎後性腎不全",
+   "en": "ureteral stricture",
+   "n": 1
+  },
+  {
+   "ja": "腎細胞癌",
+   "en": "recurrent pleural metastasis",
+   "n": 1
+  },
+  {
+   "ja": "腕神経叢浸潤症候群",
+   "en": "brachial plexus infiltration syndrome",
+   "n": 1
+  },
+  {
+   "ja": "腫⼤",
+   "en": "enlarged",
+   "n": 1
+  },
+  {
+   "ja": "腫⼤",
+   "en": "swollen",
+   "n": 1
+  },
+  {
+   "ja": "腫大",
+   "en": "hilar and mediastinal lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "腫大したリンパ節の集簇",
+   "en": "enlarged lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "腫大した表面平滑な赤褐色肝",
+   "en": "swollen reddish-brown liver with a smooth surface",
+   "n": 1
+  },
+  {
+   "ja": "腫大リンパ節",
+   "en": "epithelioid cell granulomas",
+   "n": 1
+  },
+  {
+   "ja": "腫大リンパ節",
+   "en": "swelling in the lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "腫大リンパ節",
+   "en": "swollen lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "腫瘍",
+   "en": "hematoma",
+   "n": 1
+  },
+  {
+   "ja": "腫瘍",
+   "en": "hotnode",
+   "n": 1
+  },
+  {
+   "ja": "腫瘍",
+   "en": "tumour",
+   "n": 1
+  },
+  {
+   "ja": "腫瘍",
+   "en": "tumour progression",
+   "n": 1
+  },
+  {
+   "ja": "腫瘍性病変",
+   "en": "neoplastic lesion",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "blood flow",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "contrast enhancement effect",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "deformed by the drainage",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "destruction",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "disrupted",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "indentation of the interlobar pleura",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "narrowed",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "nodule",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "occludes",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "osteolytic change",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "tumors",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤",
+   "en": "tumour",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤と縦隔との間の脂肪層は消失",
+   "en": "fatty layer between the mass and the mediastinum has disappeared",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤と胸膜との間の脂肪層が消失",
+   "en": "fat layer between the mass and the pleura has disappeared",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤と＃7リンパ節",
+   "en": "tumour and #7 lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤性病変",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤性病変",
+   "en": "neoplastic lesions",
+   "n": 1
+  },
+  {
+   "ja": "腫瘤様陰影",
+   "en": "mass-like opacities",
+   "n": 1
+  },
+  {
+   "ja": "腫脹",
+   "en": "enlarged",
+   "n": 1
+  },
+  {
+   "ja": "腫脹",
+   "en": "swollen",
+   "n": 1
+  },
+  {
+   "ja": "腰痛",
+   "en": "lumbago",
+   "n": 1
+  },
+  {
+   "ja": "腸管癒着",
+   "en": "intestinal adhesions",
+   "n": 1
+  },
+  {
+   "ja": "腸間膜リンパ節腫大",
+   "en": "enlarged mesenteric lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "腹壁損傷部",
+   "en": "abdominal wall injury",
+   "n": 1
+  },
+  {
+   "ja": "腹壁欠損",
+   "en": "defect in the abdominal wall",
+   "n": 1
+  },
+  {
+   "ja": "腹水と思われる液体貯留",
+   "en": "fluid accumulation appearing to be ascites",
+   "n": 1
+  },
+  {
+   "ja": "腹水貯留",
+   "en": "ascites",
+   "n": 1
+  },
+  {
+   "ja": "腹水，肝転移",
+   "en": "ascites and liver metastasis",
+   "n": 1
+  },
+  {
+   "ja": "腹腔内リンパ節腫大",
+   "en": "enlarged intra-abdominal lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "腹腔内遊離ガス",
+   "en": "emphysematous cholecystitis",
+   "n": 1
+  },
+  {
+   "ja": "腹膜偽粘液腫",
+   "en": "peritoneal pseudo-myxoma",
+   "n": 1
+  },
+  {
+   "ja": "腹膜刺激症状",
+   "en": "peritoneal irritation symptoms",
+   "n": 1
+  },
+  {
+   "ja": "腹膜播種",
+   "en": "peritoneal disseminations",
+   "n": 1
+  },
+  {
+   "ja": "腹膜播種巣",
+   "en": "peritoneal dissemination",
+   "n": 1
+  },
+  {
+   "ja": "腹膜炎",
+   "en": "peritonitis",
+   "n": 1
+  },
+  {
+   "ja": "腹膜，左鎖骨上リンパ節再発",
+   "en": "peritoneal and left supraclavicular lymph node recurrence",
+   "n": 1
+  },
+  {
+   "ja": "腹部所見",
+   "en": "abdominal findings",
+   "n": 1
+  },
+  {
+   "ja": "腹部腫瘤",
+   "en": "abdominal mass",
+   "n": 1
+  },
+  {
+   "ja": "腹部膨満と嘔吐",
+   "en": "abdominal distension and vomiting",
+   "n": 1
+  },
+  {
+   "ja": "腺癌の転移像",
+   "en": "images showing metastasis of adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "膀胱癌",
+   "en": "bladder cancers",
+   "n": 1
+  },
+  {
+   "ja": "膀胱癌と肺癌の合併",
+   "en": "primary tumors",
+   "n": 1
+  },
+  {
+   "ja": "膜嚢胞性病変",
+   "en": "membranous cystic lesions",
+   "n": 1
+  },
+  {
+   "ja": "膜嚢胞性病変（ｍｅｍｂｒａｎｏｃｙｓｔｉｃ ｌｅｓｉｏｎ）（那須）様変化",
+   "en": "membranocystic lesion (nasu)-like changes",
+   "n": 1
+  },
+  {
+   "ja": "膠原病",
+   "en": "collagen disease",
+   "n": 1
+  },
+  {
+   "ja": "膠原線維の膨化，均質化",
+   "en": "collagen fiber swelling and homogenization",
+   "n": 1
+  },
+  {
+   "ja": "膨化",
+   "en": "swollen",
+   "n": 1
+  },
+  {
+   "ja": "膨張",
+   "en": "distended",
+   "n": 1
+  },
+  {
+   "ja": "膨疹",
+   "en": "eruption",
+   "n": 1
+  },
+  {
+   "ja": "膨疹",
+   "en": "puffiness",
+   "n": 1
+  },
+  {
+   "ja": "膨疹",
+   "en": "swelling rash",
+   "n": 1
+  },
+  {
+   "ja": "膵嚢胞",
+   "en": "pancreatic cyst",
+   "n": 1
+  },
+  {
+   "ja": "膵炎",
+   "en": "pancreatitis",
+   "n": 1
+  },
+  {
+   "ja": "膵石",
+   "en": "pancreatic stone",
+   "n": 1
+  },
+  {
+   "ja": "膵管癒合不全",
+   "en": "pancreatic duct fusion failure",
+   "n": 1
+  },
+  {
+   "ja": "膵胆管高位合流",
+   "en": "cholecystocholedocholithiasis",
+   "n": 1
+  },
+  {
+   "ja": "膵胆管高位合流",
+   "en": "high level confluence of pancreatic and bile ducts",
+   "n": 1
+  },
+  {
+   "ja": "膿疱",
+   "en": "pustular",
+   "n": 1
+  },
+  {
+   "ja": "膿疱",
+   "en": "pustules",
+   "n": 1
+  },
+  {
+   "ja": "膿瘍形成",
+   "en": "abscess formation",
+   "n": 1
+  },
+  {
+   "ja": "膿瘍腔",
+   "en": "abscess cavity",
+   "n": 1
+  },
+  {
+   "ja": "膿苔固着",
+   "en": "thick moss-like pus adhering",
+   "n": 1
+  },
+  {
+   "ja": "膿萢，結痂，ビラン状局面",
+   "en": "pustules, crusts, and erosive plaques",
+   "n": 1
+  },
+  {
+   "ja": "臓器障害",
+   "en": "organ damage",
+   "n": 1
+  },
+  {
+   "ja": "自覚症状",
+   "en": "subjective symptoms",
+   "n": 1
+  },
+  {
+   "ja": "舌扁平上皮癌",
+   "en": "squamous cell carcinoma of the tongue",
+   "n": 1
+  },
+  {
+   "ja": "良性病変",
+   "en": "benign lesion",
+   "n": 1
+  },
+  {
+   "ja": "色素沈着",
+   "en": "pigmentation",
+   "n": 1
+  },
+  {
+   "ja": "花粉症症状",
+   "en": "hay fever symptoms",
+   "n": 1
+  },
+  {
+   "ja": "菌血症および蜂窩織炎",
+   "en": "bacteremia and cellulitis",
+   "n": 1
+  },
+  {
+   "ja": "菲薄化",
+   "en": "hydronephrosis",
+   "n": 1
+  },
+  {
+   "ja": "萎縮",
+   "en": "atrophied",
+   "n": 1
+  },
+  {
+   "ja": "萎縮",
+   "en": "atrophy",
+   "n": 1
+  },
+  {
+   "ja": "萎縮、組織荒廃",
+   "en": "atrophy and tissue deterioration",
+   "n": 1
+  },
+  {
+   "ja": "落屑を伴う紅斑",
+   "en": "erythema with desquamation",
+   "n": 1
+  },
+  {
+   "ja": "落屑性紅斑",
+   "en": "desquamative erythema",
+   "n": 1
+  },
+  {
+   "ja": "葉間胸膜浸潤",
+   "en": "interlobar pleural infiltration",
+   "n": 1
+  },
+  {
+   "ja": "葉間胸膜陥凹",
+   "en": "interlobar pleural indentation",
+   "n": 1
+  },
+  {
+   "ja": "葉間胸膜陥凹",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "著減",
+   "en": "markedly reduced",
+   "n": 1
+  },
+  {
+   "ja": "薬剤性肝障害",
+   "en": "drug-induced hepatotoxicity",
+   "n": 1
+  },
+  {
+   "ja": "薬物性肝障害",
+   "en": "drug-induced hepatic impairment",
+   "n": 1
+  },
+  {
+   "ja": "虚脱",
+   "en": "collapsed",
+   "n": 1
+  },
+  {
+   "ja": "虚脱気味",
+   "en": "collapse",
+   "n": 1
+  },
+  {
+   "ja": "虹彩後癒着",
+   "en": "posterior synechia",
+   "n": 1
+  },
+  {
+   "ja": "蛋白漏出性腸症",
+   "en": "protein-losing enteropathy",
+   "n": 1
+  },
+  {
+   "ja": "蜂窩織炎",
+   "en": "cellulitis",
+   "n": 1
+  },
+  {
+   "ja": "血便",
+   "en": "bloody stool",
+   "n": 1
+  },
+  {
+   "ja": "血便",
+   "en": "bloody stools",
+   "n": 1
+  },
+  {
+   "ja": "血性帯下",
+   "en": "bloody discharge",
+   "n": 1
+  },
+  {
+   "ja": "血栓",
+   "en": "clots",
+   "n": 1
+  },
+  {
+   "ja": "血栓",
+   "en": "thrombus",
+   "n": 1
+  },
+  {
+   "ja": "血栓形成",
+   "en": "motor impairment",
+   "n": 1
+  },
+  {
+   "ja": "血沈亢進",
+   "en": "increased blood sedimentation",
+   "n": 1
+  },
+  {
+   "ja": "血流を伴う低エコー域",
+   "en": "hypoechoic areas with blood flow",
+   "n": 1
+  },
+  {
+   "ja": "血液培養陽性",
+   "en": "positive blood culture",
+   "n": 1
+  },
+  {
+   "ja": "血清リゾチームの上昇",
+   "en": "elevated serum lysozyme",
+   "n": 1
+  },
+  {
+   "ja": "血球減少",
+   "en": "blood cell reduction",
+   "n": 1
+  },
+  {
+   "ja": "血管周囲性細胞浸潤",
+   "en": "perivascular cell infiltration",
+   "n": 1
+  },
+  {
+   "ja": "血管外漏出",
+   "en": "extravascular leakage",
+   "n": 1
+  },
+  {
+   "ja": "血腫",
+   "en": "hematoma",
+   "n": 1
+  },
+  {
+   "ja": "衛星膨診",
+   "en": "satellite swelling",
+   "n": 1
+  },
+  {
+   "ja": "表皮ブ菌",
+   "en": "staphylococcus epidermidis",
+   "n": 1
+  },
+  {
+   "ja": "表皮内細胞浸潤",
+   "en": "intraepidermal cell infiltration",
+   "n": 1
+  },
+  {
+   "ja": "表皮萎縮",
+   "en": "non-specific inflammation",
+   "n": 1
+  },
+  {
+   "ja": "褐色調瘢痕",
+   "en": "scars, brown in color",
+   "n": 1
+  },
+  {
+   "ja": "角化を伴う紅斑",
+   "en": "erythema with keratosis",
+   "n": 1
+  },
+  {
+   "ja": "角化性紅斑",
+   "en": "keratinized erythema",
+   "n": 1
+  },
+  {
+   "ja": "角化性赤色斑",
+   "en": "keratotic red plaques",
+   "n": 1
+  },
+  {
+   "ja": "豆腐アレルギー",
+   "en": "oas",
+   "n": 1
+  },
+  {
+   "ja": "貧血，血尿",
+   "en": "anemia and hematuria",
+   "n": 1
+  },
+  {
+   "ja": "赤沈亢進",
+   "en": "an increased erythrocyte sedimentation rate",
+   "n": 1
+  },
+  {
+   "ja": "軟部影",
+   "en": "soft tissue shadow",
+   "n": 1
+  },
+  {
+   "ja": "軟部影",
+   "en": "soft tissue shadows",
+   "n": 1
+  },
+  {
+   "ja": "軟部腫瘤",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "軟部腫瘤",
+   "en": "soft tissue mass",
+   "n": 1
+  },
+  {
+   "ja": "転移",
+   "en": "110 lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "転移巣",
+   "en": "metastatic lesion",
+   "n": 1
+  },
+  {
+   "ja": "転移巣",
+   "en": "metastatic lesions",
+   "n": 1
+  },
+  {
+   "ja": "軽度拡張",
+   "en": "slightly dilated",
+   "n": 1
+  },
+  {
+   "ja": "軽度浸潤ある瘙痒性紅斑",
+   "en": "pruritic erythematous plaques",
+   "n": 1
+  },
+  {
+   "ja": "軽度瘙痒ある皮疹",
+   "en": "mildly pruritic skin rash",
+   "n": 1
+  },
+  {
+   "ja": "軽度知能障害",
+   "en": "mild intellectual disability",
+   "n": 1
+  },
+  {
+   "ja": "軽度腫大リンパ節",
+   "en": "mildly swollen lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "軽度萎縮性廠瘢痕、色素沈着",
+   "en": "slightly atrophic scarring and pigmentation",
+   "n": 1
+  },
+  {
+   "ja": "軽度血管増生・拡張",
+   "en": "mild vasodilation and dilatation",
+   "n": 1
+  },
+  {
+   "ja": "逆流性食道炎",
+   "en": "reflux esophagitis",
+   "n": 1
+  },
+  {
+   "ja": "途絶",
+   "en": "disruption",
+   "n": 1
+  },
+  {
+   "ja": "途絶",
+   "en": "obstruction",
+   "n": 1
+  },
+  {
+   "ja": "通過障害",
+   "en": "dyspepsia",
+   "n": 1
+  },
+  {
+   "ja": "通過障害",
+   "en": "food mass",
+   "n": 1
+  },
+  {
+   "ja": "通過障害",
+   "en": "transit barrier",
+   "n": 1
+  },
+  {
+   "ja": "造影効果",
+   "en": "contrast effect",
+   "n": 1
+  },
+  {
+   "ja": "造影増強効果",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "造影欠損",
+   "en": "contrast-enhanced defect",
+   "n": 1
+  },
+  {
+   "ja": "造骨性腫瘤",
+   "en": "osteogenic masses",
+   "n": 1
+  },
+  {
+   "ja": "進展",
+   "en": "developed",
+   "n": 1
+  },
+  {
+   "ja": "進行乳がん",
+   "en": "decreased appetite",
+   "n": 1
+  },
+  {
+   "ja": "進行乳がん、多発転移、頚部嚢胞、低栄養",
+   "en": "advanced breast cancer, multiple metastases, cervical cysts, and low nutrition",
+   "n": 1
+  },
+  {
+   "ja": "運動障害",
+   "en": "dehydration",
+   "n": 1
+  },
+  {
+   "ja": "過敏性症候群と臓器障害",
+   "en": "hypersensitivity syndrome and organ damage",
+   "n": 1
+  },
+  {
+   "ja": "過敏性肺炎",
+   "en": "ano elevation",
+   "n": 1
+  },
+  {
+   "ja": "過膨張",
+   "en": "swelling excessively",
+   "n": 1
+  },
+  {
+   "ja": "過角化",
+   "en": "hyperkeratosis",
+   "n": 1
+  },
+  {
+   "ja": "部分充実型結節(part-solidGGN)",
+   "en": "part-solid ggn",
+   "n": 1
+  },
+  {
+   "ja": "部分的狭窄症",
+   "en": "partial stenosis",
+   "n": 1
+  },
+  {
+   "ja": "部分的色素脱失",
+   "en": "diffuse hyperpigmentation",
+   "n": 1
+  },
+  {
+   "ja": "部分的閉塞",
+   "en": "partial obstruction",
+   "n": 1
+  },
+  {
+   "ja": "重症心身障害",
+   "en": "worsening of his respiratory status",
+   "n": 1
+  },
+  {
+   "ja": "鈍化",
+   "en": "blunted",
+   "n": 1
+  },
+  {
+   "ja": "門脈体循環シャント形成",
+   "en": "portosystemic shunt",
+   "n": 1
+  },
+  {
+   "ja": "門脈圧上昇",
+   "en": "increase in portal pressure",
+   "n": 1
+  },
+  {
+   "ja": "門脈圧亢進症",
+   "en": "portal hypertension",
+   "n": 1
+  },
+  {
+   "ja": "門脈圧亢進症性腸症",
+   "en": "portal hypertensive enteropathy",
+   "n": 1
+  },
+  {
+   "ja": "門脈血栓",
+   "en": "portal vein thrombus",
+   "n": 1
+  },
+  {
+   "ja": "門脈血栓形成により惹起された門脈圧亢進症性腸症",
+   "en": "portal hypertensive enteropathy induced by portal vein thrombosis",
+   "n": 1
+  },
+  {
+   "ja": "閉塞",
+   "en": "mass",
+   "n": 1
+  },
+  {
+   "ja": "閉塞",
+   "en": "obstructing",
+   "n": 1
+  },
+  {
+   "ja": "閉塞",
+   "en": "obstruction",
+   "n": 1
+  },
+  {
+   "ja": "閉塞性動脈硬化症",
+   "en": "arteriosclerosis obliterans",
+   "n": 1
+  },
+  {
+   "ja": "閉塞性肺炎",
+   "en": "obstructive pneumonia",
+   "n": 1
+  },
+  {
+   "ja": "閉塞性黄疸",
+   "en": "hepatic coma",
+   "n": 1
+  },
+  {
+   "ja": "間質性変化",
+   "en": "interstitial changes",
+   "n": 1
+  },
+  {
+   "ja": "関節症状と皮疹",
+   "en": "arthralgia and skin rash",
+   "n": 1
+  },
+  {
+   "ja": "関節痛",
+   "en": "arthralgia",
+   "n": 1
+  },
+  {
+   "ja": "関節痛と凍瘡様皮疹",
+   "en": "arthralgia and a frostbite-like skin rash",
+   "n": 1
+  },
+  {
+   "ja": "限局性腹膜炎",
+   "en": "localized peritonitis",
+   "n": 1
+  },
+  {
+   "ja": "陥凹",
+   "en": "depressed",
+   "n": 1
+  },
+  {
+   "ja": "陰影",
+   "en": "shadow",
+   "n": 1
+  },
+  {
+   "ja": "陳旧性変化や部分無気肺",
+   "en": "pre-existing change or partial atelectasis",
+   "n": 1
+  },
+  {
+   "ja": "陳旧性炎症性変化",
+   "en": "old-fashioned inflammatory change",
+   "n": 1
+  },
+  {
+   "ja": "陳旧性炎症性変化と思われる小結節",
+   "en": "nodule that appears to be an old inflammatory change",
+   "n": 1
+  },
+  {
+   "ja": "陳旧性炎症性変化と思われる索状影",
+   "en": "cord-like shadows that appear to be old inflammatory changes",
+   "n": 1
+  },
+  {
+   "ja": "陳旧性炎症性変化と思われる胸膜肥厚",
+   "en": "pleural thickening, which appears to be an old inflammatory change",
+   "n": 1
+  },
+  {
+   "ja": "陳旧性結核性肉芽腫",
+   "en": "previous tuberculous granuloma",
+   "n": 1
+  },
+  {
+   "ja": "陽性所見",
+   "en": "positive finding",
+   "n": 1
+  },
+  {
+   "ja": "集積",
+   "en": "mediastinal hilar lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "難治性肝性腹水",
+   "en": "refractory hepatic ascites",
+   "n": 1
+  },
+  {
+   "ja": "静脈－静脈短絡の発達",
+   "en": "development of a venous short circuit",
+   "n": 1
+  },
+  {
+   "ja": "非乾酪肉芽腫",
+   "en": "lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "非代償性肝硬変",
+   "en": "decompensated cirrhosis",
+   "n": 1
+  },
+  {
+   "ja": "非代償性肝硬変",
+   "en": "infections",
+   "n": 1
+  },
+  {
+   "ja": "非代償性肝硬変",
+   "en": "splenic renal shunt",
+   "n": 1
+  },
+  {
+   "ja": "非代償期Ｃ型肝硬変",
+   "en": "hepatocellular carcinoma (hcc)",
+   "n": 1
+  },
+  {
+   "ja": "非昏睡型急性肝不全",
+   "en": "non-comatose acute liver failure",
+   "n": 1
+  },
+  {
+   "ja": "非特異的炎症像",
+   "en": "epidermal atrophy",
+   "n": 1
+  },
+  {
+   "ja": "領域リンパ節",
+   "en": "regional lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "頚部リンパ節",
+   "en": "cervical lymph nodes",
+   "n": 1
+  },
+  {
+   "ja": "頭痛と筋力低下",
+   "en": "headaches and muscle weakness",
+   "n": 1
+  },
+  {
+   "ja": "頭部膿疱",
+   "en": "pustular areas of the scalp",
+   "n": 1
+  },
+  {
+   "ja": "頻便症状",
+   "en": "frequent bowel movements",
+   "n": 1
+  },
+  {
+   "ja": "顔面浮腫，全身リンパ節腫脹",
+   "en": "facial edema, lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "顔面神経麻痺",
+   "en": "facial nerve paralysis",
+   "n": 1
+  },
+  {
+   "ja": "顔面紅斑",
+   "en": "facial erythema",
+   "n": 1
+  },
+  {
+   "ja": "類上皮細胞からなる非乾酪性肉芽腫",
+   "en": "noncaseous granuloma made up of epithelioid histocytes",
+   "n": 1
+  },
+  {
+   "ja": "類上皮細胞とリンパ球に囲まれた結節",
+   "en": "caseous necrosis",
+   "n": 1
+  },
+  {
+   "ja": "類上皮細胞結節",
+   "en": "epithelial nodules",
+   "n": 1
+  },
+  {
+   "ja": "類上皮細胞肉芽腫",
+   "en": "cutaneous sarcoidosis",
+   "n": 1
+  },
+  {
+   "ja": "類上皮細胞肉芽腫",
+   "en": "epithelioid cell granulomas",
+   "n": 1
+  },
+  {
+   "ja": "類上皮細胞肉芽腫",
+   "en": "lymph nodes which were swollen",
+   "n": 1
+  },
+  {
+   "ja": "類上皮細胞肉芽腫のｔｒａｎｓｅｐｉｔｈｅｌｉａｌ ｅｌｉｍｉｎａｔｉｏｎ",
+   "en": "transepithelial elimination of epithelioid cell granuloma",
+   "n": 1
+  },
+  {
+   "ja": "食事量低下",
+   "en": "decreased level of food intake",
+   "n": 1
+  },
+  {
+   "ja": "食後つかえ感",
+   "en": "pain after meals",
+   "n": 1
+  },
+  {
+   "ja": "食欲低下",
+   "en": "advanced breast cancer",
+   "n": 1
+  },
+  {
+   "ja": "食欲低下",
+   "en": "decreased appetite",
+   "n": 1
+  },
+  {
+   "ja": "食物塊",
+   "en": "obstruction",
+   "n": 1
+  },
+  {
+   "ja": "食道病変",
+   "en": "esophageal lesions",
+   "n": 1
+  },
+  {
+   "ja": "食道閉鎖症",
+   "en": "esophageal atresia",
+   "n": 1
+  },
+  {
+   "ja": "食道静脈瘤",
+   "en": "esophageal varicose veins",
+   "n": 1
+  },
+  {
+   "ja": "食道静脈瘤からの出血",
+   "en": "bleeding from esophageal varices",
+   "n": 1
+  },
+  {
+   "ja": "骨病変",
+   "en": "bone lesions",
+   "n": 1
+  },
+  {
+   "ja": "骨破壊",
+   "en": "bone destruction",
+   "n": 1
+  },
+  {
+   "ja": "骨硬化像",
+   "en": "osteosclerotic image",
+   "n": 1
+  },
+  {
+   "ja": "骨硬化像",
+   "en": "osteosclerotic lesion",
+   "n": 1
+  },
+  {
+   "ja": "骨硬化像",
+   "en": "osteosclerotic shadows",
+   "n": 1
+  },
+  {
+   "ja": "骨硬化性変化",
+   "en": "osteosclerotic changes",
+   "n": 1
+  },
+  {
+   "ja": "骨硬化性陰影",
+   "en": "osteosclerotic shadowing",
+   "n": 1
+  },
+  {
+   "ja": "骨転移",
+   "en": "bone metastasis",
+   "n": 1
+  },
+  {
+   "ja": "骨髄プラズマ細胞増生",
+   "en": "bone marrow plasma cells",
+   "n": 1
+  },
+  {
+   "ja": "骨髄異形性症候群",
+   "en": "myelodysplastic syndromes",
+   "n": 1
+  },
+  {
+   "ja": "高エコーな塊",
+   "en": "hyperechoic",
+   "n": 1
+  },
+  {
+   "ja": "高分化腺癌",
+   "en": "well-differentiated adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "高度歯周炎",
+   "en": "severe periodontitis",
+   "n": 1
+  },
+  {
+   "ja": "高度歯周炎による経口摂取不良",
+   "en": "poor oral intake due to severe periodontitis",
+   "n": 1
+  },
+  {
+   "ja": "高度炎症",
+   "en": "severe inflammation",
+   "n": 1
+  },
+  {
+   "ja": "高熱、リンパ節腫大、白血球増多",
+   "en": "high fever, enlarged lymph nodes, leukocytosis",
+   "n": 1
+  },
+  {
+   "ja": "高脂血症",
+   "en": "hyperlipidemia",
+   "n": 1
+  },
+  {
+   "ja": "高血圧症",
+   "en": "hypertension",
+   "n": 1
+  },
+  {
+   "ja": "高血圧症，高尿酸血症",
+   "en": "hypertension, hyperuricemia",
+   "n": 1
+  },
+  {
+   "ja": "高血圧症，高脂血症",
+   "en": "hypertension, hyperlipidemia",
+   "n": 1
+  },
+  {
+   "ja": "高Ｔｒｉｇｌｙｃｅｒｉｄｅ血症",
+   "en": "hypertriglyceridemia",
+   "n": 1
+  },
+  {
+   "ja": "鱗屑",
+   "en": "scaling",
+   "n": 1
+  },
+  {
+   "ja": "鱗屑を伴う紅斑",
+   "en": "erythema with scaling",
+   "n": 1
+  },
+  {
+   "ja": "鱗屑を有する紅斑",
+   "en": "erythema with scales",
+   "n": 1
+  },
+  {
+   "ja": "鱗屑性紅斑",
+   "en": "erythema with scaling",
+   "n": 1
+  },
+  {
+   "ja": "黄疸と瘙痒，口腔乾燥",
+   "en": "jaundice, pruritus, and xerostomia",
+   "n": 1
+  },
+  {
+   "ja": "黄疸漸増",
+   "en": "jaundice gradually progressed",
+   "n": 1
+  },
+  {
+   "ja": "黄疸，浮腫，腹水，悪液質，出血傾向，意識障害",
+   "en": "jaundice, edema, ascites, cachexia, bleeding daithesis and a disorder of consciousness",
+   "n": 1
+  },
+  {
+   "ja": "黄色腫",
+   "en": "pbc",
+   "n": 1
+  },
+  {
+   "ja": "黄色腫",
+   "en": "xanthomas",
+   "n": 1
+  },
+  {
+   "ja": "＃11i,#7,#8リンパ節腫大",
+   "en": "# 11i, # 7, # 8 lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "＃4L、＃5、＃6リンパ節腫大",
+   "en": "# 4l, # 5, # 6 lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "＃5リンパ節",
+   "en": "#5 lymph node",
+   "n": 1
+  },
+  {
+   "ja": "＃6、＃2L、＃7、＃3p、＃4L、＃5リンパ節腫大",
+   "en": "#6, #2l, #7, #3p, #4l, #5 lymphadenopathy",
+   "n": 1
+  },
+  {
+   "ja": "０－Ⅱａ病変",
+   "en": "0-iia lesion",
+   "n": 1
+  },
+  {
+   "ja": "０－Ⅱａ＋Ⅱｃ病変",
+   "en": "multiple",
+   "n": 1
+  },
+  {
+   "ja": "１型病変",
+   "en": "type 1 lesion",
+   "n": 1
+  },
+  {
+   "ja": "１横指触知",
+   "en": "palpated using one transverse finger",
+   "n": 1
+  },
+  {
+   "ja": "１１０リンパ節",
+   "en": "metastasis",
+   "n": 1
+  },
+  {
+   "ja": "２５３番および左側方リンパ節転移",
+   "en": "metastasis to lymph node 253 and the left side",
+   "n": 1
+  },
+  {
+   "ja": "３型病変",
+   "en": "type iii lesion",
+   "n": 1
+  },
+  {
+   "ja": "ＡＡＡ",
+   "en": "aaa",
+   "n": 1
+  },
+  {
+   "ja": "ＡＣＥ高値",
+   "en": "high ace level",
+   "n": 1
+  },
+  {
+   "ja": "ＡＣＰ",
+   "en": "acp",
+   "n": 1
+  },
+  {
+   "ja": "ＢＨＬ",
+   "en": "bhl",
+   "n": 1
+  },
+  {
+   "ja": "ＢＰＨ",
+   "en": "bph",
+   "n": 1
+  },
+  {
+   "ja": "Ｂｉｌ上昇",
+   "en": "elevated bilirubin levels",
+   "n": 1
+  },
+  {
+   "ja": "Ｃ型肝硬変",
+   "en": "cirrhosis c",
+   "n": 1
+  },
+  {
+   "ja": "Ｃ型肝硬変",
+   "en": "cirrhosis of the liver, type c",
+   "n": 1
+  },
+  {
+   "ja": "Ｃ型肝硬変",
+   "en": "hepatic cirrhosis type c",
+   "n": 1
+  },
+  {
+   "ja": "Ｃ型肝硬変",
+   "en": "splenic-renal shunt",
+   "n": 1
+  },
+  {
+   "ja": "Ｃ型非代償性肝硬変",
+   "en": "decompensated cirrhosis of the liver type c",
+   "n": 1
+  },
+  {
+   "ja": "Ｃ型非代償性肝硬変",
+   "en": "decompensated cirrhosis, type c",
+   "n": 1
+  },
+  {
+   "ja": "ＣＤ８陽性，ＣＤ４陽性リンパ球",
+   "en": "cd8-positive and cd4-positive",
+   "n": 1
+  },
+  {
+   "ja": "ＣＭＶの封入体",
+   "en": "cmv inclusion bodies",
+   "n": 1
+  },
+  {
+   "ja": "ＣＭＶ腸炎",
+   "en": "cmv enteritis",
+   "n": 1
+  },
+  {
+   "ja": "ＣＭＶ腸炎",
+   "en": "gastrointestinal perforations",
+   "n": 1
+  },
+  {
+   "ja": "Ｃａ結石",
+   "en": "aggravated",
+   "n": 1
+  },
+  {
+   "ja": "Ｃａ結石",
+   "en": "ca stone",
+   "n": 1
+  },
+  {
+   "ja": "Ｃａｎｄｉｄａ ａｌｂｉｃａｎｓ，Ｆｕｓａｒｉｕｍ",
+   "en": "candida albicans and fusarium",
+   "n": 1
+  },
+  {
+   "ja": "ＤＩＣ",
+   "en": "dic",
+   "n": 1
+  },
+  {
+   "ja": "ＤＬＥ",
+   "en": "dle",
+   "n": 1
+  },
+  {
+   "ja": "ＤＬＥを合併した汎発性強皮症",
+   "en": "generalized scleroderma associated with dle",
+   "n": 1
+  },
+  {
+   "ja": "ＤＶＴ",
+   "en": "dvt",
+   "n": 1
+  },
+  {
+   "ja": "Ｄｉｓｏｒｉｅｎｔａｔｉｏｎ，著明なＡｂｍａｇｅｒｕｎｇ，アンモニア臭，出血斑",
+   "en": "disorientated, remarkably emaciated, gave off an ammonia odor and presented hemorrhagic spots",
+   "n": 1
+  },
+  {
+   "ja": "ＥＬ",
+   "en": "el",
+   "n": 1
+  },
+  {
+   "ja": "ＥＲ",
+   "en": "er",
+   "n": 1
+  },
+  {
+   "ja": "Ｆｒｅｅ Ａｉｒ像",
+   "en": "free air image",
+   "n": 1
+  },
+  {
+   "ja": "ＧＥＲ",
+   "en": "ger",
+   "n": 1
+  },
+  {
+   "ja": "ＧＯＴ，ＧＰＴ，ＣｈＥ，ＬＡＰ，γＧＴＰ上昇",
+   "en": "got, gpt, che, lap, and γgtp levels were elevated",
+   "n": 1
+  },
+  {
+   "ja": "ＨＨＶ－６ ＤＮＡ",
+   "en": "hhv-6 dna",
+   "n": 1
+  },
+  {
+   "ja": "ＨＨＶ－６の再活性化",
+   "en": "hhv-6 reactivation",
+   "n": 1
+  },
+  {
+   "ja": "ＨＬＡ抗体",
+   "en": "hla antibodies",
+   "n": 1
+  },
+  {
+   "ja": "ＨＴＬＶ－１キャリアー",
+   "en": "htlv-1 carrier",
+   "n": 1
+  },
+  {
+   "ja": "ＨＴＬＶ－Ｉ ｐｒｏｖｉｒｕｓ",
+   "en": "htlv-i provirus",
+   "n": 1
+  },
+  {
+   "ja": "ＨＴＬＶ－Ｉ ｐｒｏｖｉｒｕｓ",
+   "en": "t-cell receptor beta chain reconstitution (tcβ )",
+   "n": 1
+  },
+  {
+   "ja": "Ｈｙｐｅｒｓｅｎｓｉｔｉｖｉｔｙ Ｓｙｎｄｒｏｍｅ（ＨＳ）",
+   "en": "hypersensitivity syndrome (hs)",
+   "n": 1
+  },
+  {
+   "ja": "ＩＬ－２レセプター値高値",
+   "en": "il-2 receptor level was high",
+   "n": 1
+  },
+  {
+   "ja": "ＩｇＭの沈着",
+   "en": "igm deposition",
+   "n": 1
+  },
+  {
+   "ja": "ＩｇＭ沈着",
+   "en": "igm deposition",
+   "n": 1
+  },
+  {
+   "ja": "Ｋｏｇｏｊ海綿状膿疱",
+   "en": "kogoj's spongiform pustules",
+   "n": 1
+  },
+  {
+   "ja": "Ｌａｎｇｈａｎｓ型多核巨細胞を含む非乾酪性類上皮細胞肉芽種",
+   "en": "noncaseating epithelial cell granulomas containing langhans-type multinucleated giant cells",
+   "n": 1
+  },
+  {
+   "ja": "Ｍａｌｌｏｒｙ様物質",
+   "en": "substance akin to a mallory body",
+   "n": 1
+  },
+  {
+   "ja": "Ｍｅｉｇｓ症候群",
+   "en": "meigs syndrome",
+   "n": 1
+  },
+  {
+   "ja": "Ｍｉｃｒｏｓｏｍｅテスト",
+   "en": "microsome test",
+   "n": 1
+  },
+  {
+   "ja": "Ｍｕｎｒｏ微小膿瘍，Ｋｏｇｏｊ海綿状膿疱",
+   "en": "munro's micro abscesses and kogoj's spongy pustules",
+   "n": 1
+  },
+  {
+   "ja": "ＯＡＳ",
+   "en": "allergic to tofu",
+   "n": 1
+  },
+  {
+   "ja": "ＰＢＣとＳｊｏｇｒｅｎ症候群の合併",
+   "en": "pbc and sjogren's syndrome",
+   "n": 1
+  },
+  {
+   "ja": "ＰＢＣに伴う骨粗鬆症と食道静脈瘤",
+   "en": "osteoporosis and esophageal varix associated with pbc",
+   "n": 1
+  },
+  {
+   "ja": "ＰＢＣに伴う高脂血症と黄色腫症",
+   "en": "hyperlipidemia associated with pbc and xanthomatosis",
+   "n": 1
+  },
+  {
+   "ja": "ＰＤ－Ｌ１",
+   "en": "pd-l1",
+   "n": 1
+  },
+  {
+   "ja": "ＰｇＲ",
+   "en": "pgr",
+   "n": 1
+  },
+  {
+   "ja": "ＱＯＬは著しく損なわれ",
+   "en": "qol had been greatly compromised",
+   "n": 1
+  },
+  {
+   "ja": "ＱＯＬを損ない",
+   "en": "poor qol",
+   "n": 1
+  },
+  {
+   "ja": "ＲＡ",
+   "en": "ra",
+   "n": 1
+  },
+  {
+   "ja": "ＲＡテスト",
+   "en": "ra test",
+   "n": 1
+  },
+  {
+   "ja": "Ｓ状結腸憩室炎",
+   "en": "sigmoid colon diverticulitis",
+   "n": 1
+  },
+  {
+   "ja": "Ｓ状結腸潰瘍",
+   "en": "sigmoid colon ulcer",
+   "n": 1
+  },
+  {
+   "ja": "Ｓ状結腸穿孔",
+   "en": "perforation of the sigmoid colon",
+   "n": 1
+  },
+  {
+   "ja": "ＳＬＥ",
+   "en": "sle",
+   "n": 1
+  },
+  {
+   "ja": "ＳＴ上昇（Ⅱ，Ⅲ，ａＶＦ）とＳＴ低下（Ｖ１～５）",
+   "en": "st elevation (ii, iii, avf) and st depression (v1-5)",
+   "n": 1
+  },
+  {
+   "ja": "Ｓｊｏｇｒｅｎ ｓｙｎｄｒｏｍｅ",
+   "en": "sjogren's syndrome",
+   "n": 1
+  },
+  {
+   "ja": "Ｔ細胞レセプターβ鎖の再構成（Ｔｃβ）",
+   "en": "tumors",
+   "n": 1
+  },
+  {
+   "ja": "Ｔｙｐｅ２",
+   "en": "type 2",
+   "n": 1
+  },
+  {
+   "ja": "Ｔｙｐｅ３低分化腺癌",
+   "en": "type3 poorly differentiated adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "Ｖ型高リボ蛋白血症",
+   "en": "type v hyperriboproteinemia",
+   "n": 1
+  },
+  {
+   "ja": "Ｖ２５低値",
+   "en": "v25 low value",
+   "n": 1
+  },
+  {
+   "ja": "ａＮＯ上昇",
+   "en": "hypersensitivity pneumonitis",
+   "n": 1
+  },
+  {
+   "ja": "ａｄｅｎｏｃａｒｃｉｎｏｍａ",
+   "en": "adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "ａｉｒ ｄｅｎｓｉｔｙ",
+   "en": "air density",
+   "n": 1
+  },
+  {
+   "ja": "ａｌｖｅｏｌｉｔｉｓ",
+   "en": "alveolitis",
+   "n": 1
+  },
+  {
+   "ja": "ｂｉｌｅ ｌａｋｅ",
+   "en": "bile lake",
+   "n": 1
+  },
+  {
+   "ja": "ｂｉｌｅｎｅｐｈｒｏｓｉｓ",
+   "en": "small abscess",
+   "n": 1
+  },
+  {
+   "ja": "ｂｒｉｄｇｉｎｇ ｆｉｂｒｏｓｉｓ",
+   "en": "bridging fibrosis",
+   "n": 1
+  },
+  {
+   "ja": "ｃｅｌｌｕｌａｒ ｄｅｂｒｉｓ",
+   "en": "cellular debris",
+   "n": 1
+  },
+  {
+   "ja": "ｃｙｓｔｉｃ ｍａｓｓ",
+   "en": "cystic mass",
+   "n": 1
+  },
+  {
+   "ja": "ｄｅｂｒｉｓ",
+   "en": "debris",
+   "n": 1
+  },
+  {
+   "ja": "ｄｅｓｍｉｎ",
+   "en": "desmin",
+   "n": 1
+  },
+  {
+   "ja": "ｄｉｆｆｕｓｅ ｆａｔｔｙ ｌｉｖｅｒ",
+   "en": "diffuse fatty liver",
+   "n": 1
+  },
+  {
+   "ja": "ｄｉｓｔｏｒｔｉｏｎ",
+   "en": "distortion",
+   "n": 1
+  },
+  {
+   "ja": "ｄｕｃｔｕｌａｒ ｐｒｏｌｉｆｅｒａｔｉｏｎ （細胆管増生）",
+   "en": "ductular proliferation",
+   "n": 1
+  },
+  {
+   "ja": "ｆｌｕｉｄ",
+   "en": "fluid accumulation",
+   "n": 1
+  },
+  {
+   "ja": "ｇａｎｇｌｉｏｎｅｕｒｏｓｉｓや神経叢の増生",
+   "en": "ganglioneurosis and plexus hyperplasia",
+   "n": 1
+  },
+  {
+   "ja": "ｉｒＡＥ",
+   "en": "irae",
+   "n": 1
+  },
+  {
+   "ja": "ｌｕｐｕｓ ｎｅｐｈｒｉｔｉｓ",
+   "en": "lupus nephritis",
+   "n": 1
+  },
+  {
+   "ja": "ｍｏｄｅｒａｔｅｌｙ ｄｉｆｆｅｒｅｎｔｉａｔｅｄ ａｄｅｎｏｃａｒｃｉｎｏｍａ",
+   "en": "moderately differentiated adenocarcinoma",
+   "n": 1
+  },
+  {
+   "ja": "ｓｐｏｔｔｙ ｎｅｃｒｏｓｉｓ",
+   "en": "spotty necrosis",
+   "n": 1
+  },
+  {
+   "ja": "ｓｕｎ ｂｕｒｎ ｃｅ１１",
+   "en": "sunburn cells",
+   "n": 1
+  },
+  {
+   "ja": "ｔｙｐｅ１ｂ・ｔｙｐｅ２ＥＬ",
+   "en": "type 1b and type 2 el",
+   "n": 1
+  },
+  {
+   "ja": "ｔｙｐｅ２ＥＬ",
+   "en": "type 2 el",
+   "n": 1
+  }
+ ]
+}

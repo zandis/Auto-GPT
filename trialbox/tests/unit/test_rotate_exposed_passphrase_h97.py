@@ -5,7 +5,10 @@ The exception is narrow: ``tools.keys rotate-kek`` on a box sealed under a passp
 (``--backend passphrase``) given only by H-96's file or stdin form (``--new-passphrase-file`` or
 ``--new-passphrase-stdin``), with no escrow set, and only as an audit event (``keys.rotate_kek``: who, when, the box,
 the two KEK ids; never a value) in its audit folder. Every other rotate-kek and every neighbouring ceremony stays
-refused on PRODUCTION with rc1's words, and nothing changes. The passphrases here are synthetic.
+refused with rc1's words, and nothing changes. SAFE-1 A2 (the owner's decision of 2026-11-28): PRODUCTION allows the
+key ceremonies, so a PRODUCTION box rotates as a PoC box does (every rotation an audit event, ruling 7114085298; see
+the last test), and the exception is held here on a box whose ``TB_ENV`` is unknown, which rc1 still refuses. The
+passphrases here are synthetic.
 """
 
 from __future__ import annotations
@@ -27,7 +30,8 @@ from tools import keys
 pytestmark = pytest.mark.nodb
 OLD = "synthetic-h97-" + "the-exposed-passphrase"  # synthetic
 NEW = "synthetic-h97-" + "the-new-passphrase-here"  # synthetic
-PRODUCTION_ENVS: tuple[dict[str, str], ...] = ({}, {"TB_ENV": "PRODUCTION"})  # unset is PRODUCTION (D-127)
+#: the boxes rc1 refuses the key ceremonies on (SAFE-1 A2: an unknown TB_ENV; PRODUCTION and unset allow them)
+PRODUCTION_ENVS: tuple[dict[str, str], ...] = ({"TB_ENV": "PILOT"}, {"TB_ENV": "STAGING"})
 
 
 def _pp(path: Path, text: str) -> Path:
@@ -67,7 +71,7 @@ def _everything(b: dict[str, Path]) -> str:
     return "".join(f.read_text(encoding="utf-8", errors="replace") for f in b["audit"].rglob("*") if f.is_file())
 
 
-@pytest.mark.parametrize("env", PRODUCTION_ENVS, ids=["unset", "PRODUCTION"])
+@pytest.mark.parametrize("env", PRODUCTION_ENVS, ids=["PILOT", "STAGING"])
 @pytest.mark.parametrize("form", ["file", "stdin"])
 def test_a_production_box_rotates_its_exposed_passphrase_and_the_rotation_is_audited(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, form: str,
@@ -102,7 +106,7 @@ def test_a_production_box_rotates_its_exposed_passphrase_and_the_rotation_is_aud
     detail = events[0]["detail"]
     assert isinstance(detail, dict)
     assert detail["old_kek_id"] == old_id and detail["new_kek_id"] == meta["kek_id"]
-    assert detail["environment"] == "PRODUCTION" and detail["rule"] == "D-1092" and detail["at"] and detail["box"]
+    assert detail["environment"] == env["TB_ENV"] and detail["rule"] == "D-1092" and detail["at"] and detail["box"]
     who = detail["who"]
     assert isinstance(who, dict) and who["uid"] == os.geteuid() and who["user"] == pwd.getpwuid(os.geteuid()).pw_name
     assert events[0]["actor"] == keys.ROTATE_ACTOR
@@ -114,16 +118,17 @@ def test_a_production_box_rotates_its_exposed_passphrase_and_the_rotation_is_aud
 
 
 def _refused_and_unchanged(b: dict[str, Path], argv: list[str], env: dict[str, str],
-                           capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
+                           capsys: pytest.CaptureFixture[str], said: str = "") -> None:  # fmt: skip
     before = {f.name: f.read_bytes() for f in b["sec"].iterdir() if f.is_file()}
     assert keys.main(argv, env=env) == 1, argv
     err = capsys.readouterr().err.strip()
-    assert err == "keys: " + rc1_refusals.text("rc1.key_ceremonies", environment="PRODUCTION"), (argv, err)
+    said = said or rc1_refusals.environment(env)
+    assert err == "keys: " + rc1_refusals.text("rc1.key_ceremonies", environment=said), (argv, err)
     assert {f.name: f.read_bytes() for f in b["sec"].iterdir() if f.is_file()} == before, argv
     assert _events(b["audit"]) == [], argv
 
 
-@pytest.mark.parametrize("env", PRODUCTION_ENVS, ids=["unset", "PRODUCTION"])
+@pytest.mark.parametrize("env", PRODUCTION_ENVS, ids=["PILOT", "STAGING"])
 def test_the_neighbouring_ceremonies_stay_refused_on_a_production_box(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], env: dict[str, str]
 ) -> None:
@@ -158,7 +163,7 @@ def test_a_box_not_sealed_under_a_passphrase_cannot_rotate_to_one_on_production(
     b = _box(tmp_path, capsys, backend="file")
     argv = ["rotate-kek", "--backend", "passphrase", "--secrets", str(b["sec"]), "--scrypt-n", "1024",
             "--new-passphrase-file", str(_pp(tmp_path / "new.pass", NEW)), "--audit-dir", str(b["audit"])]  # fmt: skip
-    _refused_and_unchanged(b, argv, {}, capsys)
+    _refused_and_unchanged(b, argv, {"TB_ENV": "PILOT"}, capsys)
 
 
 def test_without_an_audit_folder_or_with_a_wrong_old_passphrase_nothing_changes(
@@ -172,13 +177,13 @@ def test_without_an_audit_folder_or_with_a_wrong_old_passphrase_nothing_changes(
             "--new-passphrase-file", str(_pp(tmp_path / "new.pass", NEW))]  # fmt: skip
     (tmp_path / "empty").mkdir()  # F3: a folder with no audit chain is not the box's audit folder
     for audit in (["--audit-dir", str(tmp_path / "no-such-folder")], [], ["--audit-dir", str(tmp_path / "empty")]):
-        assert keys.main([*base, *audit], env={"TB_KEK_FILE": str(b["runtime"])}) == 1
+        assert keys.main([*base, *audit], env={"TB_ENV": "PILOT", "TB_KEK_FILE": str(b["runtime"])}) == 1
         err = capsys.readouterr().err
         assert "D-1092" in err and "audit folder" in err and NEW not in err
         assert (b["sec"] / K.META_FILE).read_bytes() == before and (tmp_path / "new.pass").exists()
     wrong = _pp(tmp_path / "wrong.pass", "synthetic-h97-not-the-current-one")
     rc = keys.main([*base, "--passphrase-file", str(wrong), "--audit-dir", str(b["audit"])],
-                   env={"TB_KEK_FILE": str(b["runtime"])})  # fmt: skip
+                   env={"TB_ENV": "PILOT", "TB_KEK_FILE": str(b["runtime"])})  # fmt: skip
     capsys.readouterr()
     assert rc == 1 and (b["sec"] / K.META_FILE).read_bytes() == before and _events(b["audit"]) == []
     assert _site_key(b["sec"], OLD)  # still the old passphrase's
@@ -187,19 +192,20 @@ def test_without_an_audit_folder_or_with_a_wrong_old_passphrase_nothing_changes(
 def test_a_callers_dev_environment_does_not_widen_or_skip_the_rule(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The box's deploy/.env says PRODUCTION and the caller exports TB_ENV=DEV: the stricter one holds (R22-34's
-    review), so the rotation of another back end is still refused, and the passphrase rotation still writes its
-    audit event."""
+    """The box's deploy/.env says an unknown name (SAFE-1 A2: PRODUCTION allows the ceremonies) and the caller
+    exports TB_ENV=DEV: the stricter one holds (R22-34's review), so the rotation of another back end is still
+    refused, and the passphrase rotation still writes its audit event."""
     deploy = tmp_path / "deploy"
     deploy.mkdir()
-    (deploy / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
+    (deploy / ".env").write_text("TB_ENV=PILOT\n", encoding="utf-8")
     monkeypatch.setattr(keys, "DEFAULT_DEPLOY", str(deploy))
     monkeypatch.setenv("TB_ENV", "DEV")
     b = _box(tmp_path, capsys)
     env = {"TB_ENV": "DEV", "TB_KEK_FILE": str(b["runtime"])}
     old = ["--passphrase-file", str(_pp(tmp_path / "old.pass", OLD)), "--keep-passphrase-files"]
     _refused_and_unchanged(b, ["rotate-kek", "--secrets", str(b["sec"]), "--backend", "file", "--kek-out",
-                               str(tmp_path / "k.out"), "--audit-dir", str(b["audit"]), *old], env, capsys)  # fmt: skip
+                               str(tmp_path / "k.out"), "--audit-dir", str(b["audit"]), *old], env, capsys,
+                           said="PILOT")  # fmt: skip
     rc = keys.main(["rotate-kek", "--backend", "passphrase", "--secrets", str(b["sec"]), "--scrypt-n", "1024", *old,
                     "--new-passphrase-file", str(_pp(tmp_path / "new.pass", NEW)), "--audit-dir", str(b["audit"])],
                    env=env)  # fmt: skip
@@ -207,12 +213,13 @@ def test_a_callers_dev_environment_does_not_widen_or_skip_the_rule(
     assert [e["event"] for e in _events(b["audit"])] == [keys.ROTATE_STARTED, keys.ROTATE_EVENT]
 
 
-@pytest.mark.parametrize("box_env", ["DEV", "TEST", "VALIDATION"])
+@pytest.mark.parametrize("box_env", ["DEV", "TEST", "VALIDATION", "PRODUCTION"])  # PRODUCTION: SAFE-1 A2
 @pytest.mark.parametrize("backend", ["passphrase", "file"])
 def test_every_rotation_on_a_poc_box_is_an_audit_event(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, box_env: str, backend: str
 ) -> None:
-    """The integrator's ruling 7114085298: on a PoC box (its deploy/.env says DEV, TEST or VALIDATION) every KEK
+    """The integrator's ruling 7114085298: on a PoC box (its deploy/.env says DEV, TEST or VALIDATION; and PRODUCTION
+    since SAFE-1 A2, which allows the key ceremonies there) every KEK
     rotation writes keys.rotate_kek (who, when, the box, the environment, the two KEK ids and the new back end; never
     a value), and without an audit folder it is refused before anything is changed."""
     deploy = tmp_path / "deploy"

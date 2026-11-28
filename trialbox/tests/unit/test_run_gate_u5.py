@@ -1,9 +1,10 @@
 """U-5 (D-1280, the integrator's go on #639): the first real-data run, at any time, is the step that needs the data
 source, the chart-number rule, the backup target, key and alarm, the audit share and the hospital's name.
 
-On a PRODUCTION box, an ingest or a back-fill with any of them missing, not usable or a stand-in is refused before
-anything is read or written. The refusal is audited once (``ingest.failed``, ``refused: site_needs``, the keys only)
-and its line names the page "Information still needed". On a PoC box the run goes on with the stand-ins.
+SAFE-1 A3: an ingest or a back-fill with any of them missing, not usable or a stand-in is never refused for them. On
+a PRODUCTION box the run goes on and the items are audited once (``ingest.site_needs``, the keys only) for the page
+"Information still needed"; on a PoC box the run goes on with the stand-ins and nothing is audited. The backup is
+asked where records nobody can make again begin, a study opening (``tests/unit/test_study_records_gate.py``).
 
 The backup key is on the host only. The service reads ``host-given.json`` through its read-only mount, and
 ``backup-keygen`` writes that list when it makes the box's key. Synthetic values only."""
@@ -11,14 +12,16 @@ The backup key is on the host only. The service reads ``host-given.json`` throug
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 from typing import Any
 
 import pytest
 from adapter import pipeline
-from adapter.pipeline import AdapterConfig, SiteNeeded
+from adapter.pipeline import AdapterConfig
 from tb_common import site_needs
+from tb_common.crypto import create_key
 
 GIVEN_ENV = {
     "TB_SOURCE_DIR": "/data/source/site-a",
@@ -67,40 +70,62 @@ def _box(
     return deploy
 
 
-def _refusals(tmp_path: Path) -> list[dict[str, Any]]:
+def _events(tmp_path: Path) -> list[dict[str, Any]]:
     lines = [ln for f in sorted((tmp_path / "audit").glob("*.jsonl")) for ln in f.read_text().splitlines()]
-    events = [json.loads(ln) for ln in lines]
+    return [json.loads(ln) for ln in lines]
+
+
+def _refusals(tmp_path: Path) -> list[dict[str, Any]]:
+    events = _events(tmp_path)
     return [e for e in events if e["event"] == "ingest.failed" and e["detail"].get("refused") == "site_needs"]
 
 
-def test_production_refuses_a_run_with_everything_still_needed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _warnings(tmp_path: Path) -> list[dict[str, Any]]:
+    return [e for e in _events(tmp_path) if e["event"] == "ingest.site_needs"]
+
+
+def test_production_runs_with_everything_still_needed_and_audits_each_item(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SAFE-1 A3: was refused; the run goes on and the audit names every item (keys only, never a setting)."""
     _box(tmp_path, monkeypatch, "PRODUCTION", given={}, key_on_host=False)
-    with pytest.raises(SiteNeeded, match="Information still needed") as got:
-        pipeline.refuse_site_needs(_cfg(tmp_path, {}), "2026-11-20", "csv")
-    wanted = [n.key for n in site_needs.NEEDS if "first_real_run" in n.before]
-    (event,) = _refusals(tmp_path)
+    pipeline.refuse_site_needs(_cfg(tmp_path, {}), "2026-11-20", "csv")
+    wanted = ["data_source", "chart_number", "backup_target", "backup_key", "backup_alarm", "audit_share", "site_name"]
+    (event,) = _warnings(tmp_path)
     assert sorted(event["detail"]["needs"]) == sorted(wanted) and set(event["detail"]["needs"].values()) == {"missing"}
-    assert "TB_" not in str(got.value)  # the page, never a setting
+    assert "TB_" not in json.dumps(event) and _refusals(tmp_path) == []
 
 
 def test_production_runs_when_every_item_is_given(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _box(tmp_path, monkeypatch, "PRODUCTION")
     pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")
     assert _refusals(tmp_path) == []
+    assert _warnings(tmp_path) == []
 
 
-def test_a_backup_key_the_host_does_not_have_refuses_the_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_backup_key_the_host_does_not_have_is_audited_not_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
-    with pytest.raises(SiteNeeded):
-        pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")
-    assert _refusals(tmp_path)[0]["detail"]["needs"] == {"backup_key": "missing"}
+    pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")  # SAFE-1 A3: was refused
+    (event,) = _warnings(tmp_path)
+    assert event["detail"]["needs"] == {"backup_key": "missing"}
 
 
-def test_a_stand_in_refuses_the_run_on_production(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stand_in_is_audited_not_refused_on_production(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _box(tmp_path, monkeypatch, "PRODUCTION", stand_ins=("chart_number", "site_name"))
-    with pytest.raises(SiteNeeded):
+    pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")  # SAFE-1 A3: was refused
+    (event,) = _warnings(tmp_path)
+    assert event["detail"]["needs"] == {"chart_number": "stand_in", "site_name": "stand_in"}
+
+
+def test_the_refusal_without_a_backup_key_names_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The install cannot require the key (doctor warns during it), so the first night on PRODUCTION is where its
+    absence stops the box: with a named reason, and before any patient data is read."""
+    _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
+    with pytest.raises(SiteNeeded) as got:
         pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")
-    assert _refusals(tmp_path)[0]["detail"]["needs"] == {"chart_number": "stand_in", "site_name": "stand_in"}
+    assert "The backup key" in str(got.value)
 
 
 @pytest.mark.parametrize("env", ["DEV", "TEST", "VALIDATION"])
@@ -108,17 +133,37 @@ def test_a_poc_box_runs_with_the_stand_ins(tmp_path: Path, monkeypatch: pytest.M
     _box(tmp_path, monkeypatch, env, given={}, key_on_host=False, stand_ins=("site_name",))
     pipeline.refuse_site_needs(_cfg(tmp_path, {}), "2026-11-20", "csv")
     assert _refusals(tmp_path) == []
+    assert _warnings(tmp_path) == []
 
 
-def test_the_ingest_is_refused_before_anything_is_read_and_audited_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_night_with_the_backup_key_still_needed_is_published_and_audits_it_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pg_cluster_url: str
 ) -> None:
+    """SAFE-1 A3: was refused before anything was read; a synthetic bulk export is now read and published on a
+    PRODUCTION box whose backup key is still needed, and the item is audited once."""
     _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
-    (tmp_path / "lake").mkdir()
-    with pytest.raises(SiteNeeded):
-        pipeline.run_ingest(_cfg(tmp_path), "csv", str(tmp_path / "no-source"), snapshot="2026-11-20")
-    assert len(_refusals(tmp_path)) == 1
-    assert not (tmp_path / "lake" / "tmp").exists()  # no spool, no night row's folder: nothing read or written
+    monkeypatch.delenv("TB_DB_URL", raising=False)  # its own pid map below, not the shared one
+    monkeypatch.setenv("TB_CHARTNO_RULE", "asis")  # a rule the night itself can read
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(b"k" * 32)
+    create_key(sec / "pid_map.key")  # as the install ceremony makes it on a PRODUCTION box
+    exp = tmp_path / "bulk"
+    exp.mkdir()
+    patients = [{"resourceType": "Patient", "id": f"p{i}", "gender": "female", "birthDate": "1970-01-01"}
+                for i in range(3)]  # fmt: skip
+    (exp / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in patients) + "\n", encoding="utf-8")
+    sep = "&" if "?" in pg_cluster_url else "?"
+    cfg = AdapterConfig(lake_dir=tmp_path / "lake", secrets_dir=sec, site_id=f"A3-{tmp_path.name}", tz="Asia/Taipei",
+                        audit_dir=tmp_path / "audit", site_settings=SETTINGS,
+                        db_url=f"{pg_cluster_url}{sep}tb_prefix=a3night{os.getpid()}_",
+                        mapping_path=Path(__file__).resolve().parents[2] / "services/adapter/mapping/tw_core/demo_his.yaml")  # fmt: skip
+    rep = pipeline.run_ingest(cfg, "fhir_bulk", str(exp), snapshot="2026-11-20", load_fhir=False, rebuild_lake=False,
+                              validate=False)  # fmt: skip
+    assert rep.passed and not rep.held, rep.errors
+    assert rep.counts.get("Patient") == 3
+    (event,) = _warnings(tmp_path)
+    assert event["detail"]["needs"] == {"backup_key": "missing"} and _refusals(tmp_path) == []
 
 
 def test_the_host_names_the_backup_key_only_when_its_file_is_there(tmp_path: Path) -> None:

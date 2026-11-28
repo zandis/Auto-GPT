@@ -35,14 +35,14 @@ from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.inferred import sentence_of
-from matching.note_answer import affirms, note_answer_may
+from matching.note_answer import affirms, keeps, not_documented, note_answer_may
 from matching.proposed import Proposed
 from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
-from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
+from tb_common.pair import DECIDED, Vote, combine, floor, needs_verifier, same_model, served_keys
 from tb_common.quotes import as_in
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
@@ -231,6 +231,9 @@ class NoteResult:
     # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
+    # BENCH-2 §2 (``judge_excerpts(demote=True)``): on a disagreement, the judge's own answer, never affirmed. The
+    # answer above stays the pair's ``unknown``; ``note_verdict`` takes this one only where it keeps the patient
+    kept: NoteResult | None = None
 
 
 def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
@@ -396,7 +399,7 @@ class NoteJudge:
         """Put ``excerpts`` to the models and apply the rule of a cut record (D-276, T-603): with ``left_out``
         window notes not shown in full, an answer that would exclude is unknown and one that keeps the patient is
         flagged. The one place for the lake's notes and an uploaded chart (CASE)."""
-        r = self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source)
+        r = self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source, demote=True)
         if not left_out:
             return r
         # D-276 (review S-10): both models read the same excerpts, so their agreement says nothing about a note the
@@ -461,9 +464,14 @@ class NoteJudge:
         source: str = "chunks",
         verify: bool = True,
         primary: LlmClient | None = None,
+        demote: bool = False,
     ) -> NoteResult:
         """Put one note question to the judge (and, when ``verify`` and a verifier is wired, to the verifier) over the
-        given excerpts: the lake's chunks, the full record, the cascade's selected excerpts or an uploaded chart."""
+        given excerpts: the lake's chunks, the full record, the cascade's selected excerpts or an uploaded chart.
+
+        ``demote`` (the screening paths; BENCH-2 §2): when the verifier answered otherwise, the pair's ``unknown``
+        also carries the judge's decided answer as ``kept`` (never affirmed), for the caller to use only where it
+        keeps the patient. The tools that measure the pair leave it off."""
         variables = {
             "criterion_text": criterion_text,
             "note_question": note_question,
@@ -484,8 +492,12 @@ class NoteJudge:
         t_out = first.tokens_out + (second.tokens_out if second else 0)
         opinions = [_opinion("judge", first), _opinion("verifier", second)] if d.disagreement and second else []
         if d.verdict != first.predicate:  # the pair (or the confidence floor) did not keep the judge's answer
+            # the judge's answer as the pair rule would have floored it alone (review: no keep below the minimum)
+            disputed = demote and d.disagreement and bool(opinions) and floor(_vote(first)).verdict in DECIDED
+            kept = replace(first, calls=calls, tokens_in=t_in, tokens_out=t_out, affirmed=False) if disputed else None
             return replace(
                 first,
+                kept=kept,
                 predicate="unknown",
                 confidence=0.0,
                 quote=None,
@@ -637,11 +649,16 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     the verdict's basis (D-478: ``pair`` or ``single``; a single model's "not met" never excludes). A caller that
     does not say (a tool, a test of the judge) leaves the basis unstated, and the run's policy alone decides, as
     before the field. Every screening path says."""
+    k = r.kept
+    if k is not None and keeps(c.kind, k.predicate == "pass"):  # BENCH-2 §2: the verifier demotes, never vetoes a keep
+        r = replace(k, reason=Reason.SECOND_OPINION_DIFFERS.value, opinions=r.opinions, kept=None)
     pred = {"pass": True, "fail": False}.get(r.predicate)
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
     why = r.reason
     affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
+    if pred is None and not_documented(c.kind, why, r.quote):  # BENCH-2 §2: a label, never a tier change
+        why = Reason.NOT_DOCUMENTED.value
     if pred is not None:
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
         # exclusion "present" on a quote that does not state its condition is the models' inference: a person looks,
