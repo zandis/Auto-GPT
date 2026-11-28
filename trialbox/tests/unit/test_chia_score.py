@@ -6,6 +6,15 @@ The text and annotation below are written for this test in Chia's brat form; no 
 
 from __future__ import annotations
 
+import io
+import zipfile
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import httpx
+import pytest
+
 from tools import chia_score
 
 TXT = "No history of asthma or diabetes\nPrior chemotherapy\n"
@@ -49,3 +58,58 @@ def test_the_negation_scope_is_scored_against_the_gold_per_concept() -> None:
     assert (neg["precision"], neg["recall"], neg["f1"]) == (1.0, 1.0, 1.0)
     assert res["lines"] == 3 and res["composite_lines"] == 0
     assert res["entities"] == {"Condition": 2, "Negation": 1, "Drug": 1}
+
+
+def _zip_of_two_pairs() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for stem in ("a", "b"):
+            z.writestr(f"{stem}.txt", "x")
+            z.writestr(f"{stem}.ann", "")
+    return buf.getvalue()
+
+
+def test_an_interrupted_extraction_leaves_no_cache_the_next_run_trusts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "scope"
+    monkeypatch.setattr(chia_score, "CACHE", cache)
+    reply = SimpleNamespace(content=_zip_of_two_pairs(), raise_for_status=lambda: None)
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: reply)
+    real = Path.write_bytes
+    calls: list[Path] = []
+
+    def dying(self: Path, data: bytes) -> int:
+        calls.append(self)
+        if len(calls) == 3:
+            raise OSError("interrupted")
+        return real(self, data)
+
+    with monkeypatch.context() as m:
+        m.setattr(Path, "write_bytes", dying)
+        with pytest.raises(OSError):
+            chia_score.fetch()
+    assert not cache.exists()
+    assert sorted(p.name for p in chia_score.fetch().iterdir()) == ["a.ann", "a.txt", "b.ann", "b.txt"]
+
+
+def test_an_interrupted_write_leaves_the_previous_scores_json_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = tmp_path / "scope"
+    folder.mkdir()
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "scores.json").write_text("previous\n")
+    monkeypatch.setattr(chia_score, "RESULTS", results)
+    monkeypatch.setattr(chia_score, "fetch", lambda: folder)
+    real = Path.write_text
+
+    def dying(self: Path, data: str, *a: Any, **k: Any) -> int:
+        real(self, data[: len(data) // 2], *a, **k)
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(Path, "write_text", dying)
+    with pytest.raises(OSError):
+        chia_score.main()
+    assert (results / "scores.json").read_text() == "previous\n"

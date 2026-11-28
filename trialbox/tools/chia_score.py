@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import shutil
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -39,12 +41,14 @@ def fetch() -> Path:
     if not CACHE.exists():
         r = httpx.get(URL, timeout=300, follow_redirects=True)
         r.raise_for_status()
+        part = CACHE.with_name(CACHE.name + ".part")  # renamed to CACHE once every member is written
+        shutil.rmtree(part, ignore_errors=True)
+        part.mkdir(parents=True)
         with zipfile.ZipFile(io.BytesIO(r.content)) as z:
             for n in z.namelist():
                 if n.endswith((".ann", ".txt")) and "__MACOSX" not in n:
-                    out = CACHE / Path(n).name
-                    out.parent.mkdir(parents=True, exist_ok=True)
-                    out.write_bytes(z.read(n))
+                    (part / Path(n).name).write_bytes(z.read(n))
+        part.rename(CACHE)
     return CACHE
 
 
@@ -133,7 +137,9 @@ def main() -> None:
     ]
     res = score(lines)
     RESULTS.mkdir(parents=True, exist_ok=True)
-    (RESULTS / "scores.json").write_text(json.dumps(res, indent=1) + "\n")
+    part = RESULTS / "scores.json.part"
+    part.write_text(json.dumps(res, indent=1) + "\n")
+    os.replace(part, RESULTS / "scores.json")
     print(json.dumps({k: v for k, v in res.items() if k != "entities"}))
 
 
