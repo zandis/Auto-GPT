@@ -24,6 +24,8 @@ from typing import Any
 
 import yaml
 from tb_contracts import CriterionIR, RulesetManifest
+from tb_contracts.atomicity import check_criterion
+from tb_contracts.criterion_ir import upgrade_v1
 
 from tb_common.config import environment_name
 from tb_common.fhir import library_name
@@ -65,6 +67,8 @@ class Ruleset:
     elm: dict[str, str] = field(default_factory=dict)
     sql: str = ""
     path: Path | None = None
+    # the atomicity lint at load (tb_contracts.atomicity): "<criterion>.<atom>" -> reasons; reported, never refused
+    lint: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def id(self) -> str:
@@ -114,7 +118,10 @@ class Ruleset:
         cql = {Path(p).stem: b.decode("utf-8") for p, b in files.items() if p.startswith("cql/") and p.endswith(".cql")}
         elm = {Path(p).stem: b.decode("utf-8") for p, b in files.items() if p.startswith("cql/elm/")}
         sql = next((b.decode("utf-8") for p, b in files.items() if p.startswith("sql/") and p.endswith(".sql")), "")
-        return cls(manifest, criteria, valuesets, cql, elm, sql, path)
+        lint = {f"{c.id}.{a}": r for c in criteria for a, r in check_criterion(upgrade_v1(c)).items()}
+        if lint:
+            log.info("ruleset %s: %d atoms fail the atomicity lint: %s", manifest.id, len(lint), sorted(lint))
+        return cls(manifest, criteria, valuesets, cql, elm, sql, path, lint)
 
     @classmethod
     def load(cls, directory: Path) -> Ruleset:
