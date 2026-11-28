@@ -103,13 +103,13 @@ FAULTS: tuple[Fault, ...] = (
         (
             Step(
                 "docs/runbook/05-updates-backup-restore-secrets.md",
-                145,
+                155,
                 "`python3 -m tools.trialbox backup-status` shows the newest good off-box backup",
                 ("{py}", "-m", "tools.trialbox", "backup-status", "--deploy", "{deploy}"),
             ),
             Step(
                 "docs/runbook/05-updates-backup-restore-secrets.md",
-                151,
+                161,
                 "Fix the cause, then run `backup-nightly` by hand.",
                 needs="Docker (backup-nightly runs the compose backup container); the drill runs the same nightly "
                 "function with the in-process box's backup writer after the target is back",
