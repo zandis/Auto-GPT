@@ -61,8 +61,8 @@ def test_during_the_install_a_missing_backup_key_is_a_warn_with_the_ceremony_lin
         c = d.check_backup_key(_inp(tmp_path, TB_ENV=env, TB_DOCTOR_INSTALL_PHASE="1"))
         assert c.status == "WARN" and "RUNBOOK" in c.detail and "ceremony" in c.detail, env
         assert d.check_backup_key(_inp(tmp_path, TB_ENV=env)).status == "FAIL", env
-    (c,) = d.strict([d.check_backup_key(_inp(tmp_path, TB_DOCTOR_INSTALL_PHASE="1"))])
-    assert c.status == "FAIL"
+    strict = d.strict([d.check_backup_key(_inp(tmp_path, TB_DOCTOR_INSTALL_PHASE="1"))])
+    assert next(c for c in strict if c.name == "backup_key").status == "FAIL"
     pub = tmp_path / "deploy" / "secrets" / "backup.pub"
     pub.parent.mkdir(parents=True, exist_ok=True)
     pub.write_text("not a key\n", encoding="utf-8")  # there but wrong is no "not yet": FAIL in the install too
