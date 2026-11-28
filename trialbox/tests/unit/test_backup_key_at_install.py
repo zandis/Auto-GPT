@@ -23,6 +23,7 @@ import os
 import pty
 import re
 import select
+import socket
 import stat
 import subprocess
 import sys
@@ -1540,12 +1541,9 @@ def _write_pass(pp: Path) -> None:
     pp.chmod(0o600)
 
 
-def test_a_kill_after_backup_pub_leaves_the_passphrase_file_and_the_next_start_names_it(tmp_path: Path) -> None:
-    """P02/P03 (#1602 fix round, the integrator's ruling; H-08 removed the file before the ceremony and at the next
-    start): the install's passphrase file is removed only once the ceremony has sealed the key, so the installer
-    killed in the ceremony leaves it. The next start does not remove a file it finds beside a sealed key (nothing
-    records it as that key's passphrase): it names it for the operator to remove, unless
-    --keep-kek-passphrase-file."""
+def test_a_kill_after_backup_pub_leaves_no_passphrase_file(tmp_path: Path) -> None:
+    """H-08: the install's passphrase file is removed before the ceremony can make backup.pub: the installer killed
+    right after backup.pub is made (before its next line) leaves no passphrase file beside the sealed key."""
     secrets = tmp_path / "deploy" / "secrets"
     killed = f"cat >/dev/null\n: > {secrets}/backup-key-0000.sealed\n: > {secrets}/backup.pub\nkill -KILL 0\n"
     pp, run = _shell_install(tmp_path, killed)
@@ -1553,7 +1551,18 @@ def test_a_kill_after_backup_pub_leaves_the_passphrase_file_and_the_next_start_n
     _write_pass(pp)
     r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}echo finished\n")
     assert r.returncode < 0 and "finished" not in r.stdout, r.stdout + r.stderr  # killed in the ceremony
-    assert (secrets / "backup.pub").is_file() and pp.exists()  # left over beside the sealed key
+    assert (secrets / "backup.pub").is_file() and not pp.exists()
+
+
+def test_a_supplied_passphrase_file_beside_a_sealed_key_is_kept_and_named(tmp_path: Path) -> None:
+    """P03 (#1602 fix round): a passphrase file an operator supplies to a later start, beside a key sealed already,
+    is not removed there (nothing records it as that key's passphrase): it is named for the operator to remove,
+    and not even named with --keep-kek-passphrase-file."""
+    secrets = tmp_path / "deploy" / "secrets"
+    pp, run = _shell_install(tmp_path, "exit 9\n")
+    (secrets / "backup-key-0000.sealed").touch()
+    (secrets / "backup.pub").touch()
+    _write_pass(pp)
     r = run("echo started\n", keep=True)
     assert r.returncode == 0 and pp.exists() and "started" in r.stdout and "beside" not in r.stdout, r.stderr
     r = run("echo started\n")
@@ -1651,6 +1660,20 @@ def test_a_refused_seal_leaves_the_passphrase_file(tmp_path: Path) -> None:
     assert r.returncode == 0, r.stderr
     assert pp.exists() and f"the passphrase file {pp} stays" in r.stdout and "FAIL: no backup key" in r.stdout
     assert "is removed" not in r.stdout and PASS not in r.stdout + r.stderr
+    assert pp.read_text(encoding="utf-8") == PASS + "\n" and stat.S_IMODE(pp.stat().st_mode) == 0o600
+
+
+def test_a_refused_seal_writes_no_passphrase_over_a_name_now_there(tmp_path: Path) -> None:
+    """R2 (#1602 second fix round): the file is removed before the ceremony and written back after a refusal, made
+    new: a name put there meanwhile (a link, say) is never written through, and the install says the file is gone."""
+    elsewhere = tmp_path / "elsewhere"
+    pp, run = _shell_install(tmp_path, f"cat >/dev/null\nln -s {elsewhere} \"$KP_LINK\"\nexit 1\n")
+    key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
+    _write_pass(pp)
+    r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}", env={"KP_LINK": str(pp)})
+    assert r.returncode == 0, r.stderr
+    assert pp.is_symlink() and not elsewhere.exists() and PASS not in r.stdout + r.stderr
+    assert f"the passphrase file {pp} could not be written back" in r.stdout
 
 
 def test_bash_xtrace_never_shows_the_passphrase(tmp_path: Path) -> None:
@@ -1667,6 +1690,26 @@ def test_bash_xtrace_never_shows_the_passphrase(tmp_path: Path) -> None:
     for name in ("install.sh", "box-install.sh", "hardening/seal_keys.sh"):
         text = (deploy / name).read_text(encoding="utf-8")
         assert -1 < text.find("{ set +x; } 2>/dev/null") < text.find("read -r KP_VALUE"), name
+
+
+@pytest.mark.parametrize(
+    ("fstype", "src"),
+    [("nfs4", "127.0.0.1:/backups"), ("nfs", "localhost:/backups"), ("nfs4", "[::1]:/backups"),
+     ("cifs", "//127.0.0.2/backups"), ("nfs4", "{own}:/backups"), ("nfs4", "{own}.example:/backups")],
+)  # fmt: skip
+def test_the_install_declares_no_share_of_the_box_itself(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fstype: str, src: str
+) -> None:
+    """R3 (#1602 second fix round): a share served by the box itself (a loopback address, localhost or the box's
+    own name) is not off the box: the install's own declaration refuses it; an operator may still declare it."""
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    src = src.format(own=socket.gethostname().split(".")[0])
+    _mounted(tmp_path, monkeypatch, (nas, "0:999", fstype, src, ()))
+    with pytest.raises(bkc.Stop) as got:
+        bkc.declare_target(str(nas), "install", False, {})
+    assert got.value.text is bkc.TARGET_UNDECLARABLE and not (box.pub_dir / bkc.TARGET_RECORD).exists()
+    assert got.value.fill["why"].startswith("a share served by the box itself")
 
 
 @pytest.mark.parametrize(
