@@ -114,7 +114,9 @@ class Translator:
                         messages.append(msg)
                     elif sev == "warning":
                         warnings.append(msg)
-                elm[name] = text
+                # V-18b F2 (D-1183): one JSON value per line, as in the CQL source a criterion's text comment and a
+                # code list sit on separate lines; the translator writes the annotated source on one line
+                elm[name] = json.dumps(json.loads(text), ensure_ascii=False, indent=0) + "\n"
             if messages:
                 raise TranslationError(messages)
             return Translation(elm, warnings)

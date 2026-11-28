@@ -41,6 +41,8 @@ class Reason(StrEnum):
     LOW_CONFIDENCE = "low_confidence"  # the answer was below the minimum confidence
     SINGLE_MODEL = "single_model"  # one model's "not met" with no second model that agreed: a person looks (D-478)
     NOT_FINAL = "not_final"  # a "not met" given while a note answer was not allowed to exclude (D-476, D-478)
+    # ring 0 (D-1072): the notes suggest the patient is not eligible (an exclusion stated and affirmed): review
+    NOTES_SUGGEST_NOT_ELIGIBLE = "notes_suggest_not_eligible"
     MODEL_DOWN = "model_down"  # a model did not answer (outage, timeout, out of schema)
     REFUSED = "refused"  # the gateway refused the call (policy)
     HUMAN = "human"  # a person decides this criterion
@@ -73,6 +75,7 @@ CODES = frozenset(r.value for r in Reason)
 MIN_CONFIDENCE = 0.5
 
 _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
+    (("notes_suggest_not_eligible",), Reason.NOTES_SUGGEST_NOT_ELIGIBLE),  # first: the engine's string says review
     (("not in the snapshot", "not_in_snapshot"), Reason.NOT_IN_SNAPSHOT),
     (("verifier's quote", "verifier quote"), Reason.VERIFIER_QUOTE_MISSING),
     (("disagree",), Reason.DISAGREE),
@@ -186,9 +189,14 @@ LABELS: dict[str, dict[str, str]] = {
         "zh-TW": "僅一次確認（無第二次確認一致）：請查看",
     },
     "not_final": {
-        "en": "the second check was not in force on that run: please look",
-        "ja": "その回は二次確認が有効ではありませんでした：確認してください",
-        "zh-TW": "該次執行未啟用第二次確認：請查看",
+        "en": "the notes may speak against this criterion (not final): please look",
+        "ja": "記録の文章が基準に反する可能性あり（未確定）：確認してください",
+        "zh-TW": "病歷文字可能不利於此條件（未確定）：請查看",
+    },
+    "notes_suggest_not_eligible": {
+        "en": "the notes may speak against this criterion: please confirm",
+        "ja": "記録の文章が基準に反する可能性あり：確認してください",
+        "zh-TW": "病歷文字可能不利於此條件：請確認",
     },
     "model_down": {"en": "not checked (system busy)", "ja": "未確認（システム混雑）", "zh-TW": "未確認（系統忙碌）"},
     "refused": {

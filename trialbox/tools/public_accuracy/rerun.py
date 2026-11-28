@@ -359,6 +359,7 @@ def judge_replies(stored: Stored, job: str) -> dict[str, Any]:
     class _Res:
         def __init__(self, data: Any) -> None:
             self.data, self.call_id, self.build_sha, self.tokens_in, self.tokens_out = data, "replay", "replay", 0, 0
+            self.qualification = ""  # SAFE-1 A1: the judge client reads the label of every reply
 
     class _Client:
         def __init__(self, data: Any) -> None:

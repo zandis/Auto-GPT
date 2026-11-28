@@ -72,7 +72,8 @@
 {% for r in night.rows %}<tr data-stage="{{ r.key }}"><th scope="row">{{ t('job.prefilter.' ~ r.key) }}</th><td>{{ r.removed }}</td><td>{{ r.left }}</td></tr>
 {% endfor %}<tr data-stage="listed"><th scope="row">{{ t('job.prefilter.listed') }}</th><td></td><td>{{ night.listed }}</td></tr></tbody></table>
 {% if night.coded_complete is not none %}<p class="hint" data-testid="night-coded-complete">{{ t('job.prefilter.coded_complete', n=night.coded_complete) }}</p>
-{% endif %}</section>
+{% if night.open_jobs > 1 or night.open_jobs < night.jobs %}<p class="hint" data-testid="night-open-partial">{{ t('job.prefilter.open_partial', k=night.open_jobs, n=night.jobs) }}</p>
+{% endif %}{% endif %}</section>
 {% endif %}{% if recheck %}
 <section class="card" data-testid="recheck-share">
 <h2>{{ t('job.recheck.title') }}</h2>
@@ -89,7 +90,7 @@
 {% if screen.summary %}{% set s = screen.summary %}
 <p data-testid="screen-headline"><strong>{{ t('job.screen.headline', high=s.tiers.high, review=s.tiers.review, scoped=s.scope.n_scoped, excluded=s.tiers.excluded) }}</strong></p>
 <p class="hint">{{ t('job.screen.scope', window=s.scope.window_days, snapshot=s.snapshot, run=s.run_date) }}{% if s.referrals %} · {{ t('job.screen.referrals') }}: {% for d, n in s.referrals.items() %}{{ d }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}</p>
-{% if s.judging and user.is_admin %}<p class="hint" data-testid="screen-judging">{% if s.judging.mode == 'none' %}{{ t('job.screen.judging.none') }}{% elif s.judging.may_block %}{{ t('job.screen.judging.pair', judge=s.judging.judge_model, verifier=s.judging.verifier_model) }}{% else %}{{ t('job.screen.judging.single', judge=s.judging.judge_model) }}{% endif %}</p>{% endif %}
+{% if s.judging and user.is_admin %}<p class="hint" data-testid="screen-judging">{% if s.judging.mode == 'none' %}{{ t('job.screen.judging.none') }}{% elif s.judging.may_block or (s.judging.verifier_model and s.judging.note_block_code == 'configured') %}{{ t('job.screen.judging.pair', judge=s.judging.judge_model, verifier=s.judging.verifier_model) }}{% else %}{{ t('job.screen.judging.single', judge=s.judging.judge_model) }}{% endif %}</p>{% endif %}
 {% if s.funnel %}<div class="scroll" tabindex="0"><table data-testid="screen-funnel" class="compact"><thead><tr><th scope="col">{{ t('col.stage') }}</th><th scope="col">{{ t('col.patients') }}</th><th scope="col"><span class="sr">{{ t('col.bar') }}</span></th></tr></thead>
 <tbody>{% for stage, n in s.funnel %}<tr><td>{{ t_or('stage.' + stage, stage) }}</td><td class="num">{{ n }}</td><td>{% if s.scope.n_scoped is number and s.scope.n_scoped > 0 and n is number %}<progress max="{{ s.scope.n_scoped }}" value="{{ n }}" aria-label="{{ n }}"></progress>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 {% if s.unknown_by_criterion %}<p class="hint">{{ t('job.screen.unknowns') }}: {% for cid, n in s.unknown_by_criterion.items() %}<span class="mono">{{ cid }}</span> ({{ n }}){{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
@@ -97,6 +98,7 @@
 {% if screen.rows is not none %}
 {% if screen.removed %}<p class="hint" data-testid="optout-removed">{{ t('team.optout.removed', n=screen.removed) }}</p>{% endif %}
 {% if not screen.rows %}<p class="hint">{{ t('job.screen.none') }}</p>{% else %}
+{% if screen.against_n %}<p data-testid="against-count"><strong>{{ t('note.against.count', n=screen.against_n) }}</strong></p>{% endif %}
 <p class="hint">{{ t('job.screen.rows.help') }}</p>
 <div class="scroll" tabindex="0"><table data-testid="screen-rows" class="candidates">
 <thead><tr><th scope="col">{{ t('col.tier') }}</th><th scope="col">{{ t('registry.pid') }}</th><th scope="col">{{ t('col.next_visit') }}</th><th scope="col">{{ t('col.practitioner') }}</th><th scope="col">{{ t('col.open') }}</th><th scope="col">{{ t('col.notes') }}</th><th scope="col">{{ t('col.chart') }}</th></tr></thead>
@@ -106,7 +108,7 @@
 <td class="mono"><a href="/pilot/registry/{{ job.ruleset }}#p-{{ r.pid }}" title="{{ r.pid }}">{{ r.pid[:12] }}…</a></td>
 <td class="mono">{{ r.next_appointment or '–' }}</td>
 <td>{{ screen.practitioners.get(r.practitioner, r.practitioner) or '–' }}{% if r.department %} · {{ r.department }}{% endif %}</td>
-<td>{% if r.unknown %}{% for cid in r.unknown %}<span class="mono">{{ cid }}</span>{{ ' ' if not loop.last }}{% endfor %}{% endif %}{% if r.failing %}<br><span class="bad-text">{{ t('job.screen.failing') }}: {% for cid in r.failing %}<span class="mono">{{ cid }}</span>{{ ' ' if not loop.last }}{% endfor %}</span>{% endif %}{% if r.actions %}<br><em>{{ r.actions|join('; ') }}</em>{% endif %}{% if not r.unknown and not r.failing and not r.actions %}–{% endif %}</td>
+<td>{% if r.unknown %}{% for cid in r.unknown %}<span class="mono">{{ cid }}</span>{{ ' ' if not loop.last }}{% endfor %}{% endif %}{% if r.failing %}<br><span class="bad-text">{{ t('job.screen.failing') }}: {% for cid in r.failing %}<span class="mono">{{ cid }}</span>{{ ' ' if not loop.last }}{% endfor %}</span>{% endif %}{% for cid in r.against %}<br><span class="pill warn" data-testid="against-{{ r.pid[:8] }}-{{ cid }}">{{ t('note.against', criterion=cid) }}</span>{% endfor %}{% if r.actions %}<br><em>{{ r.actions|join('; ') }}</em>{% endif %}{% if not r.unknown and not r.failing and not r.actions %}–{% endif %}</td>
 <td class="wrap">{% for q in r.quotes %}<blockquote class="quote"><span class="mono">{{ q.id }}</span> {{ t('verdict.' + q.verdict) }}{% if q.date %} · {{ q.date }}{% endif %}<br>“{{ q.quote }}”</blockquote>{% else %}–{% endfor %}</td>
 <td>{% if r.pid in screen.revealed %}{% if screen.revealed[r.pid] %}<span class="mono" data-testid="mrn">{{ screen.revealed[r.pid] }}</span>{% else %}<span class="hint">{{ t('job.screen.no_map') }}</span>{% endif %}{% elif sess.user.sees_ids(job.ruleset) or breakglass %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/reveal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pid" value="{{ r.pid }}"><label class="inline">{{ t('reveal.reason') }} <select name="reason" required data-testid="reveal-reason"><option value="">{{ t('mark.reason.choose') }}</option>{% for k in ['contact', 'eligibility', 'consent', 'other'] %}<option value="{{ k }}">{{ t('reveal.reason.' ~ k) }}</option>{% endfor %}</select></label> <input name="note" maxlength="200" aria-label="{{ t('reveal.note') }}" placeholder="{{ t('reveal.note') }}" data-testid="reveal-note"><button type="submit" class="small secondary" data-testid="reveal">{{ t('job.screen.reveal') }}</button></form>{% else %}<span class="hint">{{ t('job.screen.reveal.coordinator') }}</span>{% endif %}</td>
 </tr>{% endfor %}

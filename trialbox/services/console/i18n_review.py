@@ -17,7 +17,7 @@ EN: dict[str, str] = {
     "ex.col.evidence": "Evidence",
     "ex.src.coded": "the coded records",
     "ex.src.fact": "a confirmed fact",
-    "ex.src.notes": "the notes, both models agreed",
+    "ex.src.notes": "the notes, which may speak against the criterion",
     "ex.src.rule": "a rule of the run",
     "ex.src.records": "the records (whether a person confirmed them could not be read)",
     "ex.unread.facts": "For this run it could not be read whether an answer came from a fact that a person "
@@ -49,6 +49,8 @@ EN: dict[str, str] = {
     # T-507 (D-309): criterion words in the page language, the label step at approval, the test model
     "crit.original": "As written in the protocol",
     # T-515 (D-323, review UX-007): where a first or second check came from, and what the two checks are
+    "note.against": "A note may speak against {criterion}. Not excluded. Please check.",
+    "note.against.count": "Patients with a note that may speak against a criterion: {n}. None is excluded.",
     "opinion.explain": "First check and second check: two different models read the same notes, each on its own. "
     "When they disagree the answer stays unknown and a person decides.",
     "opinion.disagree": "the two checks disagree",
@@ -60,6 +62,9 @@ EN: dict[str, str] = {
     "model.test": "test model",
     "model.test.why": "This answer comes from the test model, which gives fixed answers to the demonstration notes. "
     "It says nothing about how well a real model reads notes.",
+    "model.unqualified": "model not qualified on this hardware",
+    "model.unqualified.why": "The model pair that read the notes has no qualification record on this box yet. It is "
+    "triage only: a person decides on every patient.",
     "s20.labels.missing": "Give a short label in {language} to the {n} criteria marked below before approving; "
     "the lists show the label with the study's own words.",
     "s20.label.missing": "No label in {language} yet",
@@ -81,7 +86,7 @@ JA: dict[str, str] = {
     "ex.col.evidence": "根拠",
     "ex.src.coded": "コード化データ（病名・検査・処方）",
     "ex.src.fact": "確認済みの情報",
-    "ex.src.notes": "カルテ記載（2 つのモデルが一致）",
+    "ex.src.notes": "カルテ記載（基準に反する可能性）",
     "ex.src.rule": "処理の規則",
     "ex.src.records": "記録（人が確認したかどうかは読めませんでした）",
     "ex.unread.facts": "この処理では、判断が人が確認した情報によるものかどうかを読めませんでした。"
@@ -111,6 +116,8 @@ JA: dict[str, str] = {
     "confirm.approve_all": "{n} 件の基準をまとめて承認しますか？各基準があなたの氏名で承認として記録されます。",
     "crit.original": "プロトコルの原文",
     # T-515 (D-323): 1回目・2回目の確認の出どころ
+    "note.against": "記録の文章が{criterion}に反する可能性があります。除外していません。確認してください。",
+    "note.against.count": "記録の文章が基準に反する可能性がある患者：{n}名。いずれも除外していません。",
     "opinion.explain": "1回目の確認と2回目の確認：異なる 2 つのモデルが同じ記録をそれぞれ独立に読みます。"
     "読み取りが分かれたときは「不明」のままとし、担当者が判断します。",
     "opinion.disagree": "2 つの確認で読み取りが分かれています",
@@ -123,6 +130,9 @@ JA: dict[str, str] = {
     "model.test": "テスト用モデル",
     "model.test.why": "この回答は、デモ用の記録に固定の回答を返すテスト用モデルによるものです。"
     "実際のモデルがカルテ記載をどの程度正しく読めるかは示しません。",
+    "model.unqualified": "このハードウェアで適格性未確認のモデル",
+    "model.unqualified.why": "カルテ記載を読んだモデルの組には、この環境での適格性確認の記録がまだありません。"
+    "候補の振り分けのみに使い、判断はすべて人が行います。",
     "s20.labels.missing": "承認の前に、下の印のある {n} 件の基準に{language}の短い表示名を付けてください。"
     "一覧では表示名と試験の原文が並べて表示されます。",
     "s20.label.missing": "{language}の表示名がまだありません",
@@ -142,7 +152,7 @@ ZH: dict[str, str] = {
     "ex.col.evidence": "依據",
     "ex.src.coded": "編碼病歷",
     "ex.src.fact": "已確認的資料",
-    "ex.src.notes": "病歷文字（兩個模型一致）",
+    "ex.src.notes": "病歷文字（可能不利於該條件）",
     "ex.src.rule": "作業的規則",
     "ex.src.records": "病歷紀錄（是否經人員確認，無法讀取）",
     "ex.unread.facts": "這次作業無法讀取判斷是否來自人員確認的資料；這類判斷標示為「病歷紀錄」。",
@@ -169,6 +179,8 @@ ZH: dict[str, str] = {
     "confirm.approve_all": "要一次核准全部 {n} 項條件嗎？每項條件都會以您的姓名記錄為已核准。",
     "crit.original": "計畫書原文",
     # T-515 (D-323)：第一次與第二次確認的來源
+    "note.against": "病歷文字可能不利於{criterion}。未排除。請確認。",
+    "note.against.count": "病歷文字可能不利於某項條件的病人：{n} 位。皆未排除。",
     "opinion.explain": "第一次確認與第二次確認：兩個不同的模型各自獨立閱讀同一份紀錄。"
     "兩者判斷不一致時，結果維持「不明」，由人員判斷。",
     "opinion.disagree": "兩次確認的判斷不一致",
@@ -178,6 +190,8 @@ ZH: dict[str, str] = {
     "opinion.src.recorded.why": "以實際的模型組合閱讀示範用紀錄後所記錄的結果，並非在此系統上回答。",
     "model.test": "測試用模型",
     "model.test.why": "此回答來自測試用模型，它對示範用紀錄回傳固定答案，無法說明實際模型閱讀病歷的能力。",
+    "model.unqualified": "模型尚未在此硬體完成資格驗證",
+    "model.unqualified.why": "閱讀病歷的模型組合在此系統上尚無資格驗證紀錄。僅用於初步分流，每位病人都由人員判斷。",
     "s20.labels.missing": "核准前，請為下方標示的 {n} 項條件加上{language}簡短標籤；名單會將標籤與試驗原文並列顯示。",
     "s20.label.missing": "尚無{language}標籤",
     "s20.label.shipped": "此標籤隨試驗條件提供；可直接儲存或修改。",

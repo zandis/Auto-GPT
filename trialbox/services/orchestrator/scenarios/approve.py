@@ -7,7 +7,7 @@ from datetime import date
 from typing import Any
 
 from criteria_compiler.semantics import human_heavy
-from tb_common.ruleset import Ruleset, RulesetNotApproved, load_approved
+from tb_common.ruleset import Ruleset, RulesetNotApproved, RulesetReadIncomplete, load_approved
 from tb_common.steptime import COMPILER_STEPS, StepClock, numbers_only
 from tb_contracts import ApproveRequest, JobFile
 
@@ -52,7 +52,7 @@ def amendment_options(options: dict[str, str]) -> dict[str, Any]:
 def _approved(ctx: Ctx, ruleset: str, version: str) -> Ruleset | None:
     try:
         return load_approved(ctx.rulesets_dir, ruleset, version)
-    except RulesetNotApproved:
+    except (RulesetNotApproved, RulesetReadIncomplete):  # INTR3A-09: a damaged copy is replaced by the approval
         return None
 
 

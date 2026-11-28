@@ -517,6 +517,20 @@ class CodedValue(BaseModel):
     comparator: str | None = None
 
 
+class Need(BaseModel):
+    """
+    H-7 (REAL2): what the site must supply for an open answer: the view and the field of the site mapping template (demo_his) the reason points at, and the concept the criterion reads (its value set, or a score and its missing input). Absent on a decided answer and on one a person decides.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    view: str
+    field: str
+    concept: str
+
+
 class Evidence(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -527,6 +541,10 @@ class Evidence(BaseModel):
     quote_date: str | None = None
     confidence: float | None = None
     reason: str | None = None
+    qualification: Literal["unqualified"] | None = None
+    """
+    SAFE-1 A1: unqualified when a model behind this answer holds no qualification record for its weights on this box (it ran, labelled). Absent: qualified, or no model answered.
+    """
     opinions: list[Opinion] | None = None
     """
     When the two checks disagree (D-120): each model's answer and its quote, so a person sees both.
@@ -538,6 +556,10 @@ class Evidence(BaseModel):
     coded: list[CodedValue] | None = None
     """
     T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.
+    """
+    needs: Need | None = Field(None, title="Need")
+    """
+    H-7 (REAL2): what the site must supply for an open answer: the view and the field of the site mapping template (demo_his) the reason points at, and the concept the criterion reads (its value set, or a score and its missing input). Absent on a decided answer and on one a person decides.
     """
 
 

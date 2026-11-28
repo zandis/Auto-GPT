@@ -473,6 +473,7 @@ def test_the_cascade_judge_validates_the_answer_against_the_schema() -> None:
     class Res:
         def __init__(self, data: Any) -> None:
             self.data, self.call_id, self.build_sha, self.tokens_in, self.tokens_out = data, "c1", "b", 1, 1
+            self.qualification = ""
 
     class Client:
         def __init__(self, data: Any) -> None:

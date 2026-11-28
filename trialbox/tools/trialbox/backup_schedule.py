@@ -131,6 +131,15 @@ Audit = Callable[[str, dict[str, Any]], None]
 
 
 # ------------------------------------------------------------------------------------------------ files
+def key_how(production: bool) -> str:
+    """How a box without a backup key gets one (E2E P-01): ``trialbox backup-keygen`` is refused on a PRODUCTION box
+    (rc1's key ceremonies), which makes its key at install."""
+    if production:
+        return ("a PRODUCTION box makes it at install: as root on the box, python3 -m tools.backup_key_ceremony "
+                "--install (RUNBOOK §5)")  # fmt: skip
+    return "trialbox backup-keygen with hospital IT (RUNBOOK §5)"
+
+
 def safe(s: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "-" for c in s)[:40] or "box"
 
@@ -900,7 +909,7 @@ def nightly(
     elif not cfg.targets:
         errors.append("no backup target: set TB_BACKUP_TARGETS in deploy/.env (RUNBOOK §5)")
     elif not cfg.public_key.is_file():
-        errors.append(f"no backup key {cfg.public_key}: trialbox backup-keygen with hospital IT (RUNBOOK §5)")
+        errors.append(f"no backup key {cfg.public_key}: {key_how(cfg.production)}")
     elif space := _free_space_errors(cfg, prev):
         errors += space
     else:
@@ -1850,7 +1859,7 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
     if not first:
         return 0
     if not cfg.public_key.is_file():
-        print("first backup: not yet: no backup key (trialbox backup-keygen with hospital IT, RUNBOOK §5); "
+        print(f"first backup: not yet: no backup key ({key_how(cfg.production)}); "
               "the cron runs it every night from then on")  # fmt: skip
         return 0
     rc = main_nightly(deploy)

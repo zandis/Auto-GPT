@@ -181,3 +181,24 @@ def test_a_weekly_job_writes_night_open_beside_its_record_counts_only(monkeypatc
     assert rows[(NOTE, "no_notes", "notes")] == 1
     assert all(w in open_reasons.WHERES and c.startswith("GZQO-") for c, _, w in rows)  # every open one is named
     assert "P-" not in json.dumps(box.job.metrics.model_dump(mode="json"))
+
+
+def test_the_night_keeps_each_jobs_figures_apart_and_counts_the_jobs_that_wrote_them() -> None:
+    night = date(2026, 10, 5)
+    a = NightOpen(
+        coded_complete=3, open_reasons=[OpenReason(criterion="N-1", reason="no_notes", where="notes", count=3)]
+    )
+    b = NightOpen(
+        coded_complete=1,
+        open_reasons=[
+            OpenReason(criterion="N-1", reason="no_notes", where="notes", count=1),
+            OpenReason(criterion="S-2", reason="data_gap", where="medication", count=2),
+        ],
+    )
+    jobs = [_job("GZQO", night, a, listed=3), _job("GZQO", night, None, listed=1), _job("GZQO", night, b, listed=1)]
+    f = prefilter.night_funnel(jobs, "GZQO", night)
+    assert f is not None and f.jobs == 3
+    assert f.job_complete == (3, 1)  # two of the three jobs wrote the figure: one number per job
+    assert f.job_open == ((3, 1), (0, 2))  # per row of open_reasons (N-1, then S-2): one count per such job
+    old = prefilter.night_funnel([_job("GZQO", night, None, listed=3)], "GZQO", night)
+    assert old is not None and old.job_complete == () and old.job_open == ()

@@ -193,6 +193,9 @@ KP_WHO=box-install
 # and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
 # (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
 # exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+{ set +x; } 2>/dev/null  # P04 (#1602 fix round): bash -x (xtrace) would print the passphrase; off from here on
+set +a  # H-09 (seventh review): bash -a (allexport) would export every assignment below
+unset KP_VALUE KP_FILE kp_again  # H-09: a caller's export of these is dropped here (an assignment keeps an export)
 KP_VALUE=""; KP_FILE=""
 kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped

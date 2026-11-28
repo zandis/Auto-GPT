@@ -38,7 +38,7 @@ Every resource also gives its `id` and its `meta` (the row provenance and the ba
   `atc`; the first other coding is the national code (STD-014).
 - **The therapy period** of an order, in this order: `dosageInstruction[0].timing.repeat.boundsPeriod`, then
   `dispenseRequest.validityPeriod`, then `authoredOn` plus `dispenseRequest.expectedSupplyDuration` (days or weeks
-  only). A statement's period is its `effectivePeriod` (STD-012).
+  only; the end is the last covered day, the start plus the days less one). A statement's period is its `effectivePeriod` (STD-012).
 - **Lab units.** A `valueQuantity` is compared in the criterion's unit. The same unit is used as it is. A unit of
   the same kind converts by definition, for any analyte: g/L and g/dL, 10*4/uL and 10*9/L, ng/mL and ug/L, U/L and
   mU/mL, within a factor of 1,000 (D-418). Creatinine, CRP, ESR, weight and height also convert with their own

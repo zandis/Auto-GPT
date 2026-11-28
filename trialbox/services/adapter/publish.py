@@ -113,6 +113,64 @@ class NothingToPublish(RuntimeError):
     """No held night of that date is on the box."""
 
 
+class TwoPeopleOneChart(RuntimeError):  # review M2: never caught as no held night
+    """H34-06: the held night has a chart number that arrived as two people; it is never published as it stands."""
+
+
+def refuse_two_people(cfg: AdapterConfig, snap: str, folder: Path) -> None:
+    """H34-06: :class:`TwoPeopleOneChart` when the held night's folder lists a chart number that arrived as two
+    people within the night (``adapter.pipeline.IDENTITY_CONFLICT``, ``tonight``): an accept would serve one of them
+    under the other's chart. A change against the served night alone (``against``) is the steward's to accept.
+    A file that cannot be read refuses too, and so does a night the check never ran on (no file and no
+    ``IDENTITY_CHECKED``: held by an earlier release, or by a run that stopped before the check; review M1), and so
+    does a night compared with another served night than the one served now (review P04: it is run again, so
+    compared with the night it would follow)."""
+    from adapter.pipeline import IDENTITY_CHECKED, IDENTITY_CONFLICT, merge_base, refuse_future_night
+
+    try:
+        checked = json.loads((folder / IDENTITY_CHECKED).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise TwoPeopleOneChart(
+            "the identity check (one chart number arriving as two people) never ran on this night: it was held by an "
+            "earlier release or its run stopped before the check. Run the night again, then decide on it"
+        ) from None
+    except (OSError, ValueError):
+        checked = None
+    if not isinstance(checked, dict):
+        raise TwoPeopleOneChart(f"the identity check's record of this night ({IDENTITY_CHECKED}) cannot be read")
+    try:
+        tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
+    except FileNotFoundError:
+        tonight = False
+    except (OSError, ValueError, AttributeError):
+        tonight = True
+    if tonight:
+        raise TwoPeopleOneChart(
+            f"a chart number of this night arrived as two different people ({IDENTITY_CONFLICT}): it cannot be "
+            "accepted as it stands. Reject it, correct the chart at the source and run the night again"
+        )
+    now = _current(cfg.lake_dir)
+    if now is not None and now > snap:
+        return  # a newer night is served: publish_night refuses it in its own words (review HIGH-1)
+    try:
+        from zoneinfo import ZoneInfo
+
+        refuse_future_night(snap, datetime.now(ZoneInfo(cfg.tz)).date())
+    except ValueError:
+        return  # dated after today: publish_night refuses it in its own words (D-529)
+    if checked.get("snapshot") != snap or not {"against", "current"} <= checked.keys():  # #1561 P02
+        raise TwoPeopleOneChart(
+            f"the identity check's record ({IDENTITY_CHECKED}) does not name this night and the served nights it "
+            "was compared with: run the night again, then decide on it"
+        )
+    if checked["against"] != merge_base(cfg.lake_dir, snap) or now not in (checked["current"], snap):
+        # ``snap``: its own accept, resumed
+        raise TwoPeopleOneChart(
+            "another night was served since this night's identity check compared it with the served one: run the "
+            "night again (it is compared with the night served now), then decide on it"
+        )
+
+
 class RecoveryBusy(RuntimeError):
     """Another live process holds ``fhir.lock``: a publish or a recovery runs. Refused, never queued."""
 
@@ -1126,9 +1184,12 @@ def publish_held(
     """The steward's accept (T-723, D-489): publish the held night's folder as it stands, with the same function a
     night that passed the gate goes through. The gate's verdict is what the steward overrode; the lake's own
     refusal of the data (D-271) still stands."""
+    from adapter import validation_baseline
     from adapter.pipeline import merge_base
 
     folder = held_folder(cfg, snap)
+    refuse_two_people(cfg, snap, folder)  # H34-06
+    accepted = validation_baseline.read_night(folder)  # TOL-HOLDS (SAFE-1 A5): before the publish moves the folder
     try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
         since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
         full: bool | None = not since
@@ -1139,6 +1200,8 @@ def publish_held(
         from adapter import full_nights
 
         full_nights.completed(cfg.lake_dir, snap, full=full)
+    if out.ok and out.promoted:  # the steward accepted these classes at these rates: later nights are judged so
+        validation_baseline.accept(cfg.lake_dir, accepted)
     return out
 
 
@@ -1152,6 +1215,7 @@ __all__ = [
     "NothingToPublish",
     "Published",
     "RecoveryBusy",
+    "TwoPeopleOneChart",
     "derive",
     "fingerprint",
     "finish_served",
@@ -1164,6 +1228,7 @@ __all__ = [
     "recover",
     "recover_all",
     "refuse_split",
+    "refuse_two_people",
     "restore",
     "settle",
     "verify_fhir",

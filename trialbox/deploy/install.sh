@@ -83,7 +83,7 @@ cd "$ROOT"
 ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0; REHEARSAL=0
-ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
+CONSENT_PROXY=""; CONSENT_PROXY_SET=0; ALL_QUESTIONS=0; ENVIRONMENT=""; SSH_OFF_OVER_SSH=0; REAL_SERVERS=0; GPU_INDEX=""; ENGINE_PROBE=""; MODEL_PACK=""
 TEST_BOX=""; TEST_BOX_SET=0; PORT_OFFSET=""; TEST_GPUS=""; TEST_GPU_MEM=""  # H-106: the command line's only, never a caller's
 # ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
 # the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
@@ -210,6 +210,7 @@ while [ $# -gt 0 ]; do
     --rehearsal) REHEARSAL=1 ;;
     --all-questions) ALL_QUESTIONS=1 ;;  # the vendor's: the settings wizard's every question, in place of the four (M1)
     --environment) ENVIRONMENT="$2"; shift ;;
+    --consent-proxy) CONSENT_PROXY_SET=1; case "${2-}" in --*) ;; *) CONSENT_PROXY="${2-}"; [ $# -lt 2 ] || shift ;; esac ;;  # P-23: consent by a representative and assent (CONSENT-PROXY); no value: kept and warned there
     --ssh-off-over-ssh) SSH_OFF_OVER_SSH=1 ;;
     --keep-poc-list) ;;  # H-94: box-install.sh's run keeps the list box-install.sh began (read above)
     --model-pack) MODEL_PACK="$2"; shift ;;  # H-95: the model pack the software pack needs (else found beside it)
@@ -302,6 +303,9 @@ KP_WHO=install
 # and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
 # (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
 # exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+{ set +x; } 2>/dev/null  # P04 (#1602 fix round): bash -x (xtrace) would print the passphrase; off from here on
+set +a  # H-09 (seventh review): bash -a (allexport) would export every assignment below
+unset KP_VALUE KP_FILE kp_again  # H-09: a caller's export of these is dropped here (an assignment keeps an export)
 KP_VALUE=""; KP_FILE=""
 kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped
@@ -399,6 +403,13 @@ elif [ -n "$PP_FD" ]; then
   eval "exec $PP_FD<&-"
   kp_check_value "the installer's hand-on"
   KP_FILE="$PP_REMOVE"  # the operator's file the first run read: removed once sealed, never opened here
+fi
+# P03 (#1602 fix round; H-08 removed it): a passphrase file found beside a sealed backup key (an install stopped
+# after sealing it) is not removed here, since nothing records it as that key's passphrase: it is named, for the
+# operator to remove, unless --keep-kek-passphrase-file
+if [ -n "$KP_FILE" ] && [ "$PP_KEEP" = 0 ] && [ -f "$ROOT/deploy/secrets/backup.pub" ] \
+    && compgen -G "$ROOT/deploy/secrets/backup-key-*.sealed" >/dev/null; then
+  echo "    the passphrase file $KP_FILE is beside a sealed backup key: it is not removed here (nothing records it as that key's passphrase); once no step needs it, remove it: rm -- $KP_FILE"
 fi
 # ---- end of KEK-INPUT
 # ENV-EARLY (D-1365, re-check of #1175): an environment that is not one of the four stops here, at argument parsing,
@@ -632,6 +643,10 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;  # H-94 (2): a draft, unmeasured profile is not shown to run on any card
 esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) stop_or_warn gpu-value "$GPU_STUB" "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default"; coded_only ;; esac  # D-1091
+# SAFE-1 A1: said at the start, never at the end: with no shipped record the pair runs, labelled "unqualified"
+if [ "$MODE" = gpu ] && ! ls "$ROOT/deploy/qualification/$GPU/"*.json >/dev/null 2>&1; then
+  say "model pair: no shipped qualification record for profile $GPU: the pair will run labelled unqualified (RUNBOOK §11)"
+fi
 # REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
 # check, so a site box is refused before any allowance), and the one card named carries the pair. The GPU check then
 # runs under the mark: the driver below the minimum is a WARN only with a passed probe of this card, this driver and
@@ -1123,7 +1138,32 @@ grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
 TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
 TB_ENV_SITE="$(tb_env_raw deploy/.env)"  # H94-08: as compose reads it (the line above is master's; tests pin its place)
 envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
-envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# the whole edited file, written beside it with its mode and owner, then renamed over it: deploy/.env is old or new,
+# never without the setting; every line ends in a newline (review R2 and R3 of #1572; box.sh's envset, H-142)
+envset() {
+  local t
+  t="$(mktemp deploy/.env.XXXXXX)" || return 1
+  if { awk -v k="$1=" 'index($0, k) != 1' deploy/.env && printf '%s=%s\n' "$1" "$2"; } > "$t" \
+      && chmod --reference=deploy/.env "$t" && chown --reference=deploy/.env "$t" && mv -f "$t" deploy/.env; then
+    return 0
+  fi
+  rm -f "$t"
+  return 1
+}
+# CONSENT-PROXY (E2E P-23; the integrator's ruling): consent by a legally authorised representative, and assent, are
+# a site's choice at install (dementia and paediatric trials need them): --consent-proxy on|off writes TB_CONSENT_PROXY.
+# Not given: the box keeps what deploy/.env says (the plan writes "on" for a country whose profile asks for it, D-1232),
+# else off. Typed in another case or with spaces, it is read; another word, or none, keeps the box's setting (else off)
+# and warns (review B1/R1 of #1572: CLINICAL TOLERANCE, not a stop)
+_cp="${CONSENT_PROXY//[[:space:]]/}"; _cp="${_cp,,}"
+case "$_cp" in
+  on|off) envset TB_CONSENT_PROXY "$_cp"; echo "    consent by a representative: $_cp (--consent-proxy)" ;;
+  *) if [ "$CONSENT_PROXY_SET" = 1 ]; then
+       _was="$(envget TB_CONSENT_PROXY)"; _why="this box's setting"; [ -n "$_was" ] || { _was=off; _why="the default"; }
+       echo "WARN: --consent-proxy takes on or off, not '$CONSENT_PROXY': consent by a representative stays $_was ($_why); to set it, run the install again with --consent-proxy on (or --consent-proxy off)" >&2
+     fi ;;
+esac
+# ---- end of CONSENT-PROXY
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
 # and `trialbox` command reads them there. No unit, timer or cron file of the host's is a test box's (TB_SYSTEMD=0)
 if [ -n "${TEST_BOX:-}" ]; then
@@ -1650,9 +1690,12 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
     *) echo "    note: no record of the KEK back end in deploy/site/kek-backend (above): deploy/.env not changed" >&2 ;;
   esac
 fi
-KP_VALUE=""
-[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
-KP_FILE=""
+# E2E P-01 (the integrator's ruling (1) of 2026-11-27: the KEK comes from the install passphrase): an install with no
+# terminal seals the PRODUCTION backup key under this passphrase (the backup key step below), so there it is kept
+# until then, in this shell only (never exported), and cleared there; a passphrase file the seal step did not remove
+# goes on with it, removed there once the key is sealed with it (M-02 of the second review), else said "not used" there
+{ : </dev/tty; } 2>/dev/null && KP_VALUE=""
+[ -n "$KP_VALUE" ] || { [ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"; KP_FILE=""; }
 
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 # D-1091: protects none of the five; on a PoC box the database steps after it fail where they run
@@ -1869,7 +1912,7 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
   elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
     echo "    rehearsal box: the pair is the media's placeholder pins (candidate, never promoted); nothing to qualify"
   elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
-    FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
+    :  # SAFE-1 A1: not a FAIL, and said at the start of the install: the release's pinned pair runs, labelled
   fi
   set -e
 fi
@@ -1882,7 +1925,52 @@ else
   echo "$SHEET_OUT" | tail -5 | sed 's/^/    /' >&2
   FAILS+=("network sheet not written (python -m tools.network_sheet, error above)")
 fi
-[ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
+# E2E P-01 (the integrator's ruling Q1, 2026-11-27): a PRODUCTION box makes its backup key here, as root. On a
+# terminal the paper copy is shown once (never in a log or a file) for hospital IT to keep sealed, the screen is
+# cleared, and backup.pub is made only once IT has typed the whole copy back. With no terminal (an unattended install)
+# the key is sealed under the install's KEK passphrase (ruling (1)), handed on stdin, never an argument or the
+# environment. backup-keygen stays refused on PRODUCTION (rc1), so nothing here names it
+case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" in DEV|TEST|VALIDATION)
+  [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2 ;;
+*)
+  # M-06 (third review): TEST_BOX left in a PRODUCTION install's environment is ignored here, and said
+  [ -z "${TEST_BOX:-}" ] || echo "install: note: TEST_BOX is ignored on a PRODUCTION install: the backup key step runs" >&2
+  if [ ! -f deploy/secrets/backup.pub ]; then
+    if { : </dev/tty; } 2>/dev/null; then
+      say "backup key: made now, shown once on this terminal"
+      PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install \
+        || FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+    elif [ -n "$KP_VALUE" ]; then
+      say "backup key: made now, sealed under the install's KEK passphrase (no terminal)"
+      # P-01 (fifth review): the sealed copy goes only to the declared off-box target; the install declares
+      # TB_BACKUP_OFFBOX (deploy/.env) when the box has none, and never replaces a declaration
+      KP_OFFBOX=""
+      [ -f deploy/secrets/backup-target.json ] || KP_OFFBOX="$(envget TB_BACKUP_OFFBOX)"
+      case "$KP_OFFBOX" in \"*\"|\'*\') KP_OFFBOX="${KP_OFFBOX:1:${#KP_OFFBOX}-2}" ;; esac  # M-17: only outer quotes
+      if [ ! -f deploy/secrets/backup-target.json ] && { [ -z "$KP_OFFBOX" ] || ! PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --declare-backup-target "$KP_OFFBOX" --operator install; }; then
+        FAILS+=("no backup key: no off-box backup target is declared (TB_BACKUP_OFFBOX in deploy/.env: ${KP_OFFBOX:-not set}${KP_OFFBOX:+, refused above}); no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --declare-backup-target <folder> --operator <name>, then python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+      else
+        # P02 and R1/R3 (#1602 fix rounds): the passphrase file is the only copy of the KEK passphrase until the ceremony
+        # has sealed the key and read it back (exit 0): it is removed only then, and any refusal or kill leaves it
+        if printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin; then
+          if [ -n "$KP_FILE" ]; then
+            if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
+            else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
+          fi
+        else
+          FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+          [ -z "$KP_FILE" ] || echo "    the passphrase file $KP_FILE stays (the backup key was not sealed): the next install needs it"
+        fi
+        KP_FILE=""
+      fi
+    else
+      FAILS+=("no backup key: an install with no terminal seals it under the install's KEK passphrase, and none was given (--kek-passphrase-file); no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+    fi
+  fi ;;
+esac
+KP_VALUE=""
+[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
+KP_FILE=""
 # T-117b (D-274): the backup cron (/etc/cron.d/trialbox-backup), WAL archiving when the db image carries pgBackRest
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
 # TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page, D-735); `trialbox

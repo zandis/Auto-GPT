@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from matching import decision
 from matching.cascade.judge import verify_span
-from matching.note_answer import INFERRED_REASON, note_answer_may
+from matching.note_answer import INFERRED_REASON, NOTES_SUGGEST_REASON, note_answer_may
 from orchestrator.scenarios.evaluate import NoteJudge, is_pair, note_verdict, tier
 from orchestrator.scenarios.screen_cascade import OrchestratorJudge, verdict_of
 from tb_common.quotes import as_in, unwrap
@@ -109,11 +109,12 @@ def test_the_one_rule_sends_each_to_review(case: str, text: str, record: str, qu
     assert may.effect == "review" and may.reason == INFERRED_REASON
 
 
-def test_control_an_affirmative_quote_still_excludes_on_both_paths() -> None:
+def test_control_an_affirmative_quote_is_a_not_met_for_review_on_both_paths() -> None:
     _, text, record, quote = CONTROL
-    assert _v1(text, record, quote) == "excluded"
+    assert _v1(text, record, quote) == "review"  # D-1072 (ring 0): it excluded before
     o, t = _cascade(text, record, quote)
-    assert o.status == "fail" and o.hard and t == "excluded"
+    assert o.status == "fail" and not o.hard and t == "review"
+    assert o.reason == NOTES_SUGGEST_REASON
 
 
 def test_a_stored_row_is_read_by_the_same_rule() -> None:

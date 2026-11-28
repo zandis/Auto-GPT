@@ -50,7 +50,14 @@ def night_card(
     drops = prefilter.STAGES[:-1]  # the last stage is what is left: listed
     rows = [{"key": s, "removed": f.drops[s], "left": f.remaining[i + 1]} for i, s in enumerate(drops)]
     return {"study": f.ruleset, "date": night.isoformat(), "jobs": f.jobs, "in_scope": f.in_scope,
-            "rows": rows, "listed": f.listed, "coded_complete": f.coded_complete}  # fmt: skip
+            "rows": rows, "listed": f.listed, "coded_complete": _by_job(f.job_complete) if f.job_complete else None,
+            "open_jobs": len(f.job_complete)}  # fmt: skip
+
+
+def _by_job(nums: tuple[int, ...]) -> str:
+    """One number per job that wrote the figure, never their sum: a patient two jobs of the night both evaluated is
+    in each (``NightFunnel.job_complete``)."""
+    return " / ".join(str(n) for n in nums)
 
 
 def _funnel(job: Any, list_jobs: Callable[..., list[Any]], limit: int) -> prefilter.NightFunnel | None:
@@ -95,6 +102,7 @@ def open_cards(
         f = _funnel(newest[rid], list_jobs, limit)
         if f is None or f.coded_complete is None:
             continue
+        by_job = {k[:3]: jo for k, jo in zip(f.open_reasons, f.job_open, strict=True)}
         ordered = sorted(f.open_reasons, key=lambda o: (_KIND_ORDER[open_reasons.kind_of(o[1])], o[0], o[1]))
         rows = [
             {
@@ -103,16 +111,18 @@ def open_cards(
                 "label": label(r, lang) or r,
                 "kind": open_reasons.kind_of(r),
                 "where": w,
-                "count": n if counts else None,
+                "count": _by_job(by_job[(c, r, w)]) if counts else None,
             }
-            for c, r, w, n in ordered
+            for c, r, w, _ in ordered
         ]
         out.append(
             {
                 "study": f.ruleset,
                 "date": f.run_date.isoformat(),
                 "rows": rows,
-                "coded_complete": f.coded_complete if counts else None,
+                "coded_complete": _by_job(f.job_complete) if counts else None,
+                "jobs": f.jobs,
+                "open_jobs": len(f.job_complete),
             }
         )
     return out

@@ -106,7 +106,8 @@ class Route:
     """``mode``: ``mask`` (text is masked; what cannot be masked is refused), ``refuse`` (any identifier refuses) or
     ``exception`` (as it is, to a named destination, under ``role``). ``free_text``: whether note text may be in it.
     ``fields``: the columns of a table the rule names; any other is masked whole. ``door``: the file and the call that
-    send this route through :func:`leave` (the doctor reads it)."""
+    send this route through :func:`leave` (the doctor reads it). ``only_named``: it goes to the caller's named
+    destinations only; to any other, or with none named, it is refused."""
 
     mode: str
     door: tuple[str, str]
@@ -114,6 +115,7 @@ class Route:
     keep: frozenset[str] = frozenset()  # kinds that stay readable
     free_text: bool = True
     fields: frozenset[str] | None = None
+    only_named: bool = False
 
 
 _CONSOLE = ("services/console/app.py", "egress_page(app")
@@ -157,6 +159,8 @@ ROUTES: dict[str, Route] = {
     "patient.mail": Route("exception", _MAIL, role=_NAMED),
     "patient.download": Route("exception", _CONSOLE, role=_NAMED),
     "edc.write": Route("exception", ("services/orchestrator/study_api.py", '"edc.write"'), role="the signed EDC send"),
+    # P-13 ruling: /admin/edc's connection check, to the site's configured EDC host only (a read: never edc.write)
+    "edc.tool": Route("refuse", ("services/console/edc_door.py", '"edc.tool"'), only_named=True),
     "nhi.submit": Route(
         "exception", ("services/orchestrator/scenarios/submit.py", '"nhi.submit"'), role="the confirmed SUBMIT"
     ),
@@ -1163,7 +1167,8 @@ def leave(
     mapping or list, a :class:`File` or a :class:`Message`. ``audit``: the service's audit log; a record that cannot be
     written refuses. ``named``: an exception route's named destinations. ``items``: how many patients it is about, when
     the caller knows. ``unchecked``: the tripwire's development switch, for a model off the box only. ``refused``: an
-    exception's own check already said no, and why; ``note``: what it did not know.
+    exception's own check (on an ``only_named`` route, the caller's address guard) already said no, and why;
+    ``note``: what it did not know.
     ``where``: the site, when the caller holds its settings (else :func:`site`). ``made``: the sha256 of files the
     caller's own output record says the box built (a job's outputs); ``rebuild``: a PDF, Office, zip or picture file
     the box did not build leaves as a plain PDF of its text instead of being refused (1523 ruling). ``queued``: the
@@ -1180,6 +1185,8 @@ def leave(
             if not actor or not destination or destination not in set(named):
                 why = "not_named"
             why = why or refused
+        elif rule.only_named and (refused or not destination or destination not in set(named)):
+            why = refused or "not_named"
         elif unchecked and route == "model.offbox":
             result = "unchecked"
         else:

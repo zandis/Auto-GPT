@@ -1,10 +1,10 @@
 {# D-108: one mark vocabulary on every screen (FR-SCR-07). The PI marks; the coordinator records contact outcomes.
    D-133: "Not suitable" needs a reason (no silent "other"); the main buttons sit in one bar (sticky at the bottom of
    the phone sheet, 48 px) and reach their forms with the form attribute; a done toast offers Undo. #}
-{% macro mark_box(rs, pid, back, reasons, current, today) %}
+{% macro mark_box(rs, pid, back, reasons, current, today, watchable=none) %}
 {% if user.can_mark %}{% set s = pid[:8] %}
 <div class="actp markform" data-testid="actions">
-  {% if current %}<p class="hint" data-testid="current-mark">{{ t('mark.current') }} <span class="pill" data-tone="{{ tone('mark', current.mark) }}">{{ t('mark.' + current.mark) }}</span>{% if current.mark == 'not_now' and current.reason %} · {{ t('mark.recheck_on', d=current.reason) }}{% elif current.reason %} · {{ t('reason.' + current.reason) }}{% endif %} · {{ t('mark.replace') }}</p>{% endif %}
+  {% if current %}<p class="hint" data-testid="current-mark">{{ t('mark.current') }} <span class="pill" data-tone="{{ tone('mark', current.mark) }}">{{ t('mark.' + current.mark) }}</span>{% if current.mark == 'not_now' and current.reason %} · {{ t('mark.recheck_on', d=current.reason[:10]) }}{% if ' watch:' in current.reason %} · {{ t('mark.watching', c=current.reason.partition(' watch:')[2].partition('=')[0]) }}{% endif %}{% elif current.reason %} · {{ t('reason.' + current.reason) }}{% endif %} · {{ t('mark.replace') }}</p>{% endif %}
   <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" id="mk-{{ s }}" class="markmain">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
     <label for="note-{{ s }}">{{ t('mark.note') }}</label><input id="note-{{ s }}" name="note" maxlength="300" data-keep-note="{{ pid }}">
@@ -17,6 +17,8 @@
   <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="marknn">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
     <label for="recheck-{{ s }}">{{ t('mark.recheck') }}</label><input id="recheck-{{ s }}" name="recheck" type="date" lang="{{ lang }}" min="{{ (today).isoformat() }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+    {# lane K watch (H3-PROD §2 row 2): the criterion the PI waits on; a re-screen that changes its answer brings the patient back #}
+    {% if watchable %}<label for="watch-{{ s }}">{{ t('mark.watch') }}</label><select id="watch-{{ s }}" name="reason" data-testid="watch-{{ s }}"><option value="">{{ t('mark.watch.none') }}</option>{% for c in watchable if c.verdict != 'pass' %}<option value="{{ c.id }}={{ c.verdict }}">{{ c.id }} {{ c.label }}</option>{% endfor %}</select>{% endif %}
     <button type="submit" name="mark" value="not_now" class="secondary" data-testid="not_now-{{ s }}">{{ t('mark.not_now') }}</button>
   </form>
   {% if current %}<button type="submit" form="mk-{{ s }}" name="mark" value="withdraw" class="secondary" data-testid="withdraw-{{ s }}">{{ t('mark.withdraw') }}</button>{% endif %}

@@ -789,6 +789,11 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
+    "TB_LANG": Declared(
+        "str",
+        "",
+        "language of the trialbox command line's plain messages: en, ja or zh-TW (TOL-CLI; else LC_ALL, LANG)",
+    ),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
     "TB_HOST_PROFILE": Declared(
         "str",
@@ -886,7 +891,7 @@ DECLARED: dict[str, Declared] = {
     "TB_MIG_PROFILE": Declared("str", "", "platform: GPU MIG profile"),
     "TB_MODELS_DIR": Declared("path", "", "models folder"),
     "TB_MODEL_SWAP": Declared("str", "", "one GPU for two models (sleep) or not"),
-    "TB_NOTE_BLOCK": Declared("str", "both_agree", "note-block policy"),
+    "TB_NOTE_BLOCK": Declared("str", "never", "note-block policy"),
     "TB_NOTICE_N1_AT": Declared("str", "07:00", "console: first notice time"),
     "TB_NOTICE_N2_AT": Declared("str", "07:30", "console: second notice time"),
     "TB_NOT_MATCHED_GATE": Declared(

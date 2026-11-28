@@ -137,6 +137,7 @@ class LlmResult:
     prompt_sha: str = ""
     build_sha: str = ""  # through the gateway: the build that answered (weights digest); "" on a direct call (D-276)
     call_id: str = ""  # D-989: the gateway's call id (``llm.gateway.call``); ``direct-<output sha>`` on a direct call
+    qualification: str = ""  # SAFE-1 A1: "unqualified" when the gateway said the build holds no record
     # lane G (G2): per ``verdict`` of the answer, in order, the three labels' probabilities (tb_common.label_p.slots)
     # when the call asked for ``logprobs``; () when it did not, None for a slot the server gave no label for
     label_p: tuple[dict[str, float] | None, ...] = ()
@@ -163,6 +164,22 @@ def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
     except ValueError:
         ok = False
     return data if ok else {**data, "quote_date": None}
+
+
+#: what a judge reply holds about the span it read; an abstention has read none
+_SPAN_FIELDS = ("quote", "quote_date", "certainty", "experiencer", "time")
+
+
+def unknown_carries_nothing(data: dict[str, Any]) -> dict[str, Any]:
+    """INT-S-C: a verdict ``unknown`` is an answer nobody gave, so it has no quote, no quote date, no reading of the
+    quote and no confidence (0.0: the reply's number field stays a number). The judge's filler for them ("unknown",
+    "0000-01-01", 1.0) never reaches a row, a tier or a page. A ``pass`` or ``fail`` reply is returned as it is."""
+    if data.get("verdict") != "unknown":
+        return data
+    cleared: dict[str, Any] = {k: None for k in _SPAN_FIELDS if k in data}
+    if "confidence" in data:
+        cleared["confidence"] = 0.0
+    return {**data, **cleared}
 
 
 def load_prompt(prompt_id: str, environment: str | None = None) -> Prompt:
@@ -399,7 +416,7 @@ class LlmClient:
         if target == "cloud" and self.cloud_api_key:
             headers["Authorization"] = f"Bearer {self.cloud_api_key}"
         tokens_in = tokens_out = 0
-        build_sha = call_id = ""
+        build_sha = call_id = qualification = ""
         errors: list[str] = []
         codes: list[str] = []
         convo = list(messages)
@@ -434,6 +451,7 @@ class LlmClient:
                 model = served = str(payload.get("model") or model)
                 build_sha = str((payload.get("tb") or {}).get("build_sha") or "")
                 call_id = str((payload.get("tb") or {}).get("call_id") or "")
+                qualification = str((payload.get("tb") or {}).get("qualification") or "")
             else:
                 try:  # a dropped connection once more, a timeout never (T-608, D-445)
                     resp = once_more(partial(self.http.post, f"{base}/chat/completions", json=body, headers=headers))
@@ -457,6 +475,7 @@ class LlmClient:
                 # G8 (D-958), on every path (P2b: SCREEN's note judge failed three protocols on it): a quote date
                 # that is no real date is no date, before the schema reads it
                 data = no_sentinel_date(data) if isinstance(data, dict) else data
+                data = unknown_carries_nothing(data) if isinstance(data, dict) else data  # INT-S-C
                 errors = schema_errors(schema_name, data)
                 codes = schema_error_codes(schema_name, data)  # what leaves the call: no model output (T-605)
             except (json.JSONDecodeError, ValueError) as exc:
@@ -483,6 +502,7 @@ class LlmClient:
                             "prompt_sha": prompt.sha256,
                             "build_sha": build_sha,  # D-989: the build that answered ("" on a direct call)
                             "call_id": call_id,  # D-989: what a record's ``prov`` names
+                            **({"qualification": qualification} if qualification else {}),  # SAFE-1 A1
                             "ms": round((time.perf_counter() - t0) * 1000),
                             "schema": schema,  # H-16: the answer schema the call was made with (None: the prompt's)
                             **({"asking": dict(asking)} if (asking := CALL_CONTEXT.get()) else {}),
@@ -502,6 +522,7 @@ class LlmClient:
                     prompt.sha256,
                     build_sha,
                     call_id,
+                    qualification,
                     label_p=tuple(slots((payload["choices"][0].get("logprobs") or {}).get("content") or []))
                     if logprobs
                     else (),

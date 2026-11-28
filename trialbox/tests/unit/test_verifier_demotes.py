@@ -13,6 +13,7 @@ the pair (qualify, bake-off, injection) keep the plain rule (``demote`` off by d
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from typing import Any
 
@@ -134,3 +135,17 @@ def test_screen_asks_the_product_rule() -> None:
     # the pair's reply is the plain rule's (every reader of it unchanged); the judge's own answer rides along
     assert reply.verdict == "unknown" and reply.reason == "disagree" and len(reply.opinions) == 2
     assert reply.kept is not None and reply.kept.verdict == "fail" and reply.kept.affirmed is False
+
+
+def test_a_kept_answer_carries_the_pair_s_unqualified_label() -> None:
+    """SAFE-1 A1 with BENCH-2 §2: the verifier holds no qualification record; the judge's kept answer is labelled."""
+
+    class Unqualified(Model):
+        def chat_json(self, *a: Any, **kw: Any) -> LlmResult:
+            return replace(super().chat_json(*a, **kw), qualification="unqualified")
+
+    c = crit("inclusion")
+    nj = NoteJudge(lake=None, llm=Model("pass"), verifier=Unqualified("fail"))  # type: ignore[arg-type]
+    v = note_verdict(c, nj.judge_excerpts(c.text, c.note_question or c.text, IDX, EXCERPTS, demote=True), pair=True)
+    assert v.evidence is not None and v.verdict == "pass" and v.evidence.reason == "second_opinion_differs"
+    assert v.evidence.qualification == "unqualified"

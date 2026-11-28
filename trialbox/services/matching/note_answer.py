@@ -14,14 +14,15 @@ What it may then do to a patient is said here once, for the cascade (``engine._m
 * an exclusion's "condition present" that both models did not say is affirmed, in this patient, now (each model's
   ``certainty``, ``experiencer`` and ``time`` on the quote, judge v6, :func:`affirms`): ``review``. A missing or null
   field is not said, so an answer of a judge before v6 never excludes (#639 7115208555, 7115258794);
-* an exclusion's "condition present" on a quote that states it, affirmed by both models: ``excludes``.
+* an exclusion's "condition present" on a quote that states it, affirmed by both models: ``review`` too (ring 0,
+  D-1072, superseding D-1069 point 1: the model sorts, it does not adjudicate). The reading stands (the row says
+  "not met" with its quote and the reason ``notes_suggest_not_eligible``); the investigator decides.
 
 The two nets are independent and either sends the patient to review: the models' own reading of the quote, and the
 deterministic guard (:func:`matching.inferred.inferred`), which no model's reading overrides.
 
-``excludes`` is what the answer may do, not what it does: the run's own rules then decide whether this answer is
-one that may exclude (two different models, sure enough, final, notes allowed to exclude: ``decision.fail_stands``
-and the cascade's ``note_block``). Never a coded answer's nor a person's: those do not come here.
+So no note answer ever ``excludes``, also when both models agree, whatever the run's policy, the canary or the pair
+(D-1072): only a coded answer and a person's exclude, and those do not come here.
 """
 
 from __future__ import annotations
@@ -41,6 +42,9 @@ INCLUSION_REASON = "not_met (from the notes, an inclusion: review, not exclusion
 OTHER_KIND_REASON = "not_met (from the notes, a renewal or documentation criterion: review, not exclusion)"
 #: the reason of an exclusion "present" that both models did not say is affirmed, the patient's and current
 NOT_AFFIRMED_REASON = "not affirmed: the models did not both read the condition as present now in this patient; review"
+#: the reason of an exclusion "present" on a stated quote both models affirmed (ring 0, D-1072); published as the code
+#: ``notes_suggest_not_eligible`` (``tb_common.reasons.code_of``)
+NOTES_SUGGEST_REASON = "notes_suggest_not_eligible (from the notes, the condition affirmed: review, not exclusion)"
 
 #: what each model must say on the quote for a note exclusion to stand (judge v6, ``llm_judge_output_v2``)
 AFFIRMED = ("affirmed", "patient", "current")
@@ -108,13 +112,15 @@ def note_answer_may(
         return NoteEffect("review", INFERRED_REASON)
     if kind == "exclusion" and affirmed is not True:
         return NoteEffect("review", NOT_AFFIRMED_REASON)
-    return NoteEffect("excludes")
+    # ring 0 (D-1072): a stated, affirmed "present" is what the notes suggest; the investigator decides
+    return NoteEffect("review", NOTES_SUGGEST_REASON, reading_stands=True)
 
 
 __all__ = [
     "AFFIRMED",
     "INCLUSION_REASON",
     "INFERRED_REASON",
+    "NOTES_SUGGEST_REASON",
     "NOT_AFFIRMED_REASON",
     "OTHER_KIND_REASON",
     "Effect",
