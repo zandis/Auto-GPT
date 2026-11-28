@@ -391,6 +391,10 @@ class PidMap:
         raw = {str(a): str(b) for a, b in self._db.fetchall("SELECT old_pid, pid FROM pid_alias")}
         return {a: _follow(raw, a) for a in raw}
 
+    def tickets(self) -> dict[str, str]:
+        """Every old pid with the ticket its merge was recorded under."""
+        return {str(a): str(t) for a, t in self._db.fetchall("SELECT old_pid, ticket FROM pid_alias")}
+
     def surviving(self, pid: str) -> str:
         """The pid a reader uses for ``pid``: itself, or the surviving pid of its merge."""
         return self.aliases().get(pid, pid)
