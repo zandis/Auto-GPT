@@ -46,7 +46,7 @@ def render(
         for cell in ws[1]:
             cell.font = bold
             cell.fill = fill
-        for r in lists.get(name, []):
+        for row, r in enumerate(lists.get(name, []), start=2):  # MVP-B: counted, not ``max_row`` (n^2)
             by_id = {v.id: v for v in r.criteria}
             pre = r.precheck
             pre_txt = (
@@ -71,7 +71,6 @@ def render(
                     pre_txt,
                 ]
             )
-            row = ws.max_row
             for j, c in enumerate(crit):
                 v = by_id.get(c.id)
                 if v is not None and v.evidence is not None and v.evidence.quote:
