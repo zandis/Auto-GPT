@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from criteria_compiler.ir_extract.window_rules import (
+    NEGATIVE,
     Reconciled,
     interval,
     lint,
@@ -420,6 +421,11 @@ def test_a_negative_amount_goes_to_a_person(text: str) -> None:
         out = reconcile(text, logic)
         assert out.flags == ["window_negative"] and out.hold is not None
         assert out.logic == given
+
+
+def test_a_spaced_dash_is_a_range_not_a_sign() -> None:
+    assert all(r.reason != NEGATIVE for r in parse_windows("aged 6 months - 17 years"))
+    assert all(r.reason != NEGATIVE for r in parse_windows("Chemotherapy within 2 - 4 weeks before screening"))
 
 
 def test_alternative_anchors_are_not_cut_to_the_first() -> None:

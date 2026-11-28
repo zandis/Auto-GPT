@@ -131,8 +131,9 @@ _OR_MORE = re.compile(r"\s*(?:\([^)]*\)\s*)?or (?:more|longer)\b")
 _EXACT = re.compile(r"(?:exactly|precisely)\s*$")
 #: "for (at least) N" before a named date: how long a state lasted up to it, not a distance from it
 _COURSE = re.compile(r"\bfor\s+(?:(?:at least|a minimum of|minimum of|(?:no|not) less than|more than|over)\s+)?$")
-#: a signed negative amount ("-7 days", "−7 days"): no sure reading, a person reads it (D-914)
-_NEGATIVE = re.compile(r"(?:^|[\s(\[:=,;])-\s?$")
+#: a signed negative amount ("-7 days", "−7 days"): no sure reading, a person reads it (D-914); the sign sits on
+#: its digits, a spaced dash is a range ("6 months - 17 years")
+_NEGATIVE = re.compile(r"(?:^|[\s(\[:=,;])-$")
 _UNBOUNDED_FIRST_DOSE = r"\b(?:prior to|before|after|since)\s+(?:the )?first dose\b"
 NEGATIVE = "A negative amount has no sure reading (D-914)"
 ALTERNATIVE = "Alternative anchors in one window"
@@ -298,7 +299,7 @@ def parse_windows(text: str) -> list[Result]:
         reason = "Unresolved expression or study-event definition" if uncertain else ""
         if kind == "window" and rel and _alternatives(rel["event"]):
             uncertain, reason = True, ALTERNATIVE
-        if _NEGATIVE.search(s[max(0, start - 3) : start]):
+        if _NEGATIVE.search(s[max(0, start - 2) : start]):
             uncertain, reason = True, NEGATIVE
         bound = ""
         if kind == "window":
