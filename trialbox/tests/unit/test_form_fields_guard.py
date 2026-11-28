@@ -213,7 +213,8 @@ def test_the_recount_equals_a_fresh_measurement() -> None:
     tree = form_fields.scan()
     assert sum(1 for forms in tree.values() for f in forms if f.name is None) == n_typed + n_action
     # as measured on 2026-11-20 (102 typed); 10F-1 (D-1387) converted account.html's language form: 101
-    assert (n_typed, n_action, len(typed), sum(broken.values())) == (101, 51, 62, 0)
+    # H3 lane H fix 2 folded approval.html's one-row tick form into the page's one form: 50 action-only forms
+    assert (n_typed, n_action, len(typed), sum(broken.values())) == (101, 50, 62, 0)
 
 
 def test_the_typed_list_did_not_go_up_against_master() -> None:

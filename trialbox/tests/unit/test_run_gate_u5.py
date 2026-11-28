@@ -119,6 +119,15 @@ def test_a_stand_in_is_audited_not_refused_on_production(tmp_path: Path, monkeyp
     assert event["detail"]["needs"] == {"chart_number": "stand_in", "site_name": "stand_in"}
 
 
+def test_the_refusal_without_a_backup_key_names_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The install cannot require the key (doctor warns during it), so the first night on PRODUCTION is where its
+    absence stops the box: with a named reason, and before any patient data is read."""
+    _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
+    with pytest.raises(SiteNeeded) as got:
+        pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")
+    assert "The backup key" in str(got.value)
+
+
 @pytest.mark.parametrize("env", ["DEV", "TEST", "VALIDATION"])
 def test_a_poc_box_runs_with_the_stand_ins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str) -> None:
     _box(tmp_path, monkeypatch, env, given={}, key_on_host=False, stand_ins=("site_name",))

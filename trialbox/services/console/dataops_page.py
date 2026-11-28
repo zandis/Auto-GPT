@@ -293,6 +293,22 @@ def full_night_of(rows: Any, today: date) -> dict[str, Any] | None:
     return {**got, "days": days, "warn": got["deltas"] > 0 and days > FULL_NIGHT_STALE_DAYS}
 
 
+def dqd_of(detail: Any) -> dict[str, Any] | None:
+    """H3-NLP §3.1: the data quality checks of the night's OMOP load that did not pass (``adapter.dual_write``):
+    the counts and each row in DQD's words. None when the night carries none or a record of another shape."""
+    omop = detail.get("omop") if isinstance(detail, dict) else None
+    got = omop.get("dqd") if isinstance(omop, dict) else None
+    if not isinstance(got, dict) or not all(isinstance(got.get(k), int) for k in ("checks", "fail", "known")):
+        return None
+    rows = got.get("failed")
+    if not isinstance(rows, list) or not all(
+        isinstance(r, dict) and isinstance(r.get("checkName"), str) and r.get("status") in ("fail", "known")
+        for r in rows
+    ):
+        return None
+    return {"checks": got["checks"], "fail": got["fail"], "known": got["known"], "failed": rows}
+
+
 def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:
     """NEW-B-39 (D-740): the same rows per source table split by kind (``tb_common.unmapped.KINDS``: a code no look-up
     knows, a unit not read, the reference data not reached); counts only. A table whose split is not counts of the
@@ -436,6 +452,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             b=b,
             steps=read(lambda: ops.steps(bid)),
             unmapped=unmapped_of(b.detail),
+            dqd=dqd_of(b.detail),  # H3-NLP §3.1
             profile=site_profile_of(b.detail),  # 10B-6 (D-1233)
             layer=country_card() if site_profile_of(b.detail) else None,  # 10C-25 (D-1250): the country layer's lines
             may_decide=permit(sess.user.role, DECIDE),
@@ -496,7 +513,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"batch": b.as_dict(), "steps": read(lambda: ops.steps(bid)),
                 "unmapped": [{"table": t, "rows": n, **({"kinds": kinds[t]} if t in kinds else {})}
                              for t, n in unmapped_of(b.detail)],
-                "site_profile": site_profile_of(b.detail)}  # fmt: skip
+                "site_profile": site_profile_of(b.detail), "data_quality": dqd_of(b.detail)}  # fmt: skip
 
     @app.post("/api/v1/data/batches/{bid}/decide")
     @page_twin("/data-ops/batches/{bid}/decide")  # T-657 (D-444): the page's twin (FIT-019)

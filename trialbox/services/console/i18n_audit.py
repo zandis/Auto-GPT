@@ -493,6 +493,19 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "ops.watchdog.restart": ("Service restarted", "サービスの再起動", "重新啟動服務"),
     "ops.watchdog.restart_failed": ("Service restart failed", "サービス再起動の失敗", "重新啟動服務失敗"),
     "ops.watchdog.gave_up": ("Service restarts stopped", "サービス再起動の停止", "停止重新啟動服務"),
+    # R1+1 P-27: events their writers name through a module constant (the walk read literals only)
+    "backup.restore_drill": ("Restore rehearsal", "復元の予行演習", "還原演練"),
+    "dataops.decide": ("Data batch decided", "データバッチの判断", "資料批次判定"),
+    "dataops.step": ("Data batch step", "データバッチの手順", "資料批次步驟"),
+    "demo.ack": ("Demonstration acknowledged", "デモンストレーションの確認", "示範確認"),
+    "demo.refused": ("Refused on the demonstration box", "デモンストレーション機での拒否", "示範機上遭拒"),
+    "egress.leave": ("Data left the box", "本機からのデータ送出", "資料離開本機"),
+    "feedback.add": ("Feedback sent", "フィードバックの送信", "送出意見回饋"),
+    "flow.export": ("Export recorded", "書き出しの記録", "匯出紀錄"),
+    "keys.ceremony": ("Key ceremony recorded", "鍵の手続きの記録", "金鑰程序紀錄"),
+    "role.acting": ("Acting role changed", "役割の切替", "切換角色"),
+    "service.route_refused": ("Service call refused", "サービス呼び出しの拒否", "服務呼叫遭拒"),
+    "terminology.update": ("Terminology updated", "用語集の更新", "術語集更新"),
 }
 
 #: detail keys the browser shows (``console.audit_page.SHOWN``)

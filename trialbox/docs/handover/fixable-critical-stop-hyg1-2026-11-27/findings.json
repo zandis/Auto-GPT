@@ -1,0 +1,33 @@
+{
+ "card": "HYG1",
+ "title": "a fixable CRITICAL in a shipped image stops the release gates; the two third-party pins",
+ "date": "2026-11-27",
+ "source": "docs/handover/fixable-critical-stop-hyg1-2026-11-27.md",
+ "note": "basis 'shown' means shown by public registry metadata, the Go vulnerability database and upstream tags read on 2026-11-27, or by the card's unit test; nothing was pulled or scanned.",
+ "findings": [
+  {
+   "id": "HYG1-01",
+   "severity": "High",
+   "claim": "no published release of the proxy image fixes CVE-2026-78661: its newest tag 2.11.9 builds with x/net v0.60.0 and the fix is v0.62.0, only on the upstream main branch",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG1-02",
+   "severity": "Medium",
+   "claim": "the FHIR server image has no newer patch of the pinned v8.12.0-2; the only newer image is the major release v9.0.0-1, not scanned here",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HYG1-03",
+   "severity": "Medium",
+   "claim": "the allow-list entries carry no severity, so whether any of the 62 accepts a fixable CRITICAL that the new stop will now fail is not known until the next release-gates run",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}

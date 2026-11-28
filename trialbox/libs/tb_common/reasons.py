@@ -30,9 +30,14 @@ class Reason(StrEnum):
     # the criterion asks for an active condition and the record says resolved, inactive or in remission (D-917)
     CONDITION_NOT_ACTIVE = "condition_not_active"
     ABSTAINED = "abstained"  # the model said it cannot tell from the notes
+    # an exclusion the models read the notes for and found nothing to quote: a label and a sort key, never a tier
+    # change; the answer stays unknown, which keeps the patient (BENCH-2 §2, D-18)
+    NOT_DOCUMENTED = "not_documented"
     QUOTE_NOT_FOUND = "quote_not_found"  # the model's quote is not in the notes
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
     DISAGREE = "disagree"  # the two models gave different answers
+    # the judge's answer keeps the patient and the second model did not confirm it: it stands, flagged (BENCH-2 §2)
+    SECOND_OPINION_DIFFERS = "second_opinion_differs"
     LOW_CONFIDENCE = "low_confidence"  # the answer was below the minimum confidence
     SINGLE_MODEL = "single_model"  # one model's "not met" with no second model that agreed: a person looks (D-478)
     NOT_FINAL = "not_final"  # a "not met" given while a note answer was not allowed to exclude (D-476, D-478)
@@ -113,6 +118,7 @@ LABELS: dict[str, dict[str, str]] = {
     },
     "no_notes": {"en": "no notes in the period", "ja": "期間内に記録の文章なし", "zh-TW": "期間內無病歷文字"},
     "not_mentioned": {"en": "not mentioned in the notes", "ja": "記録の文章に記載なし", "zh-TW": "病歷文字未提及"},
+    "not_documented": {"en": "not documented in the notes", "ja": "記録に記載がない", "zh-TW": "病歷未記載"},
     "code_outside_list": {
         "en": "a code of this family that the list does not hold",
         "ja": "この分類の、一覧にないコード",
@@ -163,6 +169,11 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the two checks differ: please look",
         "ja": "2回の確認が一致しない：確認してください",
         "zh-TW": "兩次確認結果不同：請查看",
+    },
+    "second_opinion_differs": {
+        "en": "second opinion differs: please look",
+        "ja": "二次確認の結果が異なる：確認してください",
+        "zh-TW": "第二次確認結果不同：請查看",
     },
     "low_confidence": {
         "en": "not certain enough: please look",

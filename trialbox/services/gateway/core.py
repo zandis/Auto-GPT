@@ -143,6 +143,9 @@ UPSTREAM_FIELDS = frozenset(
         "seed",
         "reasoning",
         "reasoning_effort",
+        # lane G (G1): the label tokens' log-probabilities, read only (no sampling change)
+        "logprobs",
+        "top_logprobs",
     }
 )
 # an upstream 4xx is the call's own fault or a configuration fault, so no other build is tried; except these two
@@ -774,7 +777,9 @@ class Gateway:
             bool(self.policy.roles.get(call.role, {}).get("cacheable")) and label.data_class.rank <= 1 and not free_form
         )
         # T-603 (review LLM-017): max_tokens is in the key, so a retry with a larger budget is not the cut-off answer
-        key = (call.rendered_sha, res.build.model_sha, canonical({**sampling, "max_tokens": max_tokens}))
+        # lane G (G1): a call that asks for log-probabilities is not answered from a reply cached without them
+        asked: dict[str, Any] = {k: body[k] for k in ("logprobs", "top_logprobs") if k in body}
+        key = (call.rendered_sha, res.build.model_sha, canonical({**sampling, "max_tokens": max_tokens, **asked}))
         hit: dict[str, Any] | None = None
         if cacheable:
             with self._cache_lock:

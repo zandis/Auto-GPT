@@ -475,6 +475,9 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
+    "TB_DOCTOR_INSTALL_PHASE": Declared(
+        "str", "", "doctor: set by install.sh's host check, so a missing backup key is a WARN"
+    ),
     "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_DOCTOR_RESTORE_HOLD": Declared("str", "", "doctor in the image: the hold the host read through the box (JSON)"),
@@ -1022,6 +1025,9 @@ DECLARED: dict[str, Declared] = {
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
+    "TB_PUBLIC_NAMES_FILE": Declared(
+        "path", "", "public-names check (tools): the pattern list, a file kept outside the repository"
+    ),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
     "TB_RELEASE_REGISTRY": Declared(

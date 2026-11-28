@@ -568,6 +568,7 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
     # shellcheck disable=SC2086
     if docker run --rm --network none --env-file "$ENV_FILE" -i -e TB_HOST_TZ="$HOST_TZ" \
         -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -e TB_DOCTOR_RESTORE_HOLD="$HOLD_LINE" \
+        ${TB_DOCTOR_INSTALL_PHASE:+-e TB_DOCTOR_INSTALL_PHASE="$TB_DOCTOR_INSTALL_PHASE"} \
         -v "$ROOT_DIR/deploy:/app/deploy:ro" \
         ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} ${TERM_MOUNT:+-v "$TERM_MOUNT"} ${LDAP_MOUNT:+-v "$LDAP_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
         "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
