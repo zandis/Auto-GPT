@@ -16,7 +16,7 @@ from tb_common.authz import permit, role_allowed
 from tb_common.erased import is_erased
 from tb_contracts import Job, JobCreate
 
-from console import about, actor, command, form_errors, i18n_prefs, prefs, terminology_refused, tier_words
+from console import about, actor, command, first_day, form_errors, i18n_prefs, prefs, terminology_refused, tier_words
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
@@ -348,6 +348,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         role = sess.user.role if sess.user.role in guides.ROLES else "viewer"
         return h.page(request, "role_guide.html", sess, role=role, sections=guides.sections)  # in the page's language
 
+    first_day.register(app, h)  # lane H: "Your first day", one page per role and seven procedures
     about.register(app, h)  # T-617a: /about, the third-party notices (NOTICE), beside the help panel
 
     # ------------------------------------------------------------------ S37 Notices received

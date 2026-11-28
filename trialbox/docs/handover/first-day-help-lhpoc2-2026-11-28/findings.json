@@ -1,0 +1,33 @@
+{
+ "card": "LHPOC2",
+ "title": "the first-day help: a page per role and seven procedures in en, ja and zh-TW",
+ "date": "2026-11-28",
+ "source": "docs/handover/first-day-help-lhpoc2-2026-11-28.md",
+ "note": "basis 'shown' means shown by reading the code and by the card's tests; nothing was run against a real box.",
+ "findings": [
+  {
+   "id": "LHPOC2-01",
+   "severity": "Low",
+   "claim": "the restore procedure says the console does not restore a backup and that hospital IT restores from the host; this is taken from the Backups tab's own drill text (ops.drill.cli), not from a restore run",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "LHPOC2-02",
+   "severity": "Low",
+   "claim": "the first-night procedure says a first night without a backup key shows a warning on Information still needed and goes on; the code shows the key as a need before the first real run (site_needs backup_key), but no test here runs a first night without one",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "LHPOC2-03",
+   "severity": "Low",
+   "claim": "the ja and zh-TW procedure words were written for this card and not read by a native clinical reader; the terms to check are in the hand-back",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}

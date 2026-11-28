@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{# Lane H: one first-day procedure, a page (console.first_day) #}
+{% block title %}{{ proc(lang).title }}{% endblock %}
+{% block content %}
+{% set p = proc(lang) %}
+<article class="guide" data-testid="first-day-procedure" data-role="{{ role }}" data-procedure="{{ slug }}">
+<h1>{{ proc(lang).title }}</h1>
+<p class="hint"><strong>{{ t('fd.use') }}:</strong> {{ p.use }}</p>
+<section class="card"><h2>{{ t('fd.steps') }}</h2>
+<ol>{% for s in p.steps %}<li data-testid="fd-step">{{ s }}</li>{% endfor %}</ol></section>
+<section class="card"><h2>{{ t('fd.note') }}</h2><p>{{ p.note }}</p></section>
+{% if p.links %}<section class="card"><h2>{{ t('fd.open') }}</h2><ul class="plain">{% for href, label in p.links %}<li><a href="{{ href }}">{{ label }}</a></li>{% endfor %}</ul></section>{% endif %}
+<p class="noprint"><a class="button secondary" href="/help/first-day">{{ t('fd.back') }}</a></p>
+</article>
+{% endblock %}

@@ -18,9 +18,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/admin/notice` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops/network/{name}` | n | - | - | - | - | - | - | - | - |
-| GET | `/admin/still-needed` | Y | - | - | - | - | - | - | - | - |
-| POST | `/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
 | GET | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/still-needed` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/support` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/edc/health` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/api/edc/map` | Y | - | - | - | - | - | - | - | - |
@@ -30,8 +29,6 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/admin/data-step` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/admin/health` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/admin/ops` | Y | - | - | - | - | - | - | - | - |
-| POST | `/admin/support` | Y | - | - | - | - | - | - | - | - |
-| POST | `/api/v1/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/ask` | Y | Y | Y | Y | Y | - | Y | Y | Y |
 | GET | `/api/v1/data/batches` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/api/v1/data/batches/{bid}` | n | - | - | - | - | - | - | n | - |
@@ -94,6 +91,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/enrol` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/feedback/export.csv` | Y | - | - | - | - | - | - | - | - |
 | GET | `/help` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/help/first-day` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/help/guide` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/home` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/jobs` | Y | Y | Y | Y | - | - | - | Y | Y |
@@ -193,10 +191,13 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/admin/ops/{action}` | n | n | n | n | n | n | n | n | n |
 | POST | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/redcap/{ref}/test` | Y | - | - | - | - | - | - | - | - |
+| POST | `/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
+| POST | `/admin/support` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/edc/events/v1` | n | n | n | n | n | n | n | n | n |
 | POST | `/api/edc/oidc/token` | n | n | n | n | n | n | n | n | n |
 | POST | `/api/edc/tools` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/edc/tools/{proposal_id}/confirm` | n | - | - | - | - | - | - | - | - |
+| POST | `/api/v1/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
 | POST | `/api/v1/admin/support` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/v1/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/audit/verify` | - | - | - | - | - | - | - | Y | Y |
