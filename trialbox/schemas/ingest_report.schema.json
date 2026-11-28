@@ -205,6 +205,14 @@
             "type": "integer"
           },
           "description": "T-693 (D-457): the resource types the cap cut, with the number of their resources"
+        },
+        "patients_sampled": {
+          "type": ["integer", "null"],
+          "description": "U4: the Patients in the sample"
+        },
+        "no_birthdate": {
+          "type": ["integer", "null"],
+          "description": "U4: the sampled Patients with no birthDate, a class of its own outside errors (its own limit)"
         }
       }
     },
