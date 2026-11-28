@@ -147,5 +147,5 @@ def test_a_kept_answer_carries_the_pair_s_unqualified_label() -> None:
     c = crit("inclusion")
     nj = NoteJudge(lake=None, llm=Model("pass"), verifier=Unqualified("fail"))  # type: ignore[arg-type]
     v = note_verdict(c, nj.judge_excerpts(c.text, c.note_question or c.text, IDX, EXCERPTS, demote=True), pair=True)
-    assert v.verdict == "pass" and v.evidence.reason == "second_opinion_differs"
+    assert v.evidence is not None and v.verdict == "pass" and v.evidence.reason == "second_opinion_differs"
     assert v.evidence.qualification == "unqualified"
