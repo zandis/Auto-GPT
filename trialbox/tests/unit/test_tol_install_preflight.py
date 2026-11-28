@@ -102,6 +102,16 @@ def test_production_with_no_alert_route_takes_the_health_page(tmp_path: Path) ->
     notes = backup_schedule._route_notes(cfg, has_mta=False)
     assert any(n.startswith("warning: no backup alert route was given") and "TB_BACKUP_ALERT_WATCHER" in n
                for n in notes), notes  # fmt: skip
+    # the harm the old refusal guarded, planted: a backup that failed (none good) on such a box is an alert in the
+    # backup status, which the /admin health tab shows (the page route: nobody is mailed)
+    target = tmp_path / "target"
+    target.mkdir()
+    failed = backup_schedule.config(
+        tmp_path, {"TB_ENV": "PRODUCTION", "TB_BACKUP_TARGETS": str(target)}, process_env=False
+    )
+    st = backup_schedule.status(failed)
+    assert st["level"] == "alert" and st["problems"] and st["age_hours"] is None, st  # no good backup: an alert
+    assert failed.alert_defaulted and failed.page_only(has_mta=False)
     given = backup_schedule.config(tmp_path, {"TB_ENV": "PRODUCTION", "TB_BACKUP_ALERT_CMD": "true"}, process_env=False)
     assert not given.alert_defaulted
     poc = backup_schedule.config(tmp_path, {"TB_ENV": "TEST"}, process_env=False)
