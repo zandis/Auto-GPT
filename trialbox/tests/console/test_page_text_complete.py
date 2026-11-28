@@ -199,7 +199,7 @@ def test_no_template_writes_visible_english_words_of_its_own() -> None:
 
 def test_the_template_rule_finds_a_planted_word() -> None:
     assert hard_coded('<h1>{{ t("a.b") }}</h1><p>Save the form</p>') == ["Save the form"]
-    assert hard_coded('<nav aria-label="main menu">{{ x }}</nav>') == ["main menu"]
+    assert hard_coded('<nav aria-label="open menu">{{ x }}</nav>') == ["open menu"]
     assert hard_coded('<input placeholder="Name">') == ["Name"]
     assert hard_coded('{# a note #}<p>{{ t("a.b") }}</p><code>1=inclusion</code><script>var open = 1</script>') == []
 
