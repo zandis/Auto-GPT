@@ -688,3 +688,14 @@ nav.ptabs .ptabs-rs { color: var(--muted); }
 :root[data-density="compact"] h1 { margin: 4px 0 8px; }
 /* print is on paper whatever the mode: a card in a dark mode prints on the paper's colours */
 @media print { .card { background: var(--print-bg); color: var(--print-ink); } }
+/* R1+1 P-27: nothing wider than the window from 310 to 640 px. Below 640 px html and body clip sideways (T-684), so
+   whatever is wider is cut off, not scrolled: a table with no scroll box of its own (.scroll) scrolls in itself, a
+   field, a pill and a button keep to the width, the save bar stays inside the page */
+@media (max-width: 640px) {
+  main > table, main :not(.scroll) > table { display: block; max-width: 100%; overflow-x: auto; }
+  main input, main select, main textarea { max-width: 100%; }
+  .savebar { margin-left: 0; margin-right: 0; }
+  .pill { max-width: 100%; }
+  main .button, main form.inline > * { min-width: 0; max-width: 100%; }
+  main input[type=file] { width: 100%; }
+}

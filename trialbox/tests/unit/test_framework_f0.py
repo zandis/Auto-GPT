@@ -22,16 +22,7 @@ KEYS = {"TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK", "TB_TERMINOLOGY_NIG
 
 #: page files their module still owes. A module's pull request takes its own line out (one unchanged line stands
 #: between two entries, so two modules' removals do not touch).
-PENDING = {
-    # M1
-    # M3
-    # M5
-    "health_page",
-    # M5
-    "data_step",
-    # M8
-    # end
-}
+PENDING: frozenset[str] = frozenset()  # M1, M3, M5, M8: every module has brought its page
 
 
 # ---------------------------------------------------------------------------------------------- settings keys

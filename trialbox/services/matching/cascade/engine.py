@@ -34,7 +34,7 @@ import threading
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -46,6 +46,7 @@ from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import CALL_CONTEXT
 from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
 from tb_common.reasons import CODES as REASON_CODES
+from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
 from tb_contracts import CriterionIR
@@ -91,7 +92,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
-from matching.note_answer import note_answer_may
+from matching.note_answer import keeps, not_documented, note_answer_may
 from matching.notelang import LANGS, family, main_language, notes_language
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.recorded import NO_RECORD, Recorded
@@ -1229,7 +1230,14 @@ class _Run:
         if reply.opinions:
             meta["opinions"] = list(reply.opinions)
         if reply.verdict not in ("pass", "fail"):  # keep the judge's coded reason (disagree, low_confidence, ...)
-            why = reply.reason if reply.reason in REASON_CODES else "abstained"
+            # not_documented is derived below from the check, never taken from a reply
+            why = (
+                reply.reason
+                if reply.reason in REASON_CODES and reply.reason != Reason.NOT_DOCUMENTED.value
+                else "abstained"
+            )
+            if not_documented(c.kind, reply.reason, reply.quote):  # BENCH-2 §2: a label, never a tier change
+                why = Reason.NOT_DOCUMENTED.value
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason=why)
         if span is None:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason="insufficient")
@@ -1337,6 +1345,9 @@ class _Run:
                         self.metrics.pairs_judged["S3"] += 1
                 c = self.crit[r.cid]
                 lo, hi = window_of(c, t.index_date)
+                k = reply.kept
+                if k is not None and keeps(c.kind, k.verdict == "pass"):  # BENCH-2 §2: a demoter, never a veto
+                    reply = replace(k, reason=Reason.SECOND_OPINION_DIFFERS.value, opinions=reply.opinions, kept=None)
                 o = self._map(c, reply, verify_span(reply, r.excerpts, lo, hi), "S3", r.left_out)
                 t.outcomes[r.cid] = o
                 if r.left_out:
@@ -1374,7 +1385,10 @@ class _Run:
         candidates = [t for t in alive if self._would_be_strong(t)]
         p_in = len(alive)
         cand = {t.pid for t in candidates}
-        pairs = [r for r in judged if r.pid in cand and self.traces[r.pid].outcomes[r.cid].stage == "S3"]
+        # BENCH-2 §2: a keep the verifier already disputed in S3 is not put to it again (its flag is the S4 answer)
+        flagged = Reason.SECOND_OPINION_DIFFERS.value
+        pairs = [r for r in judged if r.pid in cand and (o := self.traces[r.pid].outcomes[r.cid]).stage == "S3"
+                 and o.reason != flagged]  # fmt: skip
         disagreements = 0
         if self.judge is not None:
 

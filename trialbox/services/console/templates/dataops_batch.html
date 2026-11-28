@@ -20,6 +20,19 @@
 <tfoot><tr><th scope="row">{{ t('dataops.unmapped.total') }}</th><td class="num" data-testid="unmapped-total">{{ '{:,}'.format(unmapped|sum(attribute=1)) }}</td></tr></tfoot>
 </table></div>
 </section>{% endif %}
+{% if dqd and dqd.failed %}{# H3-NLP §3.1: the data quality checks of the night's OMOP load that did not pass #}
+<section class="card" data-testid="batch-dqd">
+<h2>{{ t('dataops.dqd.title') }}</h2>
+<p class="hint">{{ t('dataops.dqd.help', checks='{:,}'.format(dqd.checks), fail='{:,}'.format(dqd.fail), known='{:,}'.format(dqd.known)) }}</p>
+<div class="scroll" tabindex="0"><table>
+<thead><tr><th scope="col">{{ t('dataops.dqd.check') }}</th><th scope="col">{{ t('dataops.dqd.field') }}</th><th scope="col">{{ t('dataops.dqd.rows') }}</th><th scope="col">{{ t('dataops.dqd.status') }}</th><th scope="col">{{ t('dataops.dqd.notes') }}</th></tr></thead>
+<tbody>{% for r in dqd.failed %}<tr data-testid="dqd" data-check="{{ r.checkName }}" data-status="{{ r.status }}">
+<td class="mono">{{ r.checkName }}</td><td class="mono">{{ r.cdmTableName }}{% if r.cdmFieldName %}.{{ r.cdmFieldName }}{% endif %}</td>
+<td class="num">{{ '{:,}'.format(r.numViolatedRows) }} / {{ '{:,}'.format(r.numDenominatorRows) }}</td>
+<td>{% if r.status == 'fail' %}{{ t('dataops.dqd.fail') }}{% else %}{{ t('dataops.dqd.known') }}{% endif %}</td><td>{{ r.notes }}</td>
+</tr>{% endfor %}</tbody>
+</table></div>
+</section>{% endif %}
 {% if profile %}{# 10B-6 (D-1233): the site profile that read this night, and its coverage lines (counts only) #}
 <section class="card" data-testid="batch-profile">
 <h2>{{ t('dataops.profile.title') }}</h2>

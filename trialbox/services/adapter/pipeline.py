@@ -52,8 +52,10 @@ from adapter.validate.validator import (
     StructuralValidator,
     capped_types,
     missing_required,
+    no_birthdate_hold,
     sample_cap,
     sample_size,
+    validate_sample,
 )
 
 log = logging.getLogger("adapter")
@@ -1105,7 +1107,7 @@ def _run_ingest(
         picked = night.sample.result() if night.sample is not None else []
         cut = capped_types(night.kept, cfg.sample_fraction, cap=cap)
         try:
-            vres = chosen.validate(picked)
+            vres = validate_sample(chosen, picked)
             vsum = ValidationSummary(
                 sampled=vres.sampled,
                 errors=vres.errors,
@@ -1114,7 +1116,18 @@ def _run_ingest(
                 messages=vres.messages,
                 sample_cap=cap,
                 capped=cut or None,
+                patients_sampled=vres.patients,
+                no_birthdate=vres.no_birthdate,
             )
+            if vres.no_birthdate:
+                log.info(
+                    "%d of %d sampled patients have no birth date: age criteria are unknown for them",
+                    vres.no_birthdate,
+                    vres.patients,
+                )
+            if hold := no_birthdate_hold(vres):
+                errors.append(hold)
+                validation_msgs.append(hold)
         except Exception as exc:
             from adapter import failure
 
@@ -1329,7 +1342,7 @@ def _run_ingest(
                     {
                         k: v
                         for k, v in dump(omop_load).items()
-                        if k in ("state", "seconds", "counts", "relational_failed")
+                        if k in ("state", "seconds", "counts", "relational_failed", "dqd")
                     }
                     if omop_load is not None
                     else None
