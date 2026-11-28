@@ -171,6 +171,7 @@ VITAL_FIELD = {"8302-2": "height_cm", "29463-7": "weight_kg", "8480-6": "sbp", "
 DERIVED_VITAL = {"height": "height_cm", "weight": "weight_kg"}
 LAB_VALUE, LAB_UNIT = ("lab", "result_value"), ("lab", "unit")
 NOTE_TEXT, ORDER_END, BIRTH_DATE = ("note", "text"), ("medication", "end_date"), ("patient", "birth_date")
+SEX = ("patient", "sex")
 #: the reasons about a recorded value (none, unreadable, not usable): the value field, not the code field
 _VALUE_REASONS = {
     Reason.DATA_GAP, Reason.UNKNOWN_KEPT, Reason.UNKNOWN_VALUE, Reason.DERIVED_UNIT, Reason.DERIVED_ADULT_ONLY,
@@ -186,7 +187,7 @@ NEEDS_TEXT = {
 
 def named_sources() -> list[tuple[str, str]]:
     """Every (view, field) :func:`needs` can name."""
-    out = [*CODE_FIELD.values(), LAB_VALUE, LAB_UNIT, NOTE_TEXT, ORDER_END, BIRTH_DATE]
+    out = [*CODE_FIELD.values(), LAB_VALUE, LAB_UNIT, NOTE_TEXT, ORDER_END, BIRTH_DATE, SEX]
     out += [("vital", f) for f in (*VITAL_FIELD.values(), *DERIVED_VITAL.values())]
     return sorted(set(out))
 
@@ -239,16 +240,23 @@ def needs(reason: str | None, criterion: Any, valuesets: Mapping[str, Any] | Non
     elif r is Reason.DERIVED_ADULT_ONLY and getattr(a, "derived", None):
         concept, (view, field) = str(a.derived), BIRTH_DATE  # an adult equation: the age decides whether it applies
     elif r.value.startswith("derived_") and getattr(a, "derived", None):
+        from tb_common.derived import COMPONENTS
+
         part = str(reason or "").partition(":")[2].strip()
-        concept = f"{a.derived}: {part}" if part else str(a.derived)
-        if r is Reason.DERIVED_UNIT and part not in DERIVED_VITAL:
+        inputs = [part] if part else list(COMPONENTS.get(str(a.derived), ()))  # no input named: every input
+        concept = f"{a.derived}: {', '.join(inputs)}" if inputs else str(a.derived)
+        if r is Reason.DERIVED_UNIT and part and part not in DERIVED_VITAL:
             view, field = LAB_UNIT  # the input's unit is what the formula cannot use
+        elif inputs and all(i in DERIVED_VITAL for i in inputs):
+            view, field = "vital", ", ".join(DERIVED_VITAL[i] for i in inputs)
         else:
-            view, field = ("vital", DERIVED_VITAL[part]) if part in DERIVED_VITAL else LAB_VALUE
+            view, field = LAB_VALUE
     elif a.domain == "observation" and (vital := VITAL_FIELD.keys() & _loinc_codes(a.valueset, valuesets)):
         view, field = "vital", VITAL_FIELD[min(vital)]
     elif a.domain == "observation" and r in _VALUE_REASONS:
         view, field = LAB_VALUE
+    elif a.domain == "demographic":
+        (view, field), concept = (SEX, "sex") if getattr(a, "sex", None) else (BIRTH_DATE, "age")
     else:
         view, field = CODE_FIELD[a.domain]
     return {"view": view, "field": field, "concept": concept}
