@@ -20,6 +20,7 @@ import pytest
 from adapter import pipeline
 from adapter.pipeline import AdapterConfig
 from tb_common import site_needs
+from tb_common.crypto import create_key
 
 GIVEN_ENV = {
     "TB_SOURCE_DIR": "/data/source/site-a",
@@ -130,6 +131,7 @@ def test_a_night_with_the_backup_key_still_needed_is_published_and_audits_it_onc
     sec = tmp_path / "secrets"
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(b"k" * 32)
+    create_key(sec / "pid_map.key")  # as the install ceremony makes it on a PRODUCTION box
     exp = tmp_path / "bulk"
     exp.mkdir()
     patients = [{"resourceType": "Patient", "id": f"p{i}", "gender": "female", "birthDate": "1970-01-01"}
