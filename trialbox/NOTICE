@@ -487,7 +487,7 @@ Every folder of the image that holds code lists, code maps or value sets, and th
 
 9.1 LOINC version: the shipped files state no LOINC release. The register row loinc records the release the
     names were checked against (2.82); the version pin of PR #82 closes it.
-9.2 ATC: WHOCC's written permission to ship ATC names in a commercial product is not yet asked (owner). The
+9.2 ATC: ATC names are shipped subject to the custodian's terms; see the licence register. The
     request text is docs/licences/atc-permission-request.md (not sent). The fallback is codes only, names from the
     open NHI and site lists. The ATC version is not recorded.
 9.3 SNOMED CT remnants: closed by T-617b. The MIMIC ICU map uses ICD-10-PCS, the OMOP operator concepts keep OHDSI
