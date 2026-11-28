@@ -836,6 +836,16 @@ image-scan: scanners
 		--hadolint-image $(HADOLINT_IMAGE) $(foreach i,$(IMAGE_SCAN_IMAGES),--image $(i)) \
 		--config-dir deploy/docker --config-dir demo $(IMAGE_SCAN_ARGS)
 
+# Release hygiene item 5: the standing release gates (tools/supply_chain/standing_gates.py): the code-pattern scanner
+# with its rule set at a pinned commit, two secret scanners, the platform-manifest scanner on deploy/platform and the
+# Dockerfile linter on every Dockerfile, each an image by version and digest, the tree read-only. Fails on a count
+# above deploy/security/standing-gates-baseline.json and on every finding of a tool from its date in BLOCKS_FROM (the
+# integrator's ruling 7213778687). Needs Docker and the network for the rule set.
+STANDING_GATES_DIR ?= build/standing-gates
+.PHONY: standing-gates
+standing-gates:
+	$(SC) standing-gates --out $(STANDING_GATES_DIR) --src .. --rules .cache/code-rules $(STANDING_GATES_ARGS)
+
 # D-1343: hadolint on HADOLINT_REPORT, report-only (exit 0 whatever it finds; the hadolint image by digest, Docker).
 HADOLINT_REPORT_OUT ?= build/hadolint-report.txt
 .PHONY: hadolint-report
@@ -847,7 +857,7 @@ hadolint-report:
 	@cat $(HADOLINT_REPORT_OUT)
 
 # a bundle only from images that passed the gates (make_bundle.sh needs --gates, T-110b); the SBOMs of dist/sbom ride
-# inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
+# inside it with release.json. BUNDLE_ARGS="--key ... --pub ... --id ... --release-seq N --out FRESH_FOLDER/trialbox-<id>.tar"
 # 10G-9 (D-1239): no release bundle while the public security contact (deploy/security/contact.json) is not set; a
 # --rehearsal or --allow-dirty bundle, which is no release, passes with a warning
 release-bundle: security-contact-check release-images release-gates vocab-bundle-check

@@ -223,7 +223,8 @@ health line warns 90 days before the list runs out and is red after it.
    手動インストールでは、インストーラーと同様に配置先、タイムアウト、Compose のコンテナ数を設定します。
    有効化したら `trialbox.service` を起動します。これでインストール直後から systemd でコンテナを停止できます。
 6. **Vendor key.** The one command placed it (`deploy/keys/vendor_ed25519.pub`, from the key received out of
-   band); the installer refuses to start without it.
+   band); the installer refuses to start without it. The vendor's build takes that same key from `--pub`
+   (`tools/make_bundle.sh` refuses a release without it, and refuses a stick whose key does not verify the bundle).
 7. **First ingest.** From `/opt/trialbox`: `docker compose --project-directory deploy exec adapter python -m adapter.cli run`,
    or wait for 02:00. It reads the feed folder (`TB_SOURCE_DIR`) with the site's mapping (`deploy/site/mapping`).
    The report is in the lake's volume, which the adapter mounts:

@@ -336,6 +336,13 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # HYG5: tests/unit/test_standing_release_gates_hyg5.py holds the standing-gates baseline against the one on the
+      # pull request's base branch (a count may not be raised again after it went down); the checkout is depth 1
+      - name: Fetch the base branch
+        env:
+          BASE: ${{ github.base_ref }}  # empty outside a pull request
+        run: |
+          if [ -n "$BASE" ]; then git fetch --depth=1 origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"; fi
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
