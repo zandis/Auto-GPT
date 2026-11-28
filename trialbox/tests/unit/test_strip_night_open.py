@@ -8,6 +8,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from jsonschema import Draft202012Validator
 from orchestrator.db import JobDB
@@ -18,8 +19,8 @@ from tools.strip_night_open import strip
 SCHEMA = json.loads((Path(__file__).resolve().parents[2] / "schemas" / "job.schema.json").read_text(encoding="utf-8"))
 
 
-def _previous_schema() -> dict:
-    old = copy.deepcopy(SCHEMA)
+def _previous_schema() -> dict[str, Any]:
+    old: dict[str, Any] = copy.deepcopy(SCHEMA)
     del old["$defs"]["job_metrics"]["properties"]["night_open"]
     return old
 
@@ -45,7 +46,10 @@ def test_strip_makes_every_stored_record_valid_for_the_previous_schema(tmp_path:
         db.put(_job("01J0000000000000000000000A", no))
         db.put(_job("01J0000000000000000000000B", None))
         old = Draft202012Validator(_previous_schema())
-        rows = lambda: [json.loads(r[0]) for r in db._db.fetchall("SELECT data FROM jobs ORDER BY job_id")]  # noqa: E731
+
+        def rows() -> list[dict[str, Any]]:
+            return [json.loads(r[0]) for r in db._db.fetchall("SELECT data FROM jobs ORDER BY job_id")]
+
         assert not all(old.is_valid(r) for r in rows())  # the new shape is what the previous schema refuses
         assert strip(db) == 1
         assert all(old.is_valid(r) for r in rows())
