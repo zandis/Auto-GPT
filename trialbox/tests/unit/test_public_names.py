@@ -156,3 +156,84 @@ def test_release_arguments_without_a_flag_still_refuse_when_unset(tmp_path: Path
     repo = _repo(tmp_path, {"a.md": "clean\n"})
     rc, _, err = _run(repo, None, "--key", "k", "--id", "2026.11-1")
     assert rc == 2 and "is not set" in err
+
+
+def test_a_bad_pattern_error_text_is_never_echoed(tmp_path: Path) -> None:
+    # PN-01: the regex error text names a group copied from the private list
+    repo = _repo(tmp_path, {"a.md": "clean\n"})
+    rc, _, err = _run(repo, str(_patterns(tmp_path, "(?P<zorbek>a)(?P<zorbek>b)\n")))
+    assert rc == 2
+    assert "pattern 1 does not compile" in err and "zorbek" not in err.lower()
+
+
+def test_a_tracked_symlink_is_scanned_by_its_target_not_its_destination(tmp_path: Path) -> None:
+    # PN-02: git publishes the link target text; the destination file here is clean
+    dest = tmp_path / "elsewhere" / "clean.txt"
+    dest.parent.mkdir()
+    dest.write_text("clean\n", encoding="utf-8")
+    repo = _repo(tmp_path, {"a.md": "clean\n"})
+    (repo / "link").symlink_to(str(dest.parent / "zorbek-dir" / ".." / "clean.txt"))
+    _git(repo, "add", "-A")
+    rc, out, _ = _run(repo, str(_patterns(tmp_path, "zorbek\n")))
+    assert rc == 1, out
+    assert "link:1: pattern 1" in out and "zorbek" not in out
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be"])
+def test_a_utf16_document_with_a_bom_is_scanned(tmp_path: Path, encoding: str) -> None:
+    # PN-03: UTF-16 text holds NUL bytes but is not binary
+    body = b"\xff\xfe" if encoding == "utf-16-le" else b"\xfe\xff" if encoding == "utf-16-be" else b""
+    repo = _repo(tmp_path, {"u.txt": body + "clean\nwritten by zorbek\n".encode(encoding)})
+    rc, out, _ = _run(repo, str(_patterns(tmp_path, "zorbek\n")))
+    assert rc == 1, out
+    assert "u.txt:2: pattern 1" in out
+
+
+def test_a_missing_path_or_submodule_is_skipped_but_an_unreadable_file_is_not_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # PN-04
+    repo = _repo(tmp_path, {"a.md": "clean\n", "gone.md": "clean\n"})
+    _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},sub")
+    (repo / "gone.md").unlink()
+    names = _patterns(tmp_path, "zorbek\n")
+    rc, out, err = _run(repo, str(names))
+    assert rc == 0 and "PASS" in out, (out, err)
+
+    real = Path.read_bytes
+
+    def deny(self: Path) -> bytes:
+        if self.name == "a.md":
+            raise PermissionError(13, "denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", deny)
+    assert pn.check(repo, str(names)) == pn.EXIT_NOT_CHECKED
+    captured = capsys.readouterr()
+    assert "NOT checked" in captured.err and "PASS" not in captured.out
+    assert "a.md" not in captured.err
+
+
+@pytest.mark.parametrize("flag", ["--rehearsal", "--allow-dirty"])
+def test_only_an_unset_list_is_overridable(tmp_path: Path, flag: str) -> None:
+    # PN-05: a list inside the repository, an unreadable list and a bad pattern stay exit 2
+    repo = _repo(tmp_path, {"a.md": "clean\n"})
+    inside = repo / "names.txt"
+    inside.write_text("zorbek\n", encoding="utf-8")
+    for value in (str(inside), str(tmp_path / "missing.txt"), str(_patterns(tmp_path, "zorbek(\n"))):
+        rc, _, err = _run(repo, value, flag, "a reason")
+        assert rc == 2, err
+        assert "WARNING" not in err and "NOT checked" in err
+
+
+def test_a_diagnostic_never_prints_the_checkout_path(tmp_path: Path) -> None:
+    # PN-06: both diagnostics that used to interpolate the repository path
+    repo = _repo(tmp_path, {"a.md": "clean\n"})
+    inside = repo / "names.txt"
+    inside.write_text("zorbek\n", encoding="utf-8")
+    rc, _, err = _run(repo, str(inside))
+    assert rc == 2 and "keep it outside the repository" in err and str(repo) not in err
+    nogit = tmp_path / "nogit"
+    nogit.mkdir()
+    rc, _, err = _run(nogit, str(_patterns(tmp_path, "zorbek\n")))
+    assert rc == 2 and "NOT checked" in err and str(nogit) not in err

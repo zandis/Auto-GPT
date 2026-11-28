@@ -7,15 +7,17 @@ The real pattern list is held by the integrator and is not in the repository.
 
 The pattern list is never in the repository: it is a file kept outside it, named by ``TB_PUBLIC_NAMES_FILE``, one
 regular expression per line (case-insensitive), ``#`` starts a comment line, blank lines are skipped. The check reads
-every file ``git ls-files`` lists (text files; a file with a NUL byte in its first 8 KiB is binary and skipped) and
-every tracked path. A hit is reported by its place and the pattern's number in the list, never by the text it
-matched: ``path:line: pattern N``, or ``tracked path K (git ls-files | sed -n Kp)`` where the path itself matches.
+every file ``git ls-files`` lists (text files; a UTF-16 file is read by its BOM; a file with a NUL byte in its first
+8 KiB is binary and skipped; a symlink is read as its target path) and every tracked path. A hit is reported by its
+place and the pattern's number in the list, never by the text it matched: ``path:line: pattern N``, or
+``tracked path K (git ls-files | sed -n Kp)`` where the path itself matches.
 
 Exit 0: no hit. Exit 1: a hit. Exit 2: not checked (the variable unset or empty, the list unreadable, empty, inside
-the repository, or a pattern that does not compile), said plainly on stderr; a release gate never reads exit 2 as a
-pass. ``make release-bundle`` runs it first (``make public-names``) with its ``BUNDLE_ARGS``: for a bundle that is
-not a release (``--rehearsal`` or ``--allow-dirty``, as ``tools/security_contact.py`` reads them) a check that could
-not run is a warning and exit 0; a hit is exit 1 there too.
+the repository, a pattern that does not compile, or a tracked file that cannot be read), said plainly on stderr; a
+release gate never reads exit 2 as a pass. ``make release-bundle`` runs it first (``make public-names``) with its
+``BUNDLE_ARGS``: for a bundle that is not a release (``--rehearsal`` or ``--allow-dirty``, as
+``tools/security_contact.py`` reads them) a variable that is unset or empty is a warning and exit 0 (any other
+not-checked case is still exit 2); a hit is exit 1 there too.
 
 Standard library only.
 """
@@ -23,6 +25,7 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import codecs
 import os
 import re
 import subprocess
@@ -40,15 +43,17 @@ EXIT_NOT_CHECKED = 2
 
 
 class NotChecked(Exception):
-    """The tree could not be checked; the message says why without echoing a pattern."""
+    """The tree could not be checked; the message says why without echoing a pattern or a path."""
+
+
+class NotSet(NotChecked):
+    """The variable is unset or empty: the one not-checked case a non-release bundle may pass with a warning."""
 
 
 def load_patterns(value: str | None, repo: Path) -> list[re.Pattern[str]]:
     """The compiled patterns of the list the variable names; raises NotChecked when there is none to use."""
     if not value:
-        raise NotChecked(
-            f"{ENV} is not set: tracked files NOT checked (name a pattern file kept outside the repository)"
-        )
+        raise NotSet(f"{ENV} is not set: tracked files NOT checked (name a pattern file kept outside the repository)")
     path = Path(value).expanduser().resolve()
     try:
         path.relative_to(repo.resolve())
@@ -56,7 +61,7 @@ def load_patterns(value: str | None, repo: Path) -> list[re.Pattern[str]]:
         pass
     else:
         raise NotChecked(
-            f"the pattern file is inside the repository: tracked files NOT checked (keep it outside {repo})"
+            "the pattern file is inside the repository: tracked files NOT checked (keep it outside the repository)"
         )
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -72,9 +77,7 @@ def load_patterns(value: str | None, repo: Path) -> list[re.Pattern[str]]:
         try:
             patterns.append(re.compile(text, re.IGNORECASE))
         except re.error as exc:
-            raise NotChecked(
-                f"pattern {len(patterns) + 1} does not compile ({exc.msg}): tracked files NOT checked"
-            ) from exc
+            raise NotChecked(f"pattern {len(patterns) + 1} does not compile: tracked files NOT checked") from exc
     if not patterns:
         raise NotChecked(f"the pattern file {ENV} names holds no patterns: tracked files NOT checked")
     return patterns
@@ -83,7 +86,7 @@ def load_patterns(value: str | None, repo: Path) -> list[re.Pattern[str]]:
 def tracked(repo: Path) -> list[str]:
     proc = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True, check=False)
     if proc.returncode != 0:
-        raise NotChecked(f"git ls-files failed in {repo} (exit {proc.returncode}): tracked files NOT checked")
+        raise NotChecked(f"git ls-files failed (exit {proc.returncode}): tracked files NOT checked")
     return [p for p in proc.stdout.decode("utf-8", "surrogateescape").split("\0") if p]
 
 
@@ -93,6 +96,31 @@ def first_hit(patterns: list[re.Pattern[str]], text: str) -> int | None:
         if pattern.search(text):
             return number
     return None
+
+
+def file_text(path: Path, index: int) -> str | None:
+    """What git publishes of one tracked path as text, or None when there is nothing to scan.
+
+    A symlink is its target path; a UTF-16 file (BOM) is decoded before the binary test; a path missing from the work
+    tree or a submodule folder is nothing to read; any other read error raises NotChecked.
+    """
+    try:
+        if path.is_symlink():
+            return os.fsdecode(os.readlink(path))
+        if path.is_dir():
+            return None  # a submodule folder
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return None  # a tracked path deleted in the work tree
+    except OSError as exc:
+        raise NotChecked(
+            f"tracked path {index} is not readable ({type(exc).__name__}): tracked files NOT checked"
+        ) from exc
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return data.decode("utf-16", "replace")
+    if b"\0" in data[:BINARY_PROBE]:
+        return None
+    return data.decode("utf-8", "replace")
 
 
 def scan(repo: Path, patterns: list[re.Pattern[str]]) -> tuple[list[str], int]:
@@ -105,13 +133,10 @@ def scan(repo: Path, patterns: list[re.Pattern[str]]) -> tuple[list[str], int]:
         if number is not None:
             place = f"tracked path {index} (git ls-files | sed -n {index}p)"
             hits.append(f"{place}: file name matches pattern {number}")
-        try:
-            data = (repo / rel).read_bytes()
-        except OSError:
-            continue  # a tracked path deleted in the work tree, or a submodule folder: nothing to read
-        if b"\0" in data[:BINARY_PROBE]:
+        text = file_text(repo / rel, index)
+        if text is None:
             continue
-        for lineno, line in enumerate(data.decode("utf-8", "replace").splitlines(), start=1):
+        for lineno, line in enumerate(text.splitlines(), start=1):
             number = first_hit(patterns, line)
             if number is not None:
                 hits.append(f"{place}:{lineno}: pattern {number}")
@@ -128,7 +153,7 @@ def check(repo: Path, value: str | None, bundle_args: list[str] | None = None) -
         patterns = load_patterns(value, repo)
         hits, count = scan(repo, patterns)
     except NotChecked as exc:
-        flag = not_a_release(bundle_args or [])
+        flag = not_a_release(bundle_args or []) if isinstance(exc, NotSet) else None
         if flag:
             print(f"public-names: WARNING, not a release ({flag}): {exc}", file=sys.stderr)
             return 0
