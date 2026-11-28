@@ -353,6 +353,20 @@ def test_a_tool_that_cannot_run_still_warns_and_the_install_continues(tmp_path: 
     assert r.returncode == 0 and "CONTINUED" in r.stdout and "warning" in r.stderr, r.stderr
 
 
+@pytest.mark.parametrize("bad", ["two", "0", "-1"])
+def test_a_bad_worker_override_is_corrected_to_one_with_a_warning_and_the_install_continues(
+    tmp_path: Path, bad: str
+) -> None:
+    r = _install_step(tmp_path, f"TB_CONSOLE_USERS=40\nTB_CONSOLE_WORKERS={bad}\n")
+    out = r.stdout + r.stderr
+    assert r.returncode == 0 and "CONTINUED" in r.stdout and "a stop of the registry" not in out, out
+    assert "warning" in r.stderr and f"TB_CONSOLE_WORKERS={bad!r}" in r.stderr and "using 1" in r.stderr, r.stderr
+    env_file = tmp_path / "deploy" / ".env"
+    written = env_file.read_text(encoding="utf-8").splitlines()
+    assert written.count("TB_CONSOLE_WORKERS=1") == 1 and f"TB_CONSOLE_WORKERS={bad}" not in written
+    assert console_size.main(["--env-file", str(env_file), "--cpus", "16"]) == 0  # the written file now reads clean
+
+
 def test_doctor_warns_when_the_console_users_are_not_set() -> None:
     from tools.trialbox import doctor
 
