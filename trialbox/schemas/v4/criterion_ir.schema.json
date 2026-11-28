@@ -361,6 +361,26 @@
      "default": null,
      "description": "3.1.0: `review` sends a met atom to a person (\"clinically significant X\"); absent or `exclude`: the atom decides as in 3.0.0",
      "title": "On Hit"
+    },
+    "subject": {
+     "anyOf": [
+      {
+       "enum": [
+        "patient",
+        "parent",
+        "partner",
+        "donor",
+        "other"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "3.1.0: whose data the atom reads; absent or `patient`: the patient",
+     "title": "Subject"
     }
    },
    "required": [
@@ -1865,7 +1885,7 @@
   },
   "Value": {
    "additionalProperties": false,
-   "description": "v1 ``AtomValue`` plus ``ref`` (§6.2.1).",
+   "description": "v1 ``AtomValue`` plus ``ref`` (§6.2.1) and, 3.1.0, a bounded interval ``lo`` / ``hi`` instead of ``op``.",
    "properties": {
     "op": {
      "anyOf": [
@@ -1955,6 +1975,64 @@
       }
      ],
      "default": null
+    },
+    "lo": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "3.1.0: lower bound; needs `lo_incl`",
+     "title": "Lo"
+    },
+    "hi": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "3.1.0: upper bound; needs `hi_incl`",
+     "title": "Hi"
+    },
+    "lo_incl": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "3.1.0: whether `lo` itself passes",
+     "title": "Lo Incl"
+    },
+    "hi_incl": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "3.1.0: whether `hi` itself passes",
+     "title": "Hi Incl"
     }
    },
    "title": "Value",
@@ -2012,7 +2090,12 @@
         "index",
         "event",
         "screening",
-        "randomization"
+        "randomization",
+        "enrollment",
+        "consent",
+        "first_dose",
+        "last_dose",
+        "end_of_study"
        ],
        "type": "string"
       },
@@ -2053,6 +2136,20 @@
      ],
      "default": null,
      "title": "Event Pick"
+    },
+    "anchor_text": {
+     "anyOf": [
+      {
+       "minLength": 1,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "3.1.0: the named event the window counts from, beside the enum",
+     "title": "Anchor Text"
     }
    },
    "title": "Window",

@@ -195,7 +195,8 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
     (``upgrade_v1``), then each atom becomes the v1-shaped atom the shared templates compile, and its v3 atom is kept
     beside it (keyed by the lowered atom's ``id()``) for the qualifiers a generator compiles itself. A qualifier no
     generator compiles raises :class:`CompileError` (the criterion goes to a person); none is dropped. ``card_ref`` is
-    provenance and changes nothing; ``on_hit: exclude`` and ``unit: d`` mean what their absence means."""
+    provenance and changes nothing; ``on_hit: exclude``, ``unit: d`` and ``subject: patient`` mean what their absence
+    means."""
     if isinstance(criterion, CriterionIR):
         criterion = upgrade_v1(criterion)
     if criterion.macros:
@@ -254,6 +255,8 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
             raise CompileError(f"atom {a.id}: a window counted in hours is not compiled")
         data = a.model_dump(exclude_none=True)
         data.pop("on_hit", None)
+        if data.get("subject") == "patient":
+            del data["subject"]
         if "window" in data:
             data["window"].pop("unit", None)
         if a.window and a.window.anchor in ("screening", "randomization"):
@@ -294,6 +297,7 @@ def lower(criterion: CriterionIR | CriterionIRv3) -> tuple[CriterionIR, dict[int
             data["domain"] = "observation"
             data["value"] = {"op": "=", "num": 1}
         shell = CriterionIRv3(
+            ir_version=criterion.ir_version,  # a 3.1.0 atom reaches downgrade_to_v1, which refuses it by name
             id=criterion.id,
             ruleset=criterion.ruleset,
             kind=criterion.kind,
