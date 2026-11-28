@@ -3,6 +3,7 @@ as an answer and as the default of the backup alert route, and the unnamed watch
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -51,8 +52,9 @@ def test_a_malformed_answers_file_is_refused_without_its_text(
     bad = tmp_path / "answers.yaml"
     bad.write_text("site_name: Site A\nadmin_password: synthetic-s3cret: [\n", encoding="utf-8")
     assert settings_wizard.main(["--answers", str(bad), "--dry-run", "--environment", "PRODUCTION"]) == 1
-    err = capsys.readouterr().err
-    assert "answers.yaml is not valid YAML at line" in err and "s3cret" not in err and "admin_password" not in err
+    out = capsys.readouterr()
+    assert re.search(r"answers\.yaml is not valid YAML at line 2, column \d+$", out.err.strip()), out.err
+    assert not any(s in out.out + out.err for s in ("s3cret", "admin_password"))
 
 
 def test_a_production_install_refuses_a_bad_answer_within_a_minute_before_the_load(tmp_path: Path) -> None:

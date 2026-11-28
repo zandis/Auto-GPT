@@ -1069,17 +1069,23 @@ def dry_run(answers: Path, environment: str, mapping_dirs: list[Path]) -> int:
     from tb_common import site_needs
 
     refused = "the answers are refused, nothing was loaded or written: "
+
+    def where(exc: yaml.YAMLError) -> str:  # its text quotes the source line: only where, never what (a name, a secret)
+        mark = getattr(exc, "problem_mark", None)
+        return f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+
     try:
         a = yaml.safe_load(answers.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:  # its text quotes the source line: only where, never what (a name, a secret)
-        mark = getattr(exc, "problem_mark", None)
-        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
-        print(f"{refused}{answers.name} is not valid YAML{where}", file=sys.stderr)
+    except yaml.YAMLError as exc:
+        print(f"{refused}{answers.name} is not valid YAML{where(exc)}", file=sys.stderr)
         return 1
     try:
         settings, env, warnings = build(a, [*mapping_dirs, answers.parent / "mapping"], environment=environment)
     except WizardError as exc:
         print(f"{refused}{exc}", file=sys.stderr)
+        return 1
+    except yaml.YAMLError as exc:  # a file the answers name (the site mapping) is not valid YAML
+        print(f"{refused}a file the answers name is not valid YAML{where(exc)}", file=sys.stderr)
         return 1
     for w in warnings:
         print(f"warning: {w}")
