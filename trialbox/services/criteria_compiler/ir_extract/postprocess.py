@@ -619,14 +619,12 @@ def postprocess(
         if stray:
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
+        # a mixed line goes to a person too: its note question ("Did the patient have chemotherapy?") does not carry
+        # the window that was held, so the notes would decide it without the time limit
         if held is not None and ir.class_ in FILTERED:
-            if ir.class_ == "mixed" and ir.note_question:  # as demote_uncompilable keeps it (D-98): the notes decide
-                ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
-                warnings.append(f"{cid}: {held}; the notes decide it (check it)")
-            else:
-                ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
-                                           "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
-                warnings.append(f"{cid}: {held}; kept for a person to check")
+            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+            warnings.append(f"{cid}: {held}; kept for a person to check")
         # card 10A-1 (review 15, P2b): "No prior chemotherapy" (inclusion) compiled to "any of chemotherapy", which
         # meets the line only for the patients it should exclude. An inclusion whose logic asks the presence of a
         # concept that a negation in its line governs (negation_scope) is never run: a person checks it (rewriting it

@@ -78,10 +78,13 @@ def test_a_window_from_the_last_dose_goes_to_a_person() -> None:
     assert any("last dose" in w for w in warns)
 
 
-def test_a_mixed_line_from_the_last_dose_keeps_its_note_question() -> None:
-    c, _ = _one("Chemotherapy within 30 days of last dose", {"from_days": -30, "to_days": 0}, cls="mixed")
-    assert c.class_ == "note"
-    assert c.note_question
+def test_a_mixed_line_from_the_last_dose_goes_to_a_person() -> None:
+    """Its note question ("Did the patient have chemotherapy?") does not carry the held window (review 1627.1 R4)."""
+    c, warns = _one("Chemotherapy within 30 days of last dose", {"from_days": -30, "to_days": 0}, cls="mixed")
+    assert c.class_ == "human"
+    assert c.human_question
+    assert {"window_anchor_unsupported", "needs_review"} <= set(c.flags)
+    assert any("kept for a person" in w for w in warns)
 
 
 def test_a_line_in_chinese_is_left_to_the_model() -> None:
