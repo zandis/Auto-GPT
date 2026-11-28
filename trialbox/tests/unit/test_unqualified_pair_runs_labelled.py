@@ -86,7 +86,9 @@ def test_validation_labels_its_candidate_and_test_does_not() -> None:
 
 
 def test_a_build_holding_a_record_is_tried_first_and_is_not_labelled() -> None:
-    held = _b("j-2", status="champion", sha256=OTHER, expected={"manifest_sha256": OTHER}, qualification=qualified(OTHER))
+    held = _b(
+        "j-2", status="champion", sha256=OTHER, expected={"manifest_sha256": OTHER}, qualification=qualified(OTHER)
+    )
     res = _resolve(_reg(_b("j-1"), held))
     assert res.build.build_id == "j-2" and res.qualification == ""
 
@@ -190,7 +192,9 @@ def _site(tmp_path: Path, **pin: Any) -> Path:
     row = next(b for b in doc["builds"] if (b.get("expected") or {}).get("manifest_sha256"))
     out = tmp_path / "registry.site.yaml"
     entry = {"sha256": row["expected"]["manifest_sha256"], "served": {"serving": "j"}, "context_length": 32768, **pin}
-    out.write_text(yaml.safe_dump({"kind": "registry-site-override", "builds": {row["build_id"]: entry}}), encoding="utf-8")
+    out.write_text(
+        yaml.safe_dump({"kind": "registry-site-override", "builds": {row["build_id"]: entry}}), encoding="utf-8"
+    )
     return out
 
 
