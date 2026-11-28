@@ -181,7 +181,7 @@ def test_the_rules_are_stated_on_every_first_day_page(fd_box: dict[str, Any]) ->
     en = CATALOGUES["en"]
     rules = [en[f"fd.rule.{n}"] for n in range(1, 5)]
     assert "two" in rules[0].lower() and "signature" in rules[0] and "real patients" in rules[0]
-    assert "never excludes" in rules[1] and "leaves the list" in rules[1]
+    assert "never takes a patient off the list" in rules[1] and "leaves the list" in rules[1]
     assert "cannot open without a backup key" in rules[2]
     assert "Japanese" in rules[3] and "off elsewhere" in rules[3]
     for lang in LANGS:
