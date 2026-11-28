@@ -89,11 +89,14 @@ again, as root: `python3 -m tools.backup_key_ceremony --declare-backup-target <f
 `backup-key-<fp>.sealed` to the new target by hand. A FAT or exFAT target has no file modes: the sealed copy
 (encrypted) is made there as its mount gives it. Run again by hand, as root on the box:
 `python3 -m tools.backup_key_ceremony --install`. The install's own declaration takes no share served by the box
-itself (localhost, a loopback address, the box's own name or address). The install's `--kek-passphrase-file` is
-removed before the key is made and written back if the ceremony refuses; an install killed during the ceremony
-leaves no file, so keep the passphrase somewhere else as well. The install does not check, when it removes the
-file, that it is still the one it read: do not replace or rewrite the file while the install runs. A passphrase
-file a later install finds beside a sealed key is kept and named: remove it by hand (`rm -- <file>`). To restore with a sealed key (the copy on the backup target), as
+itself (localhost, a loopback address, the box's own name or address); declare the off-box target by IP if names may
+alias this box (a name that only resolves to the box is not recognised). The install's `--kek-passphrase-file` is
+the only copy of the passphrase until the key is sealed and read back: the install removes it only then, and an
+interrupted install leaves it. The passphrase file must be a regular file you created (a named pipe is not
+supported), and do not replace or rewrite it while the install runs: the install does not check, when it removes the
+file, that it is still the one it read. A passphrase file a later install finds beside a sealed key is kept and
+named: remove it by hand (`rm -- <file>`). On the bench the operator writes the passphrase on the paper envelope
+before the ceremony. To restore with a sealed key (the copy on the backup target), as
 root on the box: `python3 -m tools.backup_key_ceremony --unseal <the .sealed file>` asks for the passphrase and does
 not show it (never type it where it is shown; piped, it reads one line of stdin) and writes the key file only to
 `deploy/secrets/restore/trialbox-backup.key` (never to a stick); then `restore --key
