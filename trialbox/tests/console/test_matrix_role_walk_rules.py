@@ -19,6 +19,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
 from console.breakglass_store import BreakGlassStore
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -58,6 +59,7 @@ def _acting_on(users: Any, audit: Any) -> None:
 
 
 # ---------------------------------------------------------------------------------------------- D-719
+@pytest.mark.usefixtures("held_dir")
 def test_two_person_account_confirm(tmp_path: Path) -> None:
     app, users, _, _ = _box(tmp_path, steward=True)
     users.create("crc9", "coordinator", "crc-own-password-0009", "crc9@hospa.test")

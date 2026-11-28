@@ -115,6 +115,7 @@ def MATRIX_ROLES_FROM_FILE() -> list[str]:
 
 
 # ---------------------------------------------------------------------------------------------- one person: (b)
+@pytest.mark.usefixtures("held_dir")
 def test_the_shadow_sequence_fails_on_a_one_person_box_no_password_is_shown(tmp_path: Path) -> None:
     app, users, audit_dir, clock = _box(tmp_path, steward=False)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -150,6 +151,7 @@ def test_the_shadow_sequence_fails_on_a_one_person_box_no_password_is_shown(tmp_
     assert _password(TestClient(app), "shadow", CRC_PW).status_code == 303  # the holder's password stands
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_an_aggregate_account_is_made_as_before(tmp_path: Path) -> None:
     app, users, _, _ = _box(tmp_path, steward=True)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -159,6 +161,7 @@ def test_an_aggregate_account_is_made_as_before(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------------------------- 30 days: (b)
+@pytest.mark.usefixtures("held_dir")
 def test_the_administrator_never_holds_both_factors_within_30_days(tmp_path: Path) -> None:
     app, users, audit_dir, clock = _box(tmp_path, steward=False)
     users.create("crc", "coordinator", CRC_PW, "crc@hospa.test")  # made before the rule: it keeps its factors
@@ -195,6 +198,7 @@ def test_the_administrator_never_holds_both_factors_within_30_days(tmp_path: Pat
     assert r.status_code == 200
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_new_account_cannot_be_given_a_password_before_its_holder_signs_in(tmp_path: Path) -> None:
     app, _, _, clock = _box(tmp_path, steward=False)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -212,6 +216,7 @@ def test_a_new_account_cannot_be_given_a_password_before_its_holder_signs_in(tmp
     assert _redeem(app, "shadow", _code_in(r.text), CRC_PW).status_code == 303
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_code_expires_after_the_declared_hours(tmp_path: Path) -> None:
     app, _, _, clock = _box(tmp_path, steward=False, TB_CONSOLE_ENROL_CODE_HOURS="2")
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -222,6 +227,7 @@ def test_the_code_expires_after_the_declared_hours(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------------------------- notices: (a)
+@pytest.mark.usefixtures("held_dir")
 def test_the_holder_is_told_at_sign_in_and_the_steward_by_mail(tmp_path: Path) -> None:
     app, users, audit_dir, clock = _box(tmp_path, steward=True)
     users.create("crc", "coordinator", CRC_PW, "crc@hospa.test")
@@ -248,6 +254,7 @@ def test_the_holder_is_told_at_sign_in_and_the_steward_by_mail(tmp_path: Path) -
 
 
 # ---------------------------------------------------------------------------------------------- a second person: (c)
+@pytest.mark.usefixtures("held_dir")
 def test_the_shadow_sequence_fails_where_a_second_person_exists(tmp_path: Path) -> None:
     app, users, audit_dir, _ = _box(tmp_path, steward=True)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -271,6 +278,7 @@ def test_the_shadow_sequence_fails_where_a_second_person_exists(tmp_path: Path) 
     assert code.group(1) not in json.dumps(_events(audit_dir))
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_refused_request_changes_nothing_and_scope_waits_too(tmp_path: Path) -> None:
     app, users, audit_dir, _ = _box(tmp_path, steward=True)
     users.create("crc", "coordinator", CRC_PW)
@@ -293,6 +301,7 @@ def test_a_refused_request_changes_nothing_and_scope_waits_too(tmp_path: Path) -
     assert r.status_code == 303
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_steward_the_administrator_opened_counts_once_its_holder_used_the_code(tmp_path: Path) -> None:
     """The review of D-719 (critical 2): a box's first steward is opened by the administrator; once its holder used
     the code, it is the administrator's second person, and every confirmation says who opened the confirming
@@ -317,6 +326,7 @@ def test_the_steward_the_administrator_opened_counts_once_its_holder_used_the_co
     assert ev[-1]["detail"]["confirmer_opened_by"] == "admin"
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_disabled_or_expired_account_is_held_as_any_other(tmp_path: Path) -> None:
     """The review of D-719 (critical 1): a reset of a disabled account went the old way (password shown, no record),
     and enabling it then let the administrator give the other factor."""
@@ -337,6 +347,7 @@ def test_a_disabled_or_expired_account_is_held_as_any_other(tmp_path: Path) -> N
     assert any(e["event"] == "console.factor_refused" for e in _events(audit_dir))
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_disabling_the_steward_does_not_void_the_second_person(tmp_path: Path) -> None:
     """The review of D-719 (critical 3): the request waits for the disabled steward, who is still told by mail."""
     app, users, _, _ = _box(tmp_path, steward=True)
@@ -360,6 +371,7 @@ def test_disabling_the_steward_does_not_void_the_second_person(tmp_path: Path) -
     assert any("stew@hospa.test" in to for _k, to, _s, _b in notices)  # the disabled steward was told too
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_confirmation_that_cannot_be_applied_is_failed_not_confirmed(tmp_path: Path) -> None:
     app, users, audit_dir, _ = _box(tmp_path, steward=True)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -381,6 +393,7 @@ def test_a_confirmation_that_cannot_be_applied_is_failed_not_confirmed(tmp_path:
                for e in _events(audit_dir))  # fmt: skip
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_only_the_spent_code_learns_that_it_was_used(tmp_path: Path) -> None:
     """The review of D-719 (minor): "used" told anyone which accounts were opened by code, and when."""
     app, _, audit_dir, clock = _box(tmp_path, steward=False)
@@ -395,6 +408,7 @@ def test_only_the_spent_code_learns_that_it_was_used(tmp_path: Path) -> None:
     assert r.status_code == 401 and 'data-testid="enrol-code-used"' in r.text
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_role_without_the_row_may_not_confirm(tmp_path: Path) -> None:
     app, users, _, _ = _box(tmp_path, steward=True)
     users.create("crc", "coordinator", CRC_PW)
@@ -408,6 +422,7 @@ def test_a_role_without_the_row_may_not_confirm(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------------------------- with TOTP on
+@pytest.mark.usefixtures("held_dir")
 def test_with_totp_on_the_holder_enrols_on_their_own_device_after_the_code(tmp_path: Path) -> None:
     app, users, audit_dir, clock = _box(tmp_path, steward=False, TB_CONSOLE_MFA="totp")
     from tests.console.test_identity import _enrol

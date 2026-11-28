@@ -543,15 +543,20 @@ class SiteStore:
 
     # ------------------------------------------------------------------ weekly appearances
     def seen(self, ruleset: str, pids: list[str], job_id: str, at: str) -> dict[str, str]:
-        """Record first appearances of ``pids`` on a list for ``ruleset``; return pid -> job id of first listing."""
+        """Record first appearances of ``pids`` on a list for ``ruleset``; return pid -> job id of first listing.
+        MVP-B: only the pids not yet recorded are written (a 50,000-row list was re-inserted at every page view)."""
+        sql = "SELECT pid, first_job FROM weekly_seen WHERE ruleset = ?"
         with self.db.transaction() as tx:
-            tx.executemany(
-                "INSERT INTO weekly_seen (ruleset, pid, first_job, first_at) VALUES (?,?,?,?) "
-                "ON CONFLICT (ruleset, pid) DO NOTHING",
-                [(ruleset, pid, job_id, at) for pid in pids],
-            )
-            rows = tx.fetchall("SELECT pid, first_job FROM weekly_seen WHERE ruleset = ?", (ruleset,))
-        return {str(p): str(j) for p, j in rows}
+            have = {str(p): str(j) for p, j in tx.fetchall(sql, (ruleset,))}
+            new = [pid for pid in dict.fromkeys(pids) if pid not in have]
+            if new:
+                tx.executemany(
+                    "INSERT INTO weekly_seen (ruleset, pid, first_job, first_at) VALUES (?,?,?,?) "
+                    "ON CONFLICT (ruleset, pid) DO NOTHING",
+                    [(ruleset, pid, job_id, at) for pid in new],
+                )
+                have = {str(p): str(j) for p, j in tx.fetchall(sql, (ruleset,))}  # a parallel view may have won
+        return have
 
     def first_seen(self, ruleset: str) -> dict[str, tuple[str, str]]:
         """pid -> (first job, first time) a pseudonym was listed for ``ruleset``."""

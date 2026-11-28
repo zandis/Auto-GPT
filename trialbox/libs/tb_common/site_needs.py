@@ -70,6 +70,13 @@ STEPS: dict[str, dict[str, str]] = {
         "ja": "実データでの最初の処理",
         "zh-TW": "以真實資料進行的第一次作業",
     },
+    # SAFE-1 A3: the step where records nobody can make again begin (consents, the screening log); every study
+    # that opens passes it, so the backup it needs is asked here, not at the first night
+    "study_records": {
+        "en": "A study opens and starts records that cannot be made again",
+        "ja": "試験を開始し、作り直せない記録を作り始める",
+        "zh-TW": "試驗開放並開始產生無法重建的紀錄",
+    },
     "study_open": {
         "en": "A study opens for real patients",
         "ja": "実患者向けに試験を開始する",
@@ -157,7 +164,7 @@ NEEDS: tuple[Need, ...] = (
     ),
     Need(
         key="backup_target",
-        before=("first_real_run",),
+        before=("first_real_run", "study_records"),
         answers=(("env:TB_BACKUP_TARGETS",),),
         who="it",
         title={
@@ -178,7 +185,7 @@ NEEDS: tuple[Need, ...] = (
     ),
     Need(
         key="backup_key",
-        before=("first_real_run",),
+        before=("first_real_run", "study_records"),
         answers=(("file:secrets/backup.pub",),),
         who="it",
         title={

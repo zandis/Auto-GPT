@@ -45,6 +45,7 @@ from orchestrator.jobs import llm_concurrency
 from orchestrator.scenarios.evaluate import (
     MAX_JUDGE_FAILURE_SHARE,
     NoteJudge,
+    NoteResult,
     PatientVerdicts,
     is_pair,
     not_in_snapshot,
@@ -102,28 +103,34 @@ class OrchestratorJudge(NoteJudge):
         purpose: str,
     ) -> JudgeReply:
         if role == "judge":
-            r = self.judge_excerpts(criterion_text, note_question, index_date, excerpts)
+            r = self.judge_excerpts(criterion_text, note_question, index_date, excerpts, demote=True)
         else:  # S4: one opinion from the other model
             other = self.verifier if self.verifier is not None else self.llm
             r = self.judge_excerpts(criterion_text, note_question, index_date, excerpts, verify=False, primary=other)
-        return JudgeReply(
-            verdict=r.predicate,
-            confidence=r.confidence,
-            quote=r.quote,
-            quote_date=r.quote_date,
-            reason=r.reason or "",
-            call_id=r.call_id,
-            build_sha=r.build_sha,  # D-989: the build that answered ("" on a direct call), never the model's name
-            prompt=r.prompt,
-            prompt_sha=r.prompt_sha,
-            tokens_in=r.tokens_in,
-            tokens_out=r.tokens_out,
-            opinions=list(r.opinions),
-            calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
-            sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
-            affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
-            qualification=r.qualification,  # SAFE-1 A1
-        )
+        return reply_of(r)
+
+
+def reply_of(r: NoteResult) -> JudgeReply:
+    """The note judge's answer as the cascade's reply (and the judge's own answer it keeps, BENCH-2 §2)."""
+    return JudgeReply(
+        verdict=r.predicate,
+        confidence=r.confidence,
+        quote=r.quote,
+        quote_date=r.quote_date,
+        reason=r.reason or "",
+        call_id=r.call_id,
+        build_sha=r.build_sha,  # D-989: the build that answered ("" on a direct call), never the model's name
+        prompt=r.prompt,
+        prompt_sha=r.prompt_sha,
+        tokens_in=r.tokens_in,
+        tokens_out=r.tokens_out,
+        opinions=list(r.opinions),
+        calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
+        sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
+        affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
+        qualification=r.qualification,  # SAFE-1 A1
+        kept=None if r.kept is None else reply_of(r.kept),
+    )
 
 
 log = logging.getLogger("orchestrator")

@@ -30,31 +30,34 @@ SHOWN = 3  # records shown per criterion: the latest first
 DOMAINS = ("observation", "condition", "medication", "procedure", "report", "encounter", "claim")
 
 # one row per record id: the record's own value, unit, date and code; $1 pids, $2 record ids, $3 to $5 the ATC, NHI
-# drug and department code systems
+# drug and department code systems. O1: in a fixed order, the one the query had before it was ordered (no ORDER BY,
+# read one branch after the other): the branches as written (k, the order of DOMAINS), each table in its stored order
+# (rowid). The record attach keeps for an id that two domains share, or a table stores twice, is the one it kept then
 SQL = """
 SELECT 'observation' AS domain, oid AS rid, code, system, CAST(effective AS DATE) AS d, value_num, unit, value_code,
-       value_cmp
+       value_cmp, 0 AS k, rowid AS rn
 FROM observation WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND oid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
-SELECT 'condition', cid, code, system, coalesce(onset, recorded), NULL, NULL, NULL, NULL
+SELECT 'condition', cid, code, system, coalesce(onset, recorded), NULL, NULL, NULL, NULL, 1, rowid
 FROM condition WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND cid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
 SELECT 'medication', mid, coalesce(nullif(atc, ''), nhi_code),
        CASE WHEN coalesce(atc, '') <> '' THEN CAST($3 AS VARCHAR) ELSE CAST($4 AS VARCHAR) END, authored,
-       NULL, NULL, NULL, NULL
+       NULL, NULL, NULL, NULL, 2, rowid
 FROM medication WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND mid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
-SELECT 'procedure', prid, code, system, performed, NULL, NULL, NULL, NULL
+SELECT 'procedure', prid, code, system, performed, NULL, NULL, NULL, NULL, 3, rowid
 FROM procedure WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND prid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
-SELECT 'report', rid, code, system, effective, NULL, NULL, NULL, NULL
+SELECT 'report', rid, code, system, effective, NULL, NULL, NULL, NULL, 4, rowid
 FROM report WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND rid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
-SELECT 'encounter', eid, dept, CAST($5 AS VARCHAR), CAST(start AS DATE), NULL, NULL, NULL, NULL
+SELECT 'encounter', eid, dept, CAST($5 AS VARCHAR), CAST(start AS DATE), NULL, NULL, NULL, NULL, 5, rowid
 FROM encounter WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND eid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
-SELECT 'claim', kid, product, CAST($4 AS VARCHAR), created, NULL, NULL, NULL, NULL
+SELECT 'claim', kid, product, CAST($4 AS VARCHAR), created, NULL, NULL, NULL, NULL, 6, rowid
 FROM claim WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND kid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
+ORDER BY k, rn
 """
 CODE_SYSTEMS = (SYSTEMS["atc"], SYSTEMS["nhi_drug"], SYSTEMS["department"])
 PATIENTS = "SELECT pid, birth_date, sex FROM patient WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[])))"

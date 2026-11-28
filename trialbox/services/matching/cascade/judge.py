@@ -111,6 +111,8 @@ class JudgeReply:
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
     qualification: str = ""  # SAFE-1 A1: "unqualified" when a model behind the answer holds no record
+    # BENCH-2 §2: on a disagreement, the judge's own answer (never affirmed); the engine takes it only where it keeps
+    kept: JudgeReply | None = None
 
     @property
     def all_calls(self) -> tuple[str, ...]:

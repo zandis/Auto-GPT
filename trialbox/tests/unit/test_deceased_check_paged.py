@@ -5,6 +5,7 @@ now asks in pages the orchestrator takes. Synthetic pseudonyms only."""
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -55,3 +56,45 @@ def test_one_page_not_answered_stops_contacts_never_a_partial_no_deaths() -> Non
     orch = _Orchestrator({STUDY[25_000]}, down_at=1)
     with pytest.raises(Unavailable):
         _console(orch).deceased(STUDY)
+
+
+class _Malformed(_Orchestrator):
+    """The first page answered as the orchestrator does; the second answered 200 with ``body``."""
+
+    def __init__(self, body: Any) -> None:
+        super().__init__({STUDY[3], STUDY[25_000]})
+        self.body = body
+
+    def post_raw(self, path: str, body: dict[str, Any], headers: dict[str, str] | None = None) -> httpx.Response:
+        resp = super().post_raw(path, body, headers)
+        # json.dumps, not json=: a body of None must reach the console as the valid JSON `null`, not as an empty body
+        return resp if len(self.sizes) == 1 else httpx.Response(200, content=json.dumps(self.body))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"deceased": None},
+        {},
+        {"deceased": STUDY[25_000]},
+        [STUDY[25_000]],
+        None,
+        {"deceased": [STUDY[25_000], 7]},
+    ],
+    ids=["null", "missing-key", "not-a-list", "list-body", "null-body", "non-string-pid"],
+)
+def test_a_page_answered_200_in_the_wrong_shape_stops_contacts(body: Any) -> None:
+    """P05-1: a malformed page is not "no deaths" on that page; the dead patient of page two must not pass."""
+    with pytest.raises(Unavailable):
+        _console(_Malformed(body)).deceased(STUDY)
+
+
+@pytest.mark.parametrize("content", [b"", b"<html>proxy</html>"], ids=["empty-body", "html-body"])
+def test_a_page_answered_200_without_json_stops_contacts(content: bytes) -> None:
+    class _NotJson(_Orchestrator):
+        def post_raw(self, path: str, body: dict[str, Any], headers: dict[str, str] | None = None) -> httpx.Response:
+            resp = super().post_raw(path, body, headers)
+            return resp if len(self.sizes) == 1 else httpx.Response(200, content=content)
+
+    with pytest.raises(Unavailable):
+        _console(_NotJson({STUDY[25_000]})).deceased(STUDY)

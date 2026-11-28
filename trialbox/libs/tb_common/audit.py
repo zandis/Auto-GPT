@@ -343,9 +343,10 @@ class AuditLog:
         "journal",  # set by the drain only (tb_common.audit_writer, D-394): the journal row the event came from
     )
 
-    def __init__(self, directory: Path, tz: str = "Asia/Taipei") -> None:
+    def __init__(self, directory: Path, tz: str = "Asia/Taipei", anchors: Mapping[str, str] | None = None) -> None:
         self.directory = directory
         self.zone = ZoneInfo(tz)
+        self.anchors = anchors  # the environment naming the anchor folders (None: this process's); {} for a scratch log
         directory.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
@@ -449,7 +450,7 @@ class AuditLog:
             head = read_head(self.directory)
         except (ValueError, UnicodeDecodeError) as exc:
             raise AuditAnchorBroken(f"the audit head anchor cannot be read ({exc}): run tools/audit_verify.py") from exc
-        newest = newest_box_head()
+        newest = newest_box_head(self.anchors)
         if head is None:
             if newest is not None and newest[0] > 0:
                 # R22-36: the anchor folder says this chain was signed at an event; a chain with no head anchor (cut

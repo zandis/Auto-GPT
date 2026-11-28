@@ -60,7 +60,8 @@
 <tr><td>{{ t('feas.f.scope') }}</td><td class="barcol"><svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="100" height="8" class="b"/></svg></td><td class="num">{{ s.start }}</td><td></td><td></td><td></td></tr>
 {% for f in rep.funnel %}
 <tr class="{{ '' if f.applied else 'muted' }}">
-<td>{{ f.id }} {% if f.site_label %}{{ f.label }}{% else %}<span data-authored>{{ f.label }}</span>{% endif %}</td>
+<td>{{ f.id }} {% if f.site_label %}{{ f.label }}{% else %}<span data-authored>{{ f.label }}</span>{% endif %}{% if f.variants %}
+<details class="whatif" data-testid="whatif-{{ f.id }}"><summary>{{ t('feas.whatif') }}</summary><ul>{% for v in f.variants %}<li>{{ t('feas.whatif.line', variant=v.variant, n=v.remaining, delta=('%+d'|format(v.delta) if v.delta is not none else '–')) }}</li>{% endfor %}</ul></details>{% endif %}</td>
 <td class="barcol">{% if f.applied and f.width is not none %}<svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="{{ '%.1f'|format(f.width) }}" height="8" class="b"/></svg>{% else %}<svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="100" height="8" class="na"/></svg>{% endif %}</td>
 {% if f.applied %}<td class="num">{{ f.remaining }}</td><td class="num">{{ f.dropped }}</td><td class="num">{{ f.unknown }}</td>{% else %}<td colspan="3" class="hint">{{ t('feas.f.not_applied') }}</td>{% endif %}
 <td>{{ t('how.' + f.verified) }}</td>
