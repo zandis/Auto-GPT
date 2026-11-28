@@ -128,6 +128,13 @@ def _text(cfg: AdapterConfig, snap: str) -> str:
     return "".join(p.read_text(encoding="utf-8") for p in sorted(snapshot_dir(cfg.lake_dir, snap).glob("*.ndjson")))
 
 
+def _encounters(cfg: AdapterConfig, snap: str, pid: str) -> int:
+    """The night's encounters under ``pid`` (an encounter's id is pseudonymous: counted by its subject)."""
+    return sum(
+        r["subject"]["reference"] == f"Patient/{pid}" for r in read_type(snapshot_dir(cfg.lake_dir, snap), "Encounter")
+    )
+
+
 def _assert_records_held(
     cfg: AdapterConfig, rb: _Rebuild, rep: Any, first: dict[str, str], pid: str, others: int | None = None
 ) -> None:
@@ -175,8 +182,7 @@ def test_two_people_under_one_chart_in_one_night_are_held_never_merged(good: Any
     event = _audit(tmp_path)[-1]
     assert event["event"] == "ingest.done"
     assert event["detail"]["identity_conflicts"] == {"tonight": 1, "against_served": 0}
-    _assert_records_held(cfg, rb, rep, first, pid)
-    assert "E9999001" not in _text(cfg, NEXT)
+    _assert_records_held(cfg, rb, rep, first, pid)  # the added encounter too: nothing under the chart
 
 
 def test_another_person_under_a_served_chart_on_the_next_night_is_held(good: Any, tmp_path: Path) -> None:
@@ -350,9 +356,12 @@ def test_chart_numbers_a_merge_makes_one_patient_are_one_person(good: Any, tmp_p
     assert rep.passed and not rep.held, rep.errors
     assert rb.calls == [NEXT]
     text = _text(cfg, NEXT)
-    assert old not in text and "E9999002" not in text and "1999-09-09" not in text
+    assert old not in text and "1999-09-09" not in text
     served = [r for r in read_type(snapshot_dir(cfg.lake_dir, NEXT), "Patient") if r["id"] == pid]
     assert [r["birthDate"] for r in served] == ([first["birth_date"]] if both else [])
+    # the merged number's encounter is not written under the served patient: only the served patient's own are
+    own = sum(r["mrn"] == first["mrn"] for r in _rows(SITE_A / "encounter.csv"))
+    assert own > 0 and _encounters(cfg, NEXT, pid) == (own if both else 0)
     pm = cfg.pidmap()
     try:
         assert (pm.identity(pid) or {}).get("name") == first["name"]
@@ -385,8 +394,8 @@ def test_a_merge_of_one_persons_two_chart_numbers_is_still_written_under_the_sur
     folder = snapshot_dir(cfg.lake_dir, NEXT)
     assert not (folder / IDENTITY_CONFLICT).exists()
     assert json.loads((folder / IDENTITY_CHECKED).read_text()) == {"snapshot": NEXT, "held": []}
-    e = [r for r in read_type(folder, "Encounter") if "E9999002" in json.dumps(r)]
-    assert len(e) == 1 and e[0]["subject"]["reference"] == f"Patient/{pid}" and old not in _text(cfg, NEXT)
+    own = sum(r["mrn"] == first["mrn"] for r in _rows(SITE_A / "encounter.csv"))
+    assert _encounters(cfg, NEXT, pid) == own + 1 and old not in _text(cfg, NEXT)
 
 
 _NATIONAL = "urn:oid:1.2.392.100495.20.3.51"  # a national id system (illustrative)
