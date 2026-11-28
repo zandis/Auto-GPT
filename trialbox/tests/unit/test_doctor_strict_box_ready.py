@@ -54,6 +54,21 @@ def test_no_backup_key_fails_on_production_and_a_key_passes(tmp_path: Path) -> N
     assert d.check_backup_key(inp).status == "FAIL"
 
 
+def test_during_the_install_a_missing_backup_key_is_a_warn_with_the_ceremony_line(tmp_path: Path) -> None:
+    """The key can only be made once the box runs (RUNBOOK section 5), so install.sh's host check (which sets
+    TB_DOCTOR_INSTALL_PHASE) cannot require it; after the install the row FAILs again, and --strict always does."""
+    for env in ("VALIDATION", "PRODUCTION"):
+        c = d.check_backup_key(_inp(tmp_path, TB_ENV=env, TB_DOCTOR_INSTALL_PHASE="1"))
+        assert c.status == "WARN" and "RUNBOOK" in c.detail and "ceremony" in c.detail, env
+        assert d.check_backup_key(_inp(tmp_path, TB_ENV=env)).status == "FAIL", env
+    (c,) = d.strict([d.check_backup_key(_inp(tmp_path, TB_DOCTOR_INSTALL_PHASE="1"))])
+    assert c.status == "FAIL"
+    pub = tmp_path / "deploy" / "secrets" / "backup.pub"
+    pub.parent.mkdir(parents=True, exist_ok=True)
+    pub.write_text("not a key\n", encoding="utf-8")  # there but wrong is no "not yet": FAIL in the install too
+    assert d.check_backup_key(_inp(tmp_path, TB_DOCTOR_INSTALL_PHASE="1")).status == "FAIL"
+
+
 def test_a_backup_key_the_backup_cannot_encrypt_to_fails(tmp_path: Path) -> None:
     """TB-01: a file that is there is not yet a key; the backup must be able to encrypt to it."""
     inp = _inp(tmp_path)
