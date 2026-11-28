@@ -997,11 +997,11 @@ def _run_ingest(
             # overrides differing demographics, never silently: the night's audit event and its page say so.
             # ponytail: the surviving patient's served birth date and sex are not read here (its name and national
             # id are, from the pid map); tonight's are when it arrives tonight
-            said_by, tickets = dict(identities), pm.tickets()
+            ident_by, tickets = dict(identities), pm.tickets()
             for old, new in sorted(aliases.items()):
                 if old in patient_who and _two_people(
-                    {**patient_who[old], **_named(said_by.get(old, {}))},
-                    {**patient_who.get(new, {}), **_named(said_by.get(new) or pm.identity(new) or {})},
+                    {**patient_who[old], **_named(ident_by.get(old, {}))},
+                    {**patient_who.get(new, {}), **_named(ident_by.get(new) or pm.identity(new) or {})},
                 ):
                     merge_recorded.append({"pids": [old, new], "ticket": tickets[old], "said": MERGE_RECORDED})
             if merge_recorded:
