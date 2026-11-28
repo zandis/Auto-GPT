@@ -158,3 +158,15 @@ def test_the_same_length_as_window_and_duration_is_refused() -> None:
     with pytest.raises(CompileError, match="window and a duration"):
         window(_atom({"from_days": -90, "to_days": 0}, {"min_days": 90}))
     assert window(_atom({"from_days": -365, "to_days": 0}, {"min_days": 90})).from_days == -365  # a course in a window
+
+
+def test_r5_a_held_line_asks_its_own_text_not_the_models_question() -> None:
+    """The model's question ("Did the patient have chemotherapy?") drops the held window (review 1627.2 R5)."""
+    text = "Chemotherapy within 30 days of last dose"
+    crit = {"kind": "exclusion", "class": "structured", "text": text, "concept_candidates": CONCEPTS,
+            "logic": {**DRUG, "window": {"from_days": -30, "to_days": 0}},
+            "human_question": "Did the patient have chemotherapy?"}  # fmt: skip
+    out = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0")
+    c = out.criteria[0]
+    assert c.class_ == "human"
+    assert c.human_question == pp._question(text)

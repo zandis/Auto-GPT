@@ -8,7 +8,10 @@ nothing in it is acted on. ``reconcile`` compares the confident reading with the
 
 * the line has one window the model's atoms lack or give differently: the rule's window wins when it has a form in
   days before screening and the criterion has one atom (``window_rules_override``), else the atom is left as it is and
-  flagged (``window_disagrees``, ``window_unattached``);
+  flagged (``window_unattached``) or, when it keeps a window the line's does not match, held (``window_disagrees``);
+* a reading the rules cannot assign safely is held for a person: the window sits on one atom of several ("chemotherapy
+  or radiotherapy"), one branch of an "or" is an age or sex, or the line asks for a stretch of treatment ("on warfarin
+  for at least 12 weeks", which matching dates do not show);
 * the line has no window (no time expression, or only durations such as "stable dose for 3 months"): the model's
   windows are left alone unless ``DROP_UNSTATED_WINDOWS`` is on, which drops them (``window_not_in_text``);
 * the window is anchored on the study's own dosing or end (``first_dose``, ``last_dose``, ``end_of_study``), on another
@@ -124,6 +127,8 @@ _AT_LEAST = re.compile(
 _PERIOD = re.compile(
     r"\bfor\s+(?:a\s+)?(?:at least|minimum of|minimum|more than|no less than|not less than|>=|>)[ (]*$"
 )
+# "no antidiabetic drugs for at least 12 weeks" is a drug-free period; without a negation it is an exposure
+_NEGATED = re.compile(r"\b(?:no|not|without|free|naive|naïve)\b")
 _FUTURE = re.compile(r"\b(?:plan|plans|planned|planning|intend\w*|anticipat\w*|scheduled|will|going to|upcoming)\b")
 # "synchronous or metachronous (within 5 years)": the window counts from another event the line does not name
 _RELATIVE = re.compile(r"\b(?:synchronous|metachronous|concurrent|simultaneous)\b")
@@ -399,11 +404,29 @@ def _atoms(node: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _or_with_age(node: Any) -> bool:
+    """An "or" one branch of which is an age or sex ("chemotherapy or turned 65 in the past 30 days")."""
+    if not isinstance(node, dict) or "domain" in node:
+        return False
+    if node.get("op") == "or" and any(a.get("domain") == "demographic" for a in _atoms(node)):
+        return True
+    return any(_or_with_age(arg) for arg in node.get("args") or [])
+
+
 @dataclass
 class Reconciled:
     logic: dict[str, Any]
     flags: list[str]
     hold: str | None = None  # the reason the criterion goes to a person, else None
+
+
+def _checked(logic: dict[str, Any], flags: list[str], atoms: list[Any], windowed: list[Any]) -> Reconciled:
+    """A model window the line's does not match, kept, or a window on some of the atoms only, is held (1627.2)."""
+    if "window_disagrees" in flags:
+        return Reconciled(logic, sorted(set(flags)), "an atom keeps a window that the line's window does not match")
+    if windowed and len(windowed) < len(atoms):
+        return Reconciled(logic, ["window_anchor_unsupported"], "the line's window is on some of its atoms only")
+    return Reconciled(logic, sorted(set(flags)))
 
 
 #: A window the line never states is the model's own: the stand-in extractions put a recency window on every "latest"
@@ -451,6 +474,12 @@ def reconcile(text: str, logic: dict[str, Any], *, drop_unstated: bool = False) 
             ["window_anchor_unsupported"],
             f"its window counts {where}; the compiler counts only back from the screening date",
         )
+    if wins and _or_with_age(logic):
+        return Reconciled(
+            logic,
+            ["window_anchor_unsupported"],
+            "its window may be the age's or sex's branch of an \"or\", not the atom's",
+        )
     flags: list[str] = []
     if len(wins) == 1:
         iv = interval(wins[0])
@@ -461,6 +490,17 @@ def reconcile(text: str, logic: dict[str, Any], *, drop_unstated: bool = False) 
             and wins[0].bound != "period"
             and len([a for a in _atoms(logic) if a.get("domain") != "demographic"]) == 1
         )
+        s = text.lower()
+        if (
+            wins[0].bound == "period"
+            and atoms
+            and not _NEGATED.search(re.split(r"[;.]", s[: max(s.find(wins[0].evidence), 0)])[-1])
+        ):
+            return Reconciled(
+                logic,
+                ["window_anchor_unsupported"],
+                "its line asks for a stretch of treatment before screening, which matching dates do not show",
+            )
         if (
             wins[0].bound == "period"
             and atoms
@@ -487,13 +527,13 @@ def reconcile(text: str, logic: dict[str, Any], *, drop_unstated: bool = False) 
                 flags.append("window_rules_override")
             else:
                 flags.append("window_disagrees")
-        return Reconciled(logic, sorted(set(flags)))
+        return _checked(logic, flags, atoms, windowed)
     lengths = [d for r in wins if (d := _days(r))]
     for a in windowed:
         pair = _pair(a)
         if lengths and not any(_same_lengths(pair, d) for d in lengths):
             flags.append("window_disagrees")
-    return Reconciled(logic, sorted(set(flags)))
+    return _checked(logic, flags, atoms, windowed)
 
 
 def lint(text: str, logic: Any) -> str | None:

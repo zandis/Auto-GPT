@@ -360,3 +360,40 @@ def test_r8_prior_to_the_first_dose_with_no_number_is_held() -> None:
     out = reconcile("Systemic corticosteroids prior to the first dose of study drug", _atom(from_days=-30, to_days=0))
     assert out.flags == ["window_anchor_unsupported"]
     assert out.hold is not None and "first dose" in out.hold
+
+
+# ------------------------------------- review 1627.2, findings R1 to R4 (R5 in test_window_rules_postprocess): refused
+def test_r1_a_window_on_one_atom_of_a_pair_is_held() -> None:
+    for text in (
+        "No chemotherapy or radiotherapy within 12 weeks before screening",
+        "No chemotherapy or radiotherapy for at least 12 weeks before screening",
+    ):
+        pair = {"op": "or", "args": [_atom(from_days=-84, to_days=0), _atom()]}
+        out = reconcile(text, pair)
+        assert out.hold is not None
+        assert out.logic["args"][0]["window"] == {"from_days": -84, "to_days": 0}
+        assert "window" not in out.logic["args"][1]
+
+
+def test_r2_an_or_with_an_age_branch_is_held() -> None:
+    logic = {"op": "or", "args": [_atom(), {"domain": "demographic"}]}
+    out = reconcile("Prior chemotherapy or turned 65 in the past 30 days", logic)
+    assert out.hold is not None
+    assert "window" not in out.logic["args"][0]
+
+
+def test_r3_a_retained_conflicting_window_is_held() -> None:
+    pair = {"op": "and", "args": [_atom(from_days=-14, to_days=0), _atom(from_days=-14, to_days=0)]}
+    out = reconcile("Chemotherapy or radiotherapy within 30 days before screening", pair)
+    assert out.flags == ["window_disagrees"]
+    assert out.hold is not None
+    assert [a["window"]["from_days"] for a in out.logic["args"]] == [-14, -14]
+
+
+def test_r4_a_minimum_exposure_is_held_though_its_dates_match() -> None:
+    text = "On warfarin for at least 12 weeks before screening"
+    (r,) = parse_windows(text)
+    assert (r.bound, interval(r)) == ("period", (-84, 0))
+    out = reconcile(text, _atom(from_days=-84, to_days=0))
+    assert out.hold is not None
+    assert out.logic["window"] == {"from_days": -84, "to_days": 0}

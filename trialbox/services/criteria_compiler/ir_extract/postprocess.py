@@ -620,9 +620,10 @@ def postprocess(
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
         # a mixed line goes to a person too: its note question ("Did the patient have chemotherapy?") does not carry
-        # the window that was held, so the notes would decide it without the time limit
+        # the window that was held, so the notes would decide it without the time limit; nor may the model's question,
+        # so the person is asked the line itself (review 1627.2 R5)
         if held is not None and ir.class_ in FILTERED:
-            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+            ir = ir.model_copy(update={"class_": "human", "human_question": _question(ir.text),
                                        "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
             warnings.append(f"{cid}: {held}; kept for a person to check")
         # card 10A-1 (review 15, P2b): "No prior chemotherapy" (inclusion) compiled to "any of chemotherapy", which
