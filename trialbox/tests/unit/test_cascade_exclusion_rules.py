@@ -102,6 +102,12 @@ def _stated_at_s3(res: CascadeResult, pid: str, cid: str) -> bool:
     return t.exit_stage is None and t.tier == "potential:uncertain" and soft
 
 
+def _excluded_at_s3(res: CascadeResult, pid: str, cid: str) -> bool:
+    """The patient left the cascade at S3, excluded on a hard fail of ``cid`` (BENCH-2 §2 asserts this never holds)."""
+    t = res.traces[pid]
+    return t.exit_stage == "S3" and t.tier == "excluded" and t.outcomes[cid].hard and t.exit_criterion == cid
+
+
 def _kept_for_review(res: CascadeResult, pid: str, cid: str) -> bool:
     t = res.traces[pid]
     o = t.outcomes[cid]
