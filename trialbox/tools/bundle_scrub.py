@@ -278,8 +278,9 @@ LINE = re.compile(
 PAIR = re.compile(rf"(?:(?<=%3[Ff])|(?<=%26)|(?<![A-Za-z0-9_.%]))(?P<key>{_KEY})(?P<sep>[ \t]*(?:=|%3[Dd])[ \t]*)")
 VIEW_VALUE = re.compile(r"[^\n]+")
 WORD = re.compile(r"\S+")
-#: review 1634.1 R1: a flag's value: quoted (escaped quotes inside), to the line's end when the quote does not close
-FLAG_VALUE = re.compile(r"\"(?:\\.|[^\"\\\n])*(?:\"|$)|'(?:\\.|[^'\\\n])*(?:'|$)|\S+", re.M)
+#: review 1634.1 R1, 1634.2 R1: a flag's value is the whole shell word: quoted parts (escaped quotes inside; to the
+#: line's end when a quote does not close), unquoted parts and backslash-escaped characters, up to unquoted space
+FLAG_VALUE = re.compile(r"(?:\"(?:\\.|[^\"\\\n])*(?:\"|$)|'(?:\\.|[^'\\\n])*(?:'|$)|\\.?|[^\s\"'\\])+", re.M)
 PAIR_VALUE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'|(?:(?!%26)[^\s&;,\"'<>(){}\[\]])+")
 #: ``"name": value`` and ``'name': value`` (JSON, a Python repr), the value a string, a number, a word or a list
 QUOTED = re.compile(
@@ -797,11 +798,13 @@ class Scrubber:
                 plain = raw.decode("utf-8")
             except (binascii.Error, ValueError):
                 return run
-            if len(run) < 24 and not EMAIL.search(plain):  # review 1634.1 R4: a short run, for an e-mail only
-                return run
             if len(plain) < 6 or _CONTROL.search(plain) or not plain.strip():
                 return run
-            clean = self._rules(self.decoded(self.b64(plain, depth + 1)))
+            nested = self.b64(plain, depth + 1)
+            # review 1634.1 R4, 1634.2 R2: a short run, for an e-mail only, in it or in its bounded nested decode
+            if len(run) < 24 and nested == plain and not EMAIL.search(plain):
+                return run
+            clean = self._rules(self.decoded(nested))
             if clean == plain:
                 return run
             self.found["base64 run"] += 1
@@ -937,11 +940,9 @@ def _unmasked(text: str) -> int:
 
 def _qp_octets(m: re.Match[str]) -> str:
     """Review 1634.1 R6: a run of quoted-printable octets read as UTF-8 (``=E6=82=A3`` is one character)."""
-    raw = bytes.fromhex(m.group(0).replace("=", ""))
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return raw.decode("latin-1")
+    return bytes.fromhex(m.group(0).replace("=", "")).decode(
+        "utf-8", errors="replace"
+    )  # 1634.2 R4: valid characters stay
 
 
 def _decode(line: str) -> str:
@@ -1053,7 +1054,10 @@ def token_patterns(hex_len: int) -> dict[str, re.Pattern[str]]:
         "screening-no spaced": re.compile(
             r"(?<![^\W_])[A-Z][A-Z0-9]{1,15}(?: [A-Z0-9]{1,15}){0,3} \d{4,}(?![^\W_]|[\-_.:/ ]\d)"
         ),
-        "screening-no spaced short": re.compile(r"(?<![^\W_])[A-Z][A-Z0-9]{1,15} \d{4,}(?![^\W_]|[\-_.:/]\d)"),
+        # review 1634.2 R3: a trailing group of 4 digits or more is taken into the mask (ambiguous), a count is not
+        "screening-no spaced short": re.compile(
+            r"(?<![^\W_])[A-Z][A-Z0-9]{1,15} \d{4,}(?:[ \t]+\d{4,}(?:[\-_.:/]\d+)*)*(?![^\W_]|[\-_.:/]\d)"
+        ),
         "screening-no letters": re.compile(r"(?<![^\W_])[A-Z][A-Za-z]{0,15}\d{4,}(?![^\W_]|[\-_]\d)"),
         "screening-no other script": re.compile(r"(?<![^\W_])[^\W\dA-Za-z_]{1,16}\d{4,}(?![^\W_]|[\-_]\d)"),
     }
