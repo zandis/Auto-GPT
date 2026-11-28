@@ -267,10 +267,9 @@ def test_promote_carries_explicit_thinking_on_evidence(
     reg = Registry.load(release, out)
     if thinking_mode == "on":
         assert reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION).build.build_id == JUDGE
-    else:
-        with pytest.raises(RegistryError) as exc:
-            reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
-        assert exc.value.reason == "thinking_unmeasured"
+    else:  # SAFE-1 A1: the release weights with no thinking-on measurement route labelled, never refused
+        res = reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
+        assert res.build.build_id == JUDGE and res.qualification == "unqualified"
 
 
 # ------------------------------------------------------------------------------------------------ the gateway rule
