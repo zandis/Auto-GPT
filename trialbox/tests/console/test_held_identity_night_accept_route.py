@@ -15,7 +15,7 @@ import html
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from adapter.ndjson import snapshot_dir
@@ -90,7 +90,7 @@ def held_box(box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(adapter_app, "build_config", lambda: (cfg, None))
     wire = _AdapterWire(TestClient(adapter_app.app, raise_server_exceptions=False))
     adapter = AdapterHttp("http://adapter.invalid")
-    adapter.c = wire
+    cast(Any, adapter).c = wire  # the client's HTTP, over the adapter's app
     attach(box["backend"], box["audit"], adapter)
     return {"cfg": cfg, "rb": rb, "wire": wire, "feed": _feed(tmp_path)}
 
