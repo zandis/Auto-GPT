@@ -35,7 +35,7 @@ from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.inferred import sentence_of
-from matching.note_answer import affirms, keeps, note_answer_may
+from matching.note_answer import affirms, keeps, not_documented, note_answer_may
 from matching.proposed import Proposed
 from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
@@ -657,6 +657,8 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     verdict = eligibility(c.kind, pred)
     why = r.reason
     affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
+    if pred is None and not_documented(c.kind, why, r.quote):  # BENCH-2 §2: a label, never a tier change
+        why = Reason.NOT_DOCUMENTED.value
     if pred is not None:
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
         # exclusion "present" on a quote that does not state its condition is the models' inference: a person looks,

@@ -375,3 +375,28 @@ def test_bench2_the_cascade_keeps_a_disputed_keep_flagged_and_never_excludes_on_
     res = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], ScriptedJudge(_disputed("pass")))  # "present": not a keep
     o = res.traces["P-HIT"].outcomes[EXC_FLARE.id]
     assert o.status == "unknown" and o.reason == "disagree" and not _excluded_at_s3(res, "P-HIT", EXC_FLARE.id)
+
+
+def test_bench2_the_cascade_labels_an_unmentioned_exclusion_not_documented_and_only_that(lake: Any) -> None:
+    def said(reason: str) -> Any:
+        return ScriptedJudge(lambda role, kw: replace(reply("unknown", 0.0), reason=reason))
+
+    exc = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("abstained")).traces["P-HIT"]
+    assert exc.outcomes[EXC_FLARE.id].status == "unknown" and exc.outcomes[EXC_FLARE.id].reason == "not_documented"
+    assert exc.tier != "excluded"
+    inc = _run(lake, ruleset([INC]), ["P-HIT"], said("abstained")).traces["P-HIT"].outcomes[INC.id]
+    assert inc.status == "unknown" and inc.reason == "abstained"  # inclusion absence: never relabelled
+    odd = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("scripted")).traces["P-HIT"].outcomes[EXC_FLARE.id]
+    assert odd.reason == "abstained"  # only the models' own abstention reads not documented (review)
+
+
+def test_bench2_a_reply_carrying_not_documented_is_stored_abstained_unless_the_check_holds(lake: Any) -> None:
+    def said(quote: str | None) -> Any:
+        return ScriptedJudge(lambda role, kw: replace(reply("unknown", 0.0), reason="not_documented", quote=quote))
+
+    inc = _run(lake, ruleset([INC]), ["P-HIT"], said(None)).traces["P-HIT"].outcomes[INC.id]
+    assert inc.status == "unknown" and inc.reason == "abstained"  # the label is derived, never taken from a reply
+    quoted = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("flare in March")).traces["P-HIT"]
+    assert quoted.outcomes[EXC_FLARE.id].reason == "abstained"
+    bare = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said(None)).traces["P-HIT"]
+    assert bare.outcomes[EXC_FLARE.id].reason == "abstained"  # reply reason is not "abstained": the check fails
