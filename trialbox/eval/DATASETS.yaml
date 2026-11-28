@@ -159,7 +159,7 @@ datasets:
     licence: SIGIR 2016 cohort, CC BY-SA 4.0 (CSIRO), as redistributed by NCBI TrialGPT (public domain notice); TREC Clinical Trials 2023 topics and qrels (NIST, no licence stated); trial criteria from the ClinicalTrials.gov public API
     register: [pubacc-sigir-2016, pubacc-trec-ct, pubacc-ctgov-live]
   chia:
-    path: eval/chia (route shares only; the Chia corpus is fetched to .cache at run time, never committed)
+    path: eval/chia (route shares and bench scores, counts only; the Chia corpus is fetched to .cache at run time, never committed)
     data_class: D0
     kind: open
     licence: CC BY 4.0 (Kury et al., Sci Data 2020, figshare 10.6084/m9.figshare.11855817)
