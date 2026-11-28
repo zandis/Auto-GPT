@@ -742,7 +742,11 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
     release = [b for b in pinned if b.expected_sha256 and b.sha256 == b.expected_sha256 and not b.rehearsal_placeholder]
     if env == "PRODUCTION" and not release and not any(b.status == Status.CHAMPION for b in pinned):
         return Check("registry_pins", "WARN", f"pinned: {names}; none is champion, so {env} roles route nothing")
-    unqualified = [b.build_id for b in release if b.serving == "vllm" and not b.qualified_for_production]
+    unqualified = [
+        b.build_id
+        for b in release
+        if b.serving == "vllm" and not b.qualified_for_production and not b.context_unknown()
+    ]
     if env == "PRODUCTION" and unqualified:  # SAFE-1 A1: it runs, and says so
         return Check(
             "registry_pins",

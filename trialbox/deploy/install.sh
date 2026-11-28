@@ -1802,8 +1802,7 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
   elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
     echo "    rehearsal box: the pair is the media's placeholder pins (candidate, never promoted); nothing to qualify"
   elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
-    # SAFE-1 A1: not a FAIL: the release's pinned pair runs, labelled, until a record is promoted
-    echo "    the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it runs labelled unqualified until the release ships one or the pair is qualified here (RUNBOOK §11)"
+    :  # SAFE-1 A1: not a FAIL, and said at the start of the install: the release's pinned pair runs, labelled
   fi
   set -e
 fi

@@ -301,14 +301,15 @@ class Registry:
                 and not b.qualified_for_production
             )
             # SAFE-1 A1: in PRODUCTION the release's own weights (the committed manifest) route with no record
-            releases = (
-                unqualified
-                and env == Environment.PRODUCTION
+            release_weights = (
+                env == Environment.PRODUCTION
+                and b.serving == "vllm"
                 and not role.startswith("shadow:")
                 and bool(b.expected_sha256)
                 and b.sha256 == b.expected_sha256
                 and not b.rehearsal_placeholder
             )
+            releases = unqualified and release_weights
             bypassed = False  # SAFE-1 A1: routed only because these are the release's weights
             if releases and b.status in (Status.CANDIDATE, Status.QUALIFIED) and not _status_ok(b.status, role, env):
                 bypassed = True
@@ -336,9 +337,10 @@ class Registry:
             measuring = env == Environment.TEST or (env == Environment.VALIDATION and qualification_probe)
             if b.thinking_control == "thinking_only" and screening_role in SCREENING_ROLES and not measuring:
                 q = b.qualification or {}
-                if releases:
-                    bypassed = True
-                elif not b.qualified_for_production or q.get("thinking_on_role") != screening_role:
+                measured = b.qualified_for_production and q.get("thinking_on_role") == screening_role
+                if release_weights and not measured:  # SAFE-1 A1: thinking_unmeasured is a label too
+                    bypassed = unqualified = True
+                elif not measured:
                     reasons.append(
                         f"{b.build_id}: thinking-on qualification required / 須有開啟推理模式的資格驗證 / "
                         "推論モードを有効にした適格性確認が必要 [thinking_unmeasured]"
