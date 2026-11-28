@@ -12,6 +12,7 @@ The backup key is on the host only. The service reads ``host-given.json`` throug
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 from typing import Any
@@ -123,12 +124,12 @@ def test_a_poc_box_runs_with_the_stand_ins(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_a_night_with_the_backup_key_still_needed_is_published_and_audits_it_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pg_cluster_url: str
 ) -> None:
     """SAFE-1 A3: was refused before anything was read; a synthetic bulk export is now read and published on a
     PRODUCTION box whose backup key is still needed, and the item is audited once."""
     _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
-    monkeypatch.delenv("TB_DB_URL", raising=False)  # a bulk night pseudonymises with the site key alone
+    monkeypatch.delenv("TB_DB_URL", raising=False)  # its own pid map below, not the shared one
     monkeypatch.setenv("TB_CHARTNO_RULE", "asis")  # a rule the night itself can read
     sec = tmp_path / "secrets"
     sec.mkdir()
@@ -139,8 +140,10 @@ def test_a_night_with_the_backup_key_still_needed_is_published_and_audits_it_onc
     patients = [{"resourceType": "Patient", "id": f"p{i}", "gender": "female", "birthDate": "1970-01-01"}
                 for i in range(3)]  # fmt: skip
     (exp / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in patients) + "\n", encoding="utf-8")
+    sep = "&" if "?" in pg_cluster_url else "?"
     cfg = AdapterConfig(lake_dir=tmp_path / "lake", secrets_dir=sec, site_id=f"A3-{tmp_path.name}", tz="Asia/Taipei",
                         audit_dir=tmp_path / "audit", site_settings=SETTINGS,
+                        db_url=f"{pg_cluster_url}{sep}tb_prefix=a3night{os.getpid()}_",
                         mapping_path=Path(__file__).resolve().parents[2] / "services/adapter/mapping/tw_core/demo_his.yaml")  # fmt: skip
     rep = pipeline.run_ingest(cfg, "fhir_bulk", str(exp), snapshot="2026-11-20", load_fhir=False, rebuild_lake=False,
                               validate=False)  # fmt: skip
