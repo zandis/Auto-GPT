@@ -93,7 +93,7 @@ from console.auth import (
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
-from console.held import Held
+from console.held import Held, HeldUnset
 from console.i18n import CATALOGUES, LANGS, lookup, pick_language, translate
 from console.identity import (
     MUST_CHANGE_OPEN,
@@ -1035,6 +1035,14 @@ def create_app(
         sess = session_of(request)
         detail = str(exc)[:300] if lang_of(request, sess) not in ("ja", "zh-TW") else ""
         return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": detail})
+
+    @app.exception_handler(HeldUnset)
+    async def _held_unset(request: Request, exc: HeldUnset) -> Response:
+        """P2-11 (TB-06 ruling): no TB_CONSOLE_HELD_DIR, so a page that keeps or shows a one-time password, code or
+        proposal answers a plain page naming the setting for IT, not 500 Internal Server Error."""
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON
+            return JSONResponse({"error": "heldunset", "detail": {}}, status_code=503)
+        return page(request, "problem.html", session_of(request), status=503, key="heldunset", values={})
 
     @app.exception_handler(OSError)
     async def _disk_full(request: Request, exc: OSError) -> Response:
