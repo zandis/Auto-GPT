@@ -1541,9 +1541,10 @@ def _write_pass(pp: Path) -> None:
     pp.chmod(0o600)
 
 
-def test_a_kill_after_backup_pub_leaves_no_passphrase_file(tmp_path: Path) -> None:
-    """H-08: the install's passphrase file is removed before the ceremony can make backup.pub: the installer killed
-    right after backup.pub is made (before its next line) leaves no passphrase file beside the sealed key."""
+def test_a_kill_after_backup_pub_leaves_the_passphrase_file(tmp_path: Path) -> None:
+    """P02/P03 (#1602 fix round, the integrator's ruling), R1/R3 (second round, final ruling): the install's passphrase
+    file is the only copy of the passphrase and is removed only once the ceremony has sealed the key and read it back,
+    so the installer killed in the ceremony (backup.pub made, the read-back not done) leaves it."""
     secrets = tmp_path / "deploy" / "secrets"
     killed = f"cat >/dev/null\n: > {secrets}/backup-key-0000.sealed\n: > {secrets}/backup.pub\nkill -KILL 0\n"
     pp, run = _shell_install(tmp_path, killed)
@@ -1551,7 +1552,20 @@ def test_a_kill_after_backup_pub_leaves_no_passphrase_file(tmp_path: Path) -> No
     _write_pass(pp)
     r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}echo finished\n")
     assert r.returncode < 0 and "finished" not in r.stdout, r.stdout + r.stderr  # killed in the ceremony
-    assert (secrets / "backup.pub").is_file() and not pp.exists()
+    assert (secrets / "backup.pub").is_file() and pp.exists()  # left over beside the sealed key
+
+
+def test_the_passphrase_file_is_there_while_the_ceremony_runs_and_removed_after_it_succeeds(tmp_path: Path) -> None:
+    """R1/R3: the ceremony finds the file (the only copy) when it starts and when it ends; once it exits 0 the
+    install removes it and says so."""
+    seen = tmp_path / "seen"
+    pp, run = _shell_install(tmp_path, f'cat >/dev/null\n[ -f {tmp_path}/root/trialbox-kek.pass ] && echo there >> {seen}\n')
+    key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
+    _write_pass(pp)
+    r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}")
+    assert r.returncode == 0, r.stderr
+    assert seen.read_text(encoding="utf-8") == "there\n"
+    assert not pp.exists() and f"the passphrase file {pp} is removed" in r.stdout
 
 
 def test_a_supplied_passphrase_file_beside_a_sealed_key_is_kept_and_named(tmp_path: Path) -> None:
@@ -1664,16 +1678,16 @@ def test_a_refused_seal_leaves_the_passphrase_file(tmp_path: Path) -> None:
 
 
 def test_a_refused_seal_writes_no_passphrase_over_a_name_now_there(tmp_path: Path) -> None:
-    """R2 (#1602 second fix round): the file is removed before the ceremony and written back after a refusal, made
-    new: a name put there meanwhile (a link, say) is never written through, and the install says the file is gone."""
+    """R2 (#1602 second fix round), R1/R3 (final ruling: nothing is removed before the ceremony, so nothing is written
+    back): a name put there meanwhile (a link, say) is never written through after a refusal."""
     elsewhere = tmp_path / "elsewhere"
-    pp, run = _shell_install(tmp_path, f'cat >/dev/null\nln -s {elsewhere} "$KP_LINK"\nexit 1\n')
+    pp, run = _shell_install(tmp_path, f'cat >/dev/null\nrm -f "$KP_LINK"\nln -s {elsewhere} "$KP_LINK"\nexit 1\n')
     key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
     _write_pass(pp)
     r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}", env={"KP_LINK": str(pp)})
     assert r.returncode == 0, r.stderr
     assert pp.is_symlink() and not elsewhere.exists() and PASS not in r.stdout + r.stderr
-    assert f"the passphrase file {pp} could not be written back" in r.stdout
+    assert f"the passphrase file {pp} stays" in r.stdout
 
 
 def test_bash_xtrace_never_shows_the_passphrase(tmp_path: Path) -> None:
