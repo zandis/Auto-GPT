@@ -20,6 +20,8 @@ routes:
   "GET /admin/egress": {actions: ["ops.view"], mode: all, why: "D-1093 (M3): what left the box, for the administrator, as the operations pages"}
   "GET /admin/notice": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /admin/ops": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "GET /admin/support": {actions: ["ops.view"], mode: all, why: "M5 (10K-15, decision 99): the support session's page, for the administrator (console.support_page)"}
+  "POST /admin/support": {actions: ["ops.update_apply"], mode: all, why: "M5 (10K-15, decision 99): the administrator turns the support session on or off (console.support_page)"}
   "GET /admin/ops/network/{name}": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /admin/ops/{action}": {actions: ["ops.update_check"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /admin/still-needed": {actions: ["ops.view"], mode: all, why: "the administrator only, as the operations pages (console.still_needed)"}
@@ -37,6 +39,7 @@ routes:
   "GET /api/edc/oidc/userinfo": {kind: signed_in, why: "the EDC door's sign-on (D-1060); off on the test box"}
   "POST /api/edc/tools": {actions: ["redcap.connection"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /api/edc/tools/{proposal_id}/confirm": {actions: ["redcap.connection"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "POST /api/v1/admin/support": {actions: ["ops.update_apply"], mode: all, why: "M5 (10K-15, decision 99): the support form's twin (console.support_page)"}
   "GET /api/v1/admin/ops": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /api/v1/admin/still-needed/{item}": {actions: ["ops.update_apply"], mode: all, why: "the administrator only, as the operations pages (console.still_needed); the page's twin"}
   "GET /api/v1/ask": {actions: ["!report.sponsor_form"], mode: all, why: "D-104 (console/app.py _scope_check): a CRO account sees the reports pages only"}

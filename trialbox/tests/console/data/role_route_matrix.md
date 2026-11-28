@@ -19,12 +19,14 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/admin/still-needed` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
 | GET | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/support` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/edc/health` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/api/edc/map` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/edc/oidc/.well-known/openid-configuration` | n | n | n | n | n | n | n | n | n |
 | GET | `/api/edc/oidc/authorize` | n | n | n | n | n | n | n | n | n |
 | GET | `/api/edc/oidc/userinfo` | n | n | n | n | n | n | n | n | n |
 | GET | `/api/v1/admin/ops` | Y | - | - | - | - | - | - | - | - |
+| POST | `/admin/support` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/v1/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/ask` | Y | Y | Y | Y | Y | - | Y | Y | Y |
 | GET | `/api/v1/data/batches` | Y | - | - | - | - | - | - | Y | - |
@@ -190,6 +192,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/edc/oidc/token` | n | n | n | n | n | n | n | n | n |
 | POST | `/api/edc/tools` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/edc/tools/{proposal_id}/confirm` | n | - | - | - | - | - | - | - | - |
+| POST | `/api/v1/admin/support` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/v1/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/data/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |
