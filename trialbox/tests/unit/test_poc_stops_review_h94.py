@@ -83,16 +83,16 @@ def test_the_rule_and_compose_agree_on_the_last_word(tmp_path: Path, dotenv: str
 
 
 def test_on_the_real_path_an_exported_production_line_stops_with_master_s_words(tmp_path: Path) -> None:
-    """The real install.sh, its settings ending in ``export TB_ENV=PRODUCTION`` after a VALIDATION line: a forced
-    converted point stops as on master, and nothing is listed."""
+    """The real install.sh, its settings ending in ``export TB_ENV=PRODUCTION`` after a VALIDATION line: read as
+    PRODUCTION. TOL-1 T-I100: there the forced point warns in PRODUCTION's words (not a PoC box's) and is listed."""
     (tmp_path / "feed").mkdir()
     site = f"TB_ENV=VALIDATION\n{PROD_SITE.split(chr(10), 1)[1]}TB_SOURCE_DIR={tmp_path / 'feed'}\n"
     box = Box(tmp_path / "b", env=site + "export TB_ENV=PRODUCTION\n")
     r = box.install("--mode", "stub", "--yes", force=("memcaps",))
-    assert r.rc == 1, r.text[-4000:]
-    assert re.fullmatch("install: " + _as_pattern(_master("the memory caps could not be sized")),
-                        r.err.splitlines()[-1]), r.err[-2000:]  # fmt: skip
-    assert "PoC box, H-94" not in r.err and not (box.tmp / LISTED).exists()
+    warned = (re.escape("install: warning (the install goes on; an open item on the Operations page): ")
+              + _as_pattern(_master("the memory caps could not be sized")))  # fmt: skip
+    assert any(re.match(warned, ln) for ln in r.err.splitlines()), r.err[-2000:]
+    assert "PoC box, H-94" not in r.err and (box.tmp / LISTED).exists()
 
 
 # --------------------------------------------------------------------------------------- H-2: ANCHOR_OK is the script's

@@ -474,6 +474,15 @@ PROD_CASES = [
 ]  # fmt: skip
 
 
+#: TOL-1 (the owner's CLINICAL TOLERANCE, 2026-11-28): these points warn on PRODUCTION too, by their STOPS.csv row
+TOL_WARN = {
+    "ctgov": "T-I022", "rrs option": "T-I013", "tls old clients": "T-I097", "memcaps": "T-I100",
+    "tls check": "T-I108", "finish gate (depends)": "T-I072, T-I073", "cleanup": "T-I123", "site keys": "T-I124",
+    "gpu profile": "T-I038", "unmeasured": "T-I093",
+}  # fmt: skip
+TOL_GOES_ON = "install: warning (the install goes on; an open item on the Operations page): "
+
+
 @pytest.mark.parametrize(("name", "site", "args", "force", "extra", "said", "rc"), PROD_CASES,
                          ids=[c[0] for c in PROD_CASES])  # fmt: skip
 def test_on_production_the_same_forced_points_stop_with_master_s_words(
@@ -500,24 +509,33 @@ def test_on_production_the_same_forced_points_stop_with_master_s_words(
     planted_box = Box(tmp_path / "planted", env=(tmp_path / "prod" / "wizard.env").read_text(encoding="utf-8"))
     planted = planted_box.install(*args, "--yes", force=force, env={**extra, **PLANTED})
     last = clean.err.splitlines()[-1]
-    assert clean.rc == rc, clean.text[-4000:]
-    assert re.fullmatch("install: " + _as_pattern(master), last), (last, master)
     norm = [(r.rc, r.out.replace(str(b), "<box>"), r.err.replace(str(b), "<box>"))
             for r, b in ((clean, tmp_path / "prod"), (planted, tmp_path / "planted"))]  # fmt: skip
+    if name in TOL_WARN:  # TOL-1: master's words as a warning, the point listed, the variables still change nothing
+        warned = re.escape(TOL_GOES_ON) + _as_pattern(master)
+        assert any(re.match(warned, ln) for ln in clean.err.splitlines()), (TOL_WARN[name], clean.err[-3000:])
+        assert norm[0] == norm[1] and "PoC box, H-94" not in clean.err
+        assert (tmp_path / "prod" / "deploy" / "site" / "poc-stops.jsonl").exists()
+        return
+    assert clean.rc == rc, clean.text[-4000:]
+    assert re.fullmatch("install: " + _as_pattern(master), last), (last, master)
     assert norm[0] == norm[1]
     assert "PoC box, H-94" not in clean.err and not (tmp_path / "prod" / "deploy" / "site" / "poc-stops.jsonl").exists()
 
 
 def test_on_production_every_fail_line_and_exit_1_stay(tmp_path: Path) -> None:
     """To the end on PRODUCTION as a user: the site keys' sealing (root's, kept refusal 4) is left to a box's apply
-    step (TB_BOX_DEFER_SEAL=1, master's own knob)."""
+    step (TB_BOX_DEFER_SEAL=1, master's own knob). TOL-1 T-I145: a FAIL line that is not a kept kind warns and is an
+    open item, and the install ends 0 (a kept kind still ends 1: test_a_fail_line_about_a_secret_s_mode_stays_a_fail)."""
     site = PROD_SITE + f"TB_SOURCE_DIR={tmp_path}\n"
     r = Box(tmp_path / "prod", env=site).install("--mode", "stub", "--yes", force=("host-check",),
                                                   env={"TB_BOX_DEFER_SEAL": "1", **PLANTED})  # fmt: skip
     fails = [ln for ln in r.err.splitlines() if ln.startswith("install: FAIL: ")]
-    assert r.rc == 1 and RUNNING in r.out, r.text[-4000:]
-    assert "install: FAIL: the host check reported FAIL lines (above; docs/SECURITY.md)" in fails
-    assert r.err.splitlines()[-len(fails) :] == fails and "PoC box" not in r.err
+    assert r.rc == 0 and RUNNING in r.out and fails == [], r.text[-4000:]
+    assert TOL_GOES_ON + "FAIL: the host check reported FAIL lines (above; docs/SECURITY.md)" in r.err.splitlines()
+    assert "PoC box" not in r.err and any(
+        k.startswith("install.sh/fail: ") for k in Run(0, "", "", r.box).listed_keys()
+    )
 
 
 @pytest.mark.parametrize(("rel", "fixture", "least"), [("deploy/install.sh", "install_sh", 60),

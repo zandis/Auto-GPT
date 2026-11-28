@@ -180,15 +180,26 @@ REFUSALS: list[tuple[str, list[str], dict[str, Any], str]] = [
 ]  # fmt: skip
 
 
+#: TOL-1 (the owner's CLINICAL TOLERANCE, 2026-11-28): these warn on PRODUCTION too, by their STOPS.csv row
+TOL_WARN = {"b200 whole card": "T-I039", "b200 MIG": "T-I038", "b200-no-mig named": "T-I039",
+            "shared-quota named": "T-I038", "arm64-dgpu": "T-I041", "unknown profile": "T-I043"}  # fmt: skip
+TOL_GOES_ON = "install: warning (the install goes on; an open item on the Operations page): "
+
+
 @pytest.mark.parametrize(("what", "args", "bench", "said"), REFUSALS, ids=[r[0] for r in REFUSALS])
 def test_without_the_mark_the_three_refusals_are_byte_identical(
     tmp_path: Path, what: str, args: list[str], bench: dict[str, Any], said: str
 ) -> None:
-    """THE INVARIANT (H-89, item 7)."""
+    """THE INVARIANT (H-89, item 7). TOL-1 T-I038 to T-I043: a profile step's refusal on PRODUCTION is a warning
+    with the same words, and the install goes on (the invariant holds the same)."""
     clean = Bench(tmp_path / "clean", **bench).install(*args)
     planted_bench = Bench(tmp_path / "planted", **bench)
     planted = planted_bench.install(*args, **_plant(planted_bench))
-    assert clean.returncode == 1 and said in clean.stderr.splitlines()[-1], clean.stdout + clean.stderr
+    if what in TOL_WARN:
+        warned = said.replace("install: ", TOL_GOES_ON, 1)
+        assert any(ln.startswith(warned) for ln in clean.stderr.splitlines()), clean.stdout + clean.stderr
+    else:
+        assert clean.returncode == 1 and said in clean.stderr.splitlines()[-1], clean.stdout + clean.stderr
     if what == "driver":
         assert DRIVER_FAIL in clean.stdout.splitlines()
     got = [(r.returncode, r.stdout.replace(str(b), "<tmp>"), r.stderr.replace(str(b), "<tmp>"))
@@ -199,10 +210,12 @@ def test_without_the_mark_the_three_refusals_are_byte_identical(
 
 @pytest.mark.parametrize("opt", [["--rehearsal-real-servers"], ["--gpu-index", "1"], ["--engine-probe", "/x"]])
 def test_the_new_options_without_rehearsal_are_refused_with_one_line(tmp_path: Path, opt: list[str]) -> None:
+    """TOL-1 T-I013, T-I014, T-I015: on PRODUCTION too the option is a warning, ignored, and the install goes on, here
+    to the driver below the minimum (kept refusal 2)."""
     r = Bench(tmp_path).install("--mode", "gpu", "--gpu", "rtxpro6000", *opt)
-    assert r.returncode == 2 and r.stdout == "" and len(r.stderr.splitlines()) == 1
-    assert opt[0] in r.stderr and "nothing was checked or written" in r.stderr
-    assert not (tmp_path / "docker.log").exists()
+    warned = [ln for ln in r.stderr.splitlines() if ln.startswith(TOL_GOES_ON)]
+    assert len(warned) == 1 and opt[0] in warned[0] and "nothing was checked or written" in warned[0], r.stderr
+    assert r.returncode == 1 and r.stderr.splitlines()[-1] == DRIVER_DIE
 
 
 @pytest.mark.parametrize("production", [True, False])
@@ -216,8 +229,9 @@ def test_a_plain_rehearsal_refuses_the_card_options(tmp_path: Path, opt: list[st
         (b.deploy / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     r = b.install("--rehearsal", "--mode", "gpu", "--gpu", "rtxpro6000", *opt)
     assert "go with --rehearsal-real-servers" in r.stderr
-    if production:
-        assert r.returncode == 2 and r.stderr.splitlines()[-1].startswith("install: --gpu-index and --engine-probe")
+    if production:  # TOL-1 T-I016: a warning, the options ignored; the kept refusal after it still ends the run
+        assert TOL_GOES_ON + "--gpu-index and --engine-probe" in r.stderr
+        assert r.returncode == 1 and r.stderr.splitlines()[-1] == DRIVER_DIE
         return
     assert "warning (PoC box, H-94)" in r.stderr and r.returncode == 1 and r.stderr.splitlines()[-1] == DRIVER_DIE
     assert "install.sh/rrs-options-without-rrs" in (b.deploy / "site" / "poc-stops.jsonl").read_text(encoding="utf-8")
@@ -285,8 +299,8 @@ def test_a_missing_probe_file_is_refused(tmp_path: Path, production: bool) -> No
         (b.deploy / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     r = b.real()
     assert r.returncode == 1 and "--engine-probe FILE" in r.stderr
-    if production:
-        assert not (tmp_path / "docker.log").exists() and "PoC box" not in r.stderr
+    if production:  # TOL-1 T-I017: a warning in PRODUCTION's words; the kept refusal after it still ends the run
+        assert TOL_GOES_ON in r.stderr and "PoC box" not in r.stderr and r.stderr.splitlines()[-1] == DRIVER_DIE
         return
     assert "warning (PoC box, H-94)" in r.stderr and r.stderr.splitlines()[-1] == DRIVER_DIE
 

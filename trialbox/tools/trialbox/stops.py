@@ -31,8 +31,13 @@ THE LIST (:data:`LIST`, ``deploy/site/poc-stops.jsonl``): one JSON object per li
 name of the point), ``what`` (the stop's own words), ``skipped`` (what was not done because of it, or empty), ``at``
 (UTC), ``by`` (the script). It lives with the site's own files, so it survives the run from the signed tree, an
 update and a second install. Only root or the installing user writes it; a link is never followed; a secret's value
-or a path under ``uploads/`` is never written. ``trialbox doctor`` shows it as WARN lines (:func:`doctor_lines`), one
-action each. A list made by hand, or one that cannot be read, never stops anything: it is a WARN line too.
+or a path under ``uploads/`` is never written. ``trialbox doctor`` shows it as WARN lines (:func:`doctor_lines`,
+the row ``open_item``), one action each, and the Operations page lists it (``tools/trialbox/ops.py`` snapshot
+``open_items``). A list made by hand, or one that cannot be read, never stops anything: it is a WARN line too.
+
+TOL-1 (the owner's CLINICAL TOLERANCE, 2026-11-28): on the install path every box warns and lists (the shell block's
+TB_STOP_ALWAYS); :func:`stop_or_warn` here keeps the PoC rule, for its one caller is the update's backup (LOSS on a
+box with real data: TOL-1 T-U063, T-U064).
 """
 
 from __future__ import annotations
@@ -50,7 +55,7 @@ from typing import NoReturn
 LIST = Path("site") / "poc-stops.jsonl"  # under the deploy folder
 POC_ENVS = ("DEV", "TEST", "VALIDATION")
 ENVS = (*POC_ENVS, "PRODUCTION")
-ACTION = "fix what it names before this box serves a site, then run the step again"
+ACTION = "fix what it names, then run the step again; the box runs meanwhile (TOL-1: an open item, not a stop)"
 _SECRET = re.compile(r"\b([a-z0-9_]*(?:password|passphrase|token|secret|_key))=\S*", re.I)
 _UPLOADS = re.compile(r"\S*/uploads/\S*")
 _TB_ENV = re.compile(r"^\s*(?:export\s+)?TB_ENV\s*=(.*)$")  # compose: an export, blanks around the name
@@ -188,6 +193,6 @@ def doctor_lines(deploy: Path) -> Iterable[tuple[str, str]]:
     entries, problems = read(deploy)
     for e in entries:
         skipped = f"; skipped: {e.skipped}" if e.skipped else ""
-        yield "poc_stop", f"{e.key} ({e.at}): {e.what}{skipped}. Action: {ACTION}"
+        yield "open_item", f"{e.key} ({e.at}): {e.what}{skipped}. Action: {ACTION}"
     for p in problems:
-        yield "poc_stop", f"{p}. Action: remove the file or the lines; the next install writes it again"
+        yield "open_item", f"{p}. Action: remove the file or the lines; the next install writes it again"

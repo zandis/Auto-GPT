@@ -39,6 +39,11 @@
     <p class="hint">{{ t('ops.update.staged', n=(st.incoming or [])|length) }} · {{ t('ops.update.points', n=(st.rollback_points or [])|length) }}</p>
     <a href="/admin/ops?tab=update">{{ t('ops.open') }}</a>
   </section>
+  {% if st.open_items %}<section class="card tile" data-testid="ops-open-items">
+    <h2>{{ t('ops.open_items', n=st.open_items|length) }}</h2>
+    <p class="hint">{{ t('ops.open_items.help') }}</p>
+    <ul class="plain">{% for i in st.open_items %}<li data-src="ops"><span class="mono">{{ i.what }}</span>{% if i.at %} · <span class="hint">{{ i.at|local }}</span>{% endif %}</li>{% endfor %}</ul>
+  </section>{% endif %}
   <section class="card tile" data-testid="ops-disk-tile">
     <h2>{{ t('ops.disk') }}</h2>
     {% if st.disk %}<ul class="plain">{% for d in st.disk %}<li><span class="mono">{{ d.path }}</span> · {{ t('ops.disk.free', free=(d.free / 1073741824)|round(1), total=(d.total / 1073741824)|round(1)) }}</li>{% endfor %}</ul>{% else %}<p class="hint">–</p>{% endif %}
