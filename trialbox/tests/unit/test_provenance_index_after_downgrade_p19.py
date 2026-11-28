@@ -1622,7 +1622,8 @@ def test_the_rebuild_on_a_box_host_runs_in_the_audit_writer_as_the_admin(
     docker.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {said}\nprintf "%s" "$TB_DB_URL" > {got}\nexit 3\n',
                       encoding="utf-8")  # fmt: skip
     docker.chmod(0o755)
-    url = "postgresql://trialbox:s3cret-admin@db:5432/trialbox_wf"
+    secret = "s3cret-admin"  # synthetic
+    url = f"postgresql://trialbox:{secret}@db:5432/trialbox_wf"
     (deploy / ".env").write_text(f"TB_DOCKER={docker}\nTB_DB_URL={url}\n", encoding="utf-8")
     (deploy / ".env").chmod(0o600)
     monkeypatch.setattr(launch, "DEPLOY", deploy)
