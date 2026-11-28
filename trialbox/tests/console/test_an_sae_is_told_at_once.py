@@ -89,9 +89,20 @@ def test_without_an_office_mailbox_the_pi_is_still_told(lb: dict[str, Any], monk
 
 
 # ---------------------------------------------------------------------------------------------- a required answer
+def _backup_given(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from tb_common import site_needs
+
+    monkeypatch.setenv("TB_BACKUP_TARGETS", "/mnt/backup")
+    (tmp_path / "secrets").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "secrets" / "backup.pub").write_text("synthetic public key\n", encoding="utf-8")
+    site_needs.write_host_given(tmp_path)
+    monkeypatch.setattr(site_needs, "MOUNTED", (tmp_path / site_needs.HOST_GIVEN).parent)
+
+
 def test_a_study_that_reports_saes_does_not_open_on_a_box_without_the_office_mailbox(
     lb: dict[str, Any],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from console import study_setup
 
@@ -107,6 +118,7 @@ def test_a_study_that_reports_saes_does_not_open_on_a_box_without_the_office_mai
     r = c.post("/studies/GZQO/state", data={"csrf": _csrf(page), "state": "open"}, follow_redirects=False)
     assert r.status_code == 409 and 'data-testid="state-error"' in r.text
     monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "trial-office@hospa.test")
+    _backup_given(monkeypatch, tmp_path)  # SAFE-1 A3: a study opens on PRODUCTION with its backup given
     r = c.post("/studies/GZQO/state", data={"csrf": _csrf(page), "state": "open"}, follow_redirects=False)
     assert r.status_code == 303
 
