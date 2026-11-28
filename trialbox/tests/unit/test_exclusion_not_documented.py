@@ -77,6 +77,6 @@ def test_the_worklists_sort_undocumented_exclusions_between_decided_and_open() -
     open_ = {"evidence": {"reason": "abstained"}}
     rows = [{"pid": p, "visit": None, "visit_text": "", "tier": "review", "criteria": c,
              "fit": SimpleNamespace(open=[x for x in c if x is not None])}
-            for p, c in (("open", [open_]), ("nd", [nd]), ("done", []))]  # fmt: skip
-    assert [r["pid"] for r in worklist_sorted(rows, "all")] == ["done", "nd", "open"]
+            for p, c in (("a-open", [open_]), ("b-nd", [nd]), ("c-done", []))]  # fmt: skip
+    assert [r["pid"] for r in worklist_sorted(rows, "all")] == ["c-done", "b-nd", "a-open"]  # not the pseudonym order
     assert len(worklist_sorted(rows, "all")) == 3  # nobody leaves the list
