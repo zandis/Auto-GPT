@@ -188,7 +188,7 @@ def test_closeness_key_and_coded_complete_read_a_stored_row() -> None:
     assert st.coded_complete(row, META) == (1, 2)
     tier, n_open, weight, minus_for, no_visit, visit, pid = st.closeness_key(row, META)
     assert (tier, n_open, weight, minus_for, no_visit, visit, pid) == (1, 2, 1 + 3, 0, False, "2026-10-07 09:30", "p")
-    assert st.coded_complete({"criteria": []}, META) == (0, 0)
+    assert st.coded_complete({"criteria": []}, META) == (0, 2)
 
 
 def test_coded_complete_counts_over_the_studys_criteria_and_each_answer_once() -> None:

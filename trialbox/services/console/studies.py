@@ -742,7 +742,7 @@ def coded_complete(row: Mapping[str, Any], crit: Mapping[str, CriterionMeta]) ->
     verdicts = row.get("criteria") or []
     classes = {cid: m.cls for cid, m in crit.items()}
     answered, _ = coded_counts(verdicts, classes)
-    return answered, (sum(c == "structured" for c in classes.values()) if verdicts else 0)
+    return answered, sum(c == "structured" for c in classes.values())
 
 
 def worklist_sorted(rows: Sequence[dict[str, Any]], key: str) -> list[dict[str, Any]]:
