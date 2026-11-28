@@ -141,9 +141,12 @@ def test_a_label_saved_in_another_tab_or_language_is_not_written_over(box: dict[
     one = {"csrf": csrf, "label_lang": "ja", "label_id": IDS[:1], "label_was": [""]}
     c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**one, "label_text": ["新しい表示名"]})  # the other tab
     stale = {**one, "label_was": ["旧い表示名"], "label_text": ["旧い表示名"]}  # shown before, not touched
-    c.post(f"/pilot/jobs/{job.job_id}/approval/save", data=stale)
+    assert c.post(f"/pilot/jobs/{job.job_id}/approval/save", data=stale, follow_redirects=False).status_code == 303
     page, _ = _page_and_csrf(c, job.job_id)
     assert f'data-testid="site-label-{IDS[0]}">新しい表示名' in page
     assert len(_events(box, "console.criterion_label")) == 1
     r = c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**one, "label_lang": "zh-TW", "label_text": ["別"]})
     assert r.status_code == 409 and len(_events(box, "console.criterion_label")) == 1
+    # untouched labels from a page shown in another language do not hold up the rest of the form
+    r = c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**stale, "label_lang": "zh-TW"}, follow_redirects=False)
+    assert r.status_code == 303

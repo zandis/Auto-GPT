@@ -266,12 +266,15 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         opened, tick = [str(x) for x in form.getlist("opened")], [str(x) for x in form.getlist("tick")]
         label_id, label_text = [str(x) for x in form.getlist("label_id")], [str(x) for x in form.getlist("label_text")]
         label_was = [str(x) for x in form.getlist("label_was")]
+        edited = any(
+            " ".join(t.split()) and " ".join(t.split()) != " ".join(w.split()) for t, w in zip(label_text, label_was)
+        )
         if not (sess.user.can_request or sess.user.can_approve) or ((opened or tick) and not sess.user.can_approve):
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         if label_id and sess.lang == "en":
             raise h.problem(400, "request.refused", reason="choose the page language the label is in first")
-        if label_id and str(form.get("label_lang") or "") != sess.lang:
+        if edited and str(form.get("label_lang") or "") != sess.lang:  # only an edited label is in a language
             raise h.problem(409, "request.refused", reason="the page language changed since this page was shown")
         job, book = waiting_job(sess, job_id)
         ctx = context(sess, job, book)
