@@ -1293,14 +1293,23 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def contact_or_refuse(sess: Session, rid: str, wk: dict[str, Any] | None, pid: str, action: str) -> None:
         """FIT-U04 (T-629, D-415): nothing is recorded for a patient whose record now says they died (the page and
-        ``/api/v1`` alike); while the death records cannot be read, no Approach and no contact outcome. Audited."""
+        ``/api/v1`` alike); while the death records cannot be read, no Approach and no contact outcome. Audited.
+        SAFE-1 A6: an Approach or a contact outcome asks the death records for this one patient now (one pid), so a
+        list whose own check was not answered never holds the patient being approached; not answered: refused."""
         if wk is None:
             return
         why = ""
+        fn = getattr(bk, "deceased", None)
         if pid in (wk.get("deceased") or ()):
             why, key, status = "deceased", "patient.deceased", 409
-        elif wk.get("dead_unchecked") and (action == "approach" or action in OUTCOMES):
-            why, key, status = "death records unreadable", "patient.death_unchecked", 503
+        elif fn is not None and (action == "approach" or action in OUTCOMES):
+            try:
+                died = pid in set(fn([pid]))
+            except Exception:  # the lake did not answer: never a quiet "no deaths"
+                why, key, status = "death records unreadable", "patient.death_unchecked", 503
+            else:
+                if died:
+                    why, key, status = "deceased", "patient.deceased", 409
         if why:
             au.append("console.refused", ruleset=rid, actor=h.actor(sess),
                       detail={"pid": pid, "action": action, "reason": why})  # fmt: skip
