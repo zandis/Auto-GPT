@@ -153,6 +153,10 @@ def test_a_form_sent_after_the_idle_end_is_back_after_signing_in_again(tmp_path:
     app, _users, audit_dir = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
     c = _signed_in_viewer(app)
     csrf = _csrf(c.get("/help").text)
+
+    def csrf_of(client: TestClient) -> str:
+        return _csrf(client.get("/help").text)
+
     clock.tick(minutes=11)  # past the 10-minute idle end
     _send_after_the_end(c, csrf)
     r = _password(c, "viewer", VIEWER_PW)
@@ -160,6 +164,11 @@ def test_a_form_sent_after_the_idle_end_is_back_after_signing_in_again(tmp_path:
     draft = _draft(c.get("/help").text)
     assert draft == {"action": "/feedback", "fields": {"path": ["/help"], "rating": ["2"],
                                                        "comment": ["half-typed note"]}}  # fmt: skip
+    assert _draft(c.get("/help").text) is not None  # kept until a form took it (a page render does not use it up)
+    assert (
+        c.post("/draft/done", data={"csrf": csrf_of(c)}, headers={"referer": "http://testserver/help"}).status_code
+        == 204
+    )
     assert _draft(c.get("/help").text) is None  # once
     assert "half-typed note" not in repr(_events(audit_dir))  # typed text is never audited
 
@@ -224,8 +233,9 @@ const [src, spec] = process.argv.slice(1);
 const {forms, draft, edit, discard} = JSON.parse(spec);
 const notes = [];
 const built = forms.map((f) => {
-  const elements = f.fields.map(([name, type, value]) => ({name, type, value, checked: false, disabled: false,
-    classList: {add() {}, remove() {}}}));
+  const elements = f.fields.map(([name, type, value, more]) => ({name, type, value, checked: false, disabled: false,
+    classList: {add() {}, remove() {}}, ...(more || {}),
+    ...(more && more.options ? {tagName: "SELECT", options: more.options.map((o) => ({value: o, selected: false}))} : {})}));
   return {getAttribute: (a) => (a === "action" ? f.action : null), elements,
     parentNode: {insertBefore: (n) => notes.push(n), removeChild() {}}};
 });
@@ -243,7 +253,8 @@ eval(src);
 (edit || []).forEach(([i, name, value]) => { built[i].elements.find((x) => x.name === name).value = value; });
 if (discard) notes.forEach((n) => n.children[1].listeners.forEach((fn) => fn()));
 console.log(JSON.stringify({
-  values: built.map((f) => f.elements.map((x) => (x.type === "radio" ? x.checked : x.value))),
+  values: built.map((f) => f.elements.map((x) => (x.options && x.multiple ? x.options.filter((o) => o.selected).map((o) => o.value)
+    : x.type === "radio" ? x.checked : x.value))),
   notes: notes.map((n) => n.children.map((c) => c.textContent).join("")),
 }));
 """
@@ -303,3 +314,43 @@ def test_discard_undoes_the_refill_but_keeps_what_was_typed_since() -> None:
     kept = {"action": "/feedback", "fields": {"comment": ["half-typed note"]}}
     got = _js([FEEDBACK], kept, edit=[[0, "comment", "half-typed note, then more"]], discard=True)
     assert got["values"][0][1] == "half-typed note, then more"  # changed since the refill: Discard leaves it
+
+
+def test_a_draft_of_patient_a_is_not_put_into_the_form_of_patient_b() -> None:
+    kept = {"action": "/studies/GZQO/marks", "fields": {"pid": ["pA"], "note": ["check the creatinine"]}}
+    other = {"action": "/studies/GZQO/marks", "fields": [["csrf", "hidden", "fresh"], ["pid", "hidden", "pB"],
+                                                        ["note", "text", ""]]}  # fmt: skip
+    assert _js([other], kept)["values"] == [["fresh", "pB", ""]]  # nothing put in, no note
+    ro = {"action": "/feedback", "fields": [["csrf", "hidden", "fresh"], ["patient", "text", "pB", {"readOnly": True}],
+                                            ["comment", "textarea", ""]]}  # fmt: skip
+    got = _js([ro], {"action": "/feedback", "fields": {"comment": ["note"]}})  # the kept form has no saved patient
+    assert got["values"] == [["fresh", "pB", ""]] and got["notes"] == []
+    sel = {"action": "/feedback", "fields": [["csrf", "hidden", "fresh"], ["patient", "text", "pB", {"options": ["pA", "pB"]}],
+                                            ["comment", "textarea", ""]]}  # fmt: skip
+    got = _js([sel], {"action": "/feedback", "fields": {"patient": ["pA"], "comment": ["note"]}})
+    assert got["values"][0][2] == "" and got["notes"] == []
+
+
+def test_a_draft_stays_when_no_form_matched_and_goes_when_one_took_it(tmp_path: Path) -> None:
+    clock = Clock()
+    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    c = _signed_in_viewer(app)
+    csrf = _csrf(c.get("/help").text)
+    clock.tick(minutes=11)
+    _send_after_the_end(c, csrf)
+    assert _password(c, "viewer", VIEWER_PW).status_code == 303
+    for _ in range(3):  # pages rendered, no form took it: still there
+        assert _draft(c.get("/help").text) is not None
+    for _ in range(3):  # kept awake (idle limit is 10 minutes) until the 15 minutes end: gone, and the row too
+        clock.tick(minutes=4)
+        assert _draft(c.get("/help").text) is not None
+    clock.tick(minutes=4)
+    assert _draft(c.get("/help").text) is None
+    assert users.db.fetchone("SELECT COUNT(*) FROM session_drafts WHERE page <> ''")[0] == 0  # type: ignore[index]
+
+
+def test_a_multiple_choice_list_comes_back_whole() -> None:
+    form = {"action": "/feedback", "fields": [["csrf", "hidden", "fresh"],
+                                              ["tags", "select-multiple", "", {"multiple": True, "options": ["a", "b", "c"]}]]}  # fmt: skip
+    got = _js([form], {"action": "/feedback", "fields": {"tags": ["a", "c"]}})
+    assert got["values"] == [["fresh", ["a", "c"]]]

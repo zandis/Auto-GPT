@@ -1282,6 +1282,15 @@ def create_app(
         resp.delete_cookie(COOKIE)
         return resp
 
+    @app.post("/draft/done")
+    def draft_done(request: Request, csrf: str = Form("")) -> Response:
+        """TOL-AUTH (T-A030): a form of this page took its kept draft; it is not given again."""
+        sess = need(request)
+        if not csrf_ok(sess, csrf):
+            raise _Problem(400, "csrf")
+        us.drop_draft(sess.token_sha, next_page.page_of(request))
+        return Response(status_code=204)
+
     register_identity(  # D-192: the TOTP step, the OIDC sign-in, /ops/identity (unlock, reset authenticator)
         app,
         ident,

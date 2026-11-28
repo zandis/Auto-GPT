@@ -1328,21 +1328,26 @@ class UserStore:
         if not old_token or len(old_token) > 256:
             return False
         sha = _sha(old_token)
+        self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((self.clock() - DRAFT_TTL).isoformat(),))
         n = self.db.execute("UPDATE session_drafts SET token_sha = ? WHERE token_sha = ? AND username = ? "
                             "AND page <> ''", (_sha(new_token), sha, username))  # fmt: skip
         self.db.execute("DELETE FROM session_drafts WHERE token_sha = ?", (sha,))
         return n > 0
 
     def take_draft(self, token_sha: str, page: str) -> dict[str, Any] | None:
-        """The kept form of this session for ``page`` ({"action", "fields"}), once; None otherwise."""
+        """The kept form of this session for ``page`` ({"action", "fields"}); it stays until ``drop_draft`` (a form took
+        it) or its 15 minutes end; None otherwise."""
+        self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((self.clock() - DRAFT_TTL).isoformat(),))
         row = self.db.fetchone("SELECT action, fields, at FROM session_drafts WHERE token_sha = ? AND page = ?",
                                (token_sha, page))  # fmt: skip
         if row is None:
             return None
-        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ? AND page = ?", (token_sha, page))
-        if not row[1] or self.clock() - datetime.fromisoformat(str(row[2])) > DRAFT_TTL:
+        if not row[1]:
             return None
         return {"action": str(row[0]), "fields": json.loads(str(row[1]))}
+
+    def drop_draft(self, token_sha: str, page: str) -> None:
+        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ? AND page = ?", (token_sha, page))
 
     # ------------------------------------------------------------------ first start
     def bootstrap_from_file(self, path: Path, username: str = "admin", mailbox: str | None = None) -> User | None:

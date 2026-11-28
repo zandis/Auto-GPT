@@ -192,9 +192,13 @@
       var names = {};
       Array.prototype.forEach.call(f.elements, function (x) { names[x.name] = true; });
       if (!Object.keys(dv.fields).every(function (n) { return names[n]; })) return false; // every kept name is here
+      // every identifying field must match the kept value exactly: a hidden input (not the CSRF token), a read-only
+      // input with a value, a choice list named in the kept form; a kept value that is missing is no match
       return Array.prototype.every.call(f.elements, function (x) {
+        if (!x.name || x.name === "csrf") return true;
+        var ident = x.type === "hidden" || (x.readOnly && x.value) || (x.tagName === "SELECT" && !x.multiple && dv.fields[x.name]);
         var v = dv.fields[x.name];
-        return x.type !== "hidden" || !v || v.indexOf(x.value) >= 0;
+        return !ident || (!!v && v.indexOf(x.value) >= 0);
       });
     }) : [];
     if (same.length === 1) {
@@ -203,10 +207,17 @@
         Object.keys(dv.fields).forEach(function (n) { left[n] = dv.fields[n].slice(); });
         Array.prototype.forEach.call(f.elements, function (x) {
           var v = left[x.name];
-          if (!v || x.disabled || ["hidden", "submit", "button", "password", "file"].indexOf(x.type) >= 0) return;
+          if (!v || x.disabled || x.readOnly || ["hidden", "submit", "button", "password", "file"].indexOf(x.type) >= 0) return;
           if (x.type === "checkbox" || x.type === "radio") {
             if (v.indexOf(x.value) >= 0 && !x.checked) { put.push({ x: x, was: x.value }); x.checked = true; }
-          } else if (!x.value || x.tagName === "SELECT") {
+          } else if (x.tagName === "SELECT" && x.multiple) { // every kept choice, not the first only
+            var was = Array.prototype.map.call(x.options, function (o) { return o.selected; });
+            Array.prototype.forEach.call(x.options, function (o) { o.selected = v.indexOf(o.value) >= 0; });
+            v.length = 0;
+            put.push({ x: x, was: was, multi: true });
+          } else if (x.tagName === "SELECT") {
+            v.shift(); // it matched (the form is the kept one): its choice stays
+          } else if (!x.value) {
             put.push({ x: x, was: x.value });
             x.value = v.shift();
             put[put.length - 1].now = x.value;
@@ -216,6 +227,11 @@
         });
         if (!put.length) return;
         put.forEach(function (p) { p.x.classList.add("restored"); });
+        // the kept form is used up only now (the server keeps it until a matching form took it, or 15 minutes)
+        var tok = Array.prototype.filter.call(f.elements, function (x) { return x.name === "csrf"; })[0];
+        if (tok && window.fetch) {
+          try { window.fetch("/draft/done", { method: "POST", credentials: "same-origin", body: new URLSearchParams({ csrf: tok.value }) }); } catch (e) { /* kept until it expires */ }
+        }
         var note = document.createElement("p"), span = document.createElement("span"), btn = document.createElement("button");
         note.className = "warn";
         note.setAttribute("role", "status");
@@ -227,7 +243,8 @@
         btn.textContent = dj.getAttribute("data-discard") || "\u00d7";
         btn.addEventListener("click", function () { // undo: each field as the page showed it, unless changed since
           put.forEach(function (p) {
-            if (p.x.type === "checkbox" || p.x.type === "radio") p.x.checked = false;
+            if (p.multi) Array.prototype.forEach.call(p.x.options, function (o, i) { o.selected = p.was[i]; });
+            else if (p.x.type === "checkbox" || p.x.type === "radio") p.x.checked = false;
             else if (p.x.value === p.now) p.x.value = p.was;
             p.x.classList.remove("restored");
           });
