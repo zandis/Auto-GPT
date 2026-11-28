@@ -11,3 +11,6 @@ and is judged against the Japanese original and the English translation; the tag
   corpus files it was built from (`python -m tools.medtxt_gate key` after `fetch`)
 - `gate.json`: the control and the candidate pair of the standing gate (`python -m tools.medtxt_gate check`,
   `make medtxt-gate`; D-1325): review 17 §7.3 rules 1 and 2 on the ja items, on the recorded answers
+- `results/s2_miss.json`: the S2 miss rate (`python -m tools.medtxt_s2`, no model). Per positive finding, does a key of
+  S2's own lexicon (the shipped terms, no site table) hit the finding's sentence, ja and en; `no_key` = no key in that
+  script. `fix_list_ja` lists the missed Japanese findings (the tagged words, their English wording and counts)
