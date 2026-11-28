@@ -246,6 +246,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/pilot/case` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/consent` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/approval/label` | Y | Y | Y | Y | Y | - | - | - | - |
+| POST | `/pilot/jobs/{job_id}/approval/save` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | POST | `/pilot/jobs/{job_id}/approval/tick` | - | - | Y | Y | - | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/approve` | - | - | Y | Y | - | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/release` | Y | Y | - | - | Y | - | - | - | - |

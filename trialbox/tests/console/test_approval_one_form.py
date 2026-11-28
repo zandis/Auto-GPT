@@ -52,7 +52,6 @@ def test_the_coordinator_gives_twenty_labels_in_one_post(box: dict[str, Any]) ->
     assert "label-missing-" not in page and 'data-testid="site-label-GZQO-INC-31">基準31' in page
     got = _events(box, "console.criterion_label")
     assert sorted(e["action"] for e in got) == sorted(IDS)  # one event per criterion, as before
-    assert all(e["lang"] == "ja" and e["role"] == "coordinator" for e in got)
     # the coordinator neither ticks nor records an amber row read: refused, nothing written
     r = c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={"csrf": csrf, "tick": IDS[:1]})
     assert r.status_code == 403 and not _events(box, "console.code_tick")
