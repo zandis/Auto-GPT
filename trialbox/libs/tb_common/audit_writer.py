@@ -271,7 +271,9 @@ SKEW_ENV = "TB_AUDIT_TS_MAX_SKEW_S"
 #: shared libraries (and helpers of each other): their rows cover every family written anywhere in the modules
 #: they import. A service that reads outside input (mail, model output, hospital files, protocols) has the
 #: narrowest row: exactly what its own folder writes, plus :data:`EDGE_EXTRA`, each with its reason.
-_SHARED = ("ai", "flag", "flow", "llm", "mail")  # written through tb_common by the service that hosts the call
+#: written through tb_common by the service that hosts the call (``egress.leave``: tb_common.egress_record, for
+#: every service that hands a payload to tb_common.egress_edge.leave)
+_SHARED = ("ai", "egress", "flag", "flow", "llm", "mail")
 #: NEW-SEC-2 (D-718): the chain's own records. Its writers write them themselves (the drain, the file writer, the
 #: host's signer); none comes through the journal. A row of this family from any role but the audit's own writer and
 #: the administrator is written under :data:`RESERVED_NAME`, with the name it was sent as (security review SEC-10).
@@ -280,12 +282,13 @@ RESERVED_NAME = "journal.reserved_name"
 _ORCH = ("actor", "case", "cohort", "consent", "data", "derive", "edc", "feas", "job", "lake", "life", "microbatch",
          "nav", "notice", "notmatched", "opportunity", "optout", "redcap", "registry", "rerun", "retention",
          "scheduler", "screen", "selftest", "service", "setup", "sponsor", "study", "terminology", "twpas")  # fmt: skip
-_CONSOLE = ("console", "demo", "edc", "feedback", "instrument", "notmatched", "optout", "registry",
+#: ``role``: console.acting's role.acting
+_CONSOLE = ("console", "demo", "edc", "feedback", "instrument", "notmatched", "optout", "registry", "role",
             "setup", "sponsor", "terminology")  # fmt: skip
 #: The host's `trialbox` tools (backup, update, watchdog, the operations runner) and `deploy/install.sh` send their
 #: events from inside the orchestrator's container (`compose exec -T orchestrator python -c "... open_audit()"`),
 #: so the journal records them under the orchestrator's role, not the administrator's (the review's H1).
-_HOST_TOOLS = ("backup", "ops", "update")
+_HOST_TOOLS = ("backup", "keys", "ops", "update")  # keys: ``tools.keys ceremony-record``'s keys.ceremony
 #: one event of another role's family that a role sends, each with its reason (never the whole family)
 EXACT_EVENTS: dict[str, dict[str, str]] = {
     "tb_orchestrator": {
@@ -299,6 +302,14 @@ EXACT_EVENTS: dict[str, dict[str, str]] = {
 }
 #: what an edge service writes beyond its own folder's events, and why
 EDGE_EXTRA: dict[str, dict[str, str]] = {
+    "tb_mail_gateway": {
+        "egress": "a mail reply leaves through tb_common.egress_edge.leave, which records egress.leave in the "
+        "caller's log",
+    },
+    "tb_gateway": {
+        "egress": "an off-box model call leaves through tb_common.egress_edge.leave, which records egress.leave in "
+        "the caller's log",
+    },
     "tb_criteria_compiler": {
         "llm": "its model calls go through tb_common.llm, which audits them in the caller's log",
         "ai": "an extracted criterion's ai.used and a review decision's ai.confirmed go through tb_common.provenance "
@@ -308,8 +319,8 @@ EDGE_EXTRA: dict[str, dict[str, str]] = {
 ROLE_EVENTS: dict[str, frozenset[str]] = {
     "tb_console": frozenset({*_CONSOLE, *_SHARED}),
     "tb_orchestrator": frozenset({*_ORCH, *_SHARED, *_HOST_TOOLS, "dataops"}),  # it imports datacore.dataops
-    "tb_mail_gateway": frozenset({"mail"}),
-    "tb_gateway": frozenset({"llm"}),
+    "tb_mail_gateway": frozenset({"egress", "mail"}),
+    "tb_gateway": frozenset({"egress", "llm"}),
     "tb_lake": frozenset({"lake"}),
     "tb_adapter": frozenset({"ingest", "terminology"}),
     "tb_criteria_compiler": frozenset({"ai", "approve", "compile", "ctgov", "llm"}),
