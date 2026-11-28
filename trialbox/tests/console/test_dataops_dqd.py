@@ -94,7 +94,9 @@ def test_the_nights_row_keeps_only_the_state_and_the_data_quality_fields(box: di
     bid = _night(box, omop)
     ops = DataOps()
     try:
-        kept = ops.batch(bid).detail["omop"]
+        b = ops.batch(bid)
+        assert b is not None
+        kept = b.detail["omop"]
     finally:
         ops.close()
     assert kept == {"state": "loaded", "dqd": {"checks": 60, "fail": 1, "known": 0, "failed": [FAIL]}}
