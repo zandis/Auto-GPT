@@ -138,6 +138,11 @@ def refuse_two_people(cfg: AdapterConfig, snap: str, folder: Path) -> None:
         checked = None
     if not isinstance(checked, dict):
         raise TwoPeopleOneChart(f"the identity check's record of this night ({IDENTITY_CHECKED}) cannot be read")
+    if checked.get("snapshot") != snap or not {"against", "current"} <= checked.keys():  # #1561 P02
+        raise TwoPeopleOneChart(
+            f"the identity check's record ({IDENTITY_CHECKED}) does not name this night and the served nights it "
+            "was compared with: run the night again, then decide on it"
+        )
     try:
         tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
     except FileNotFoundError:
@@ -158,10 +163,8 @@ def refuse_two_people(cfg: AdapterConfig, snap: str, folder: Path) -> None:
         refuse_future_night(snap, datetime.now(ZoneInfo(cfg.tz)).date())
     except ValueError:
         return  # dated after today: publish_night refuses it in its own words (D-529)
-    # ponytail: a record without the two keys is this change's earlier format only (never on a box)
-    if ("against" in checked and checked["against"] != merge_base(cfg.lake_dir, snap)) or (
-        "current" in checked and now not in (checked["current"], snap)  # ``snap``: its own accept, resumed
-    ):
+    if checked["against"] != merge_base(cfg.lake_dir, snap) or now not in (checked["current"], snap):
+        # ``snap``: its own accept, resumed
         raise TwoPeopleOneChart(
             "another night was served since this night's identity check compared it with the served one: run the "
             "night again (it is compared with the night served now), then decide on it"

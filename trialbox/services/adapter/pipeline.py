@@ -1911,7 +1911,7 @@ def _identifiers(r: Resource) -> dict[str, str]:
     for i in r.get("identifier") or []:
         if isinstance(i, dict) and i.get("value"):
             by.setdefault(f"identifier|{i.get('system') or ''}", []).append(str(i["value"]))
-    return {k: "|".join(sorted(v)) for k, v in by.items()}
+    return {k: json.dumps(sorted(set(v))) for k, v in by.items()}  # #1561 P03: "|" joins collide
 
 
 def _two_people_seen(seen: dict[str, dict[str, str]], pid: str, said: dict[str, str]) -> bool:
