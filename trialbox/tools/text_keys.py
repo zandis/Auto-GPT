@@ -555,6 +555,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "stillneeded.kind.": _values("tools.box.needs_apply", "SOURCE_KINDS"),  # M1
     "stillneeded.field.": _values("tools.box.needs_apply", "ITEM_FIELDS"),
     "stillneeded.state.": lambda: ("missing", "unusable", "stand_in", "waiting"),
+    "stillneeded.open.where.": _values("tb_common.open_reasons", "WHERES"),  # F17 5a: the view or field a reason names
     # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
     "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
     # J-5 (D-1223): the two lists of people and the views of each, behind the flag layout.people_lists

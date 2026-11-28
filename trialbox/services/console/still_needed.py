@@ -11,6 +11,7 @@ Audit: ``console.site_needs`` (the item's key and the request id, never a value)
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -23,10 +24,13 @@ from tb_common.authz import admin_allowed
 
 from console.api_first import before_body
 from console.auth import Session
+from console.backend import Unavailable
 from console.form_errors import FAILED, FieldError, FormErrors, kept_values
 from console.home import Helpers
 from console.i18n import translate
+from console.night_funnel import NIGHT_JOBS, open_cards
 
+log = logging.getLogger(__name__)
 PATH = "/admin/still-needed"
 ACTION = "site_needs"  # tools/trialbox/ops.py
 ROOT = Path(__file__).resolve().parents[2]
@@ -110,10 +114,15 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             for s in site_needs.STEPS
         ]
         keys = {r["need"].key for r in rows}
+        try:
+            open_studies = open_cards(sess.user, h.admits_candidates, h.bk.list_jobs, sess.lang, NIGHT_JOBS)
+        except Unavailable:  # this page must load with the orchestrator down: the site items need no jobs
+            log.warning("the open criteria of the latest nights could not be read", exc_info=True)
+            open_studies = []
         return h.page(
             request, "still_needed.html", sess, status, steps=[s for s in steps if s["rows"]], item=item, fe=fe,
             found=found, who=site_needs.WHO, choices=choices(sess.lang, found),
-            step_names=site_needs.STEPS, mail_off="mail_relay" in keys,
+            open_studies=open_studies, step_names=site_needs.STEPS, mail_off="mail_relay" in keys,
             table=install_questions.table(sess.lang, open_keys=keys), sent=request.query_params.get("sent", ""),
             can=admin_allowed(sess.user.role, "ops.update_apply"),
         )  # fmt: skip
