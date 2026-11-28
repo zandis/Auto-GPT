@@ -1,4 +1,3 @@
-# ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
 """UI text completeness (lane H, item 4): no raw text key and no catalogue English on a ja or zh-TW page.
 
 ``tools.text_keys`` holds the catalogues apart and checks every literal key; this test reads what it cannot: the
@@ -14,6 +13,7 @@ Synthetic data only."""
 from __future__ import annotations
 
 import html
+import importlib
 import os
 import re
 from html.parser import HTMLParser
@@ -21,16 +21,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from console.app import create_app  # noqa: F401 - imported for its side effect: every page joins its catalogue
 from console.auth import ROLES
 from console.i18n import CATALOGUES
 from tb_common.egress_edge import ROUTES
 from tb_common.flags import DECLARED
 
-from tests.console.test_console_app import _done_case, _done_feas, box, login, name_pi  # noqa: F401 - fixture by name
+from tests.console.test_console_app import _done_case, _done_feas, login, name_pi
 from tests.console.test_excluded_page import _with_excluded
 from tests.console.test_wording_walk import PW, VALUES, _pages
 
+importlib.import_module("console.app")  # every page module joins its catalogue when the app is imported
 LANGS = ("ja", "zh-TW")
 _KEYISH = re.compile(r"^[a-z][a-z0-9_]*(?:\.[A-Za-z0-9_-]+)+$")
 _ATTRS = ("title", "placeholder", "aria-label", "alt", "value")
@@ -162,7 +162,9 @@ def test_no_raw_key_or_catalogue_english_on_any_role_page(box: dict[str, Any], r
 # ------------------------------------------------------------------------------------------------ the templates
 TEMPLATES = Path(__file__).resolve().parents[2] / "services" / "console" / "templates"
 #: what a template may say in plain English words: a key name, a format, a sample value typed into a field as an example
-TECHNICAL_TEXT = frozenset(("Ctrl+P", "male=1,female=2", "LEQ-301,DNB-204", "event_1_arm_1"))
+#: ("main": the menu's landmark name; four console tests find the menu by ``<nav aria-label="main"`` in every language,
+#: so it stays until the lead rules on them: UITEXT-03)
+TECHNICAL_TEXT = frozenset(("main", "Ctrl+P", "male=1,female=2", "LEQ-301,DNB-204", "event_1_arm_1"))
 #: a sample request line typed into a field as an example (a command, in the three languages by design)
 SAMPLE = "GZQO 這個試驗做得起來嗎？ / Is GZQO feasible here? / FEAS GZQO lookback=36"
 _WORD = re.compile(r"\b[A-Za-z][a-z]{2,}\b")

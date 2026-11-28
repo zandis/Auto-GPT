@@ -6,7 +6,7 @@
 {% macro item(href, key, active) %}<a href="{{ href }}" class="{{ 'active' if active else '' }}">{{ tp(key) }}</a>{% endmacro %}
 {% macro grp(pf, key, body, rs='') %}{% if not pf %}{{ body }}{% elif body|trim %}<details class="moregrp" data-testid="more-grp-{{ key }}"><summary>{{ t('nav.grp.' + key, rs=rs) }}</summary><div class="moregrp-items">{{ body }}</div></details>{% endif %}{% endmacro %}
 {% macro monitor_items() %}{% for m in monitoring() %}<a href="/studies/{{ m[0] }}/monitor" class="{{ 'active' if path.startswith('/studies/' ~ m[0] ~ '/monitor') else '' }}" data-testid="nav-monitor">{{ t('roles.monitor.title') }} · {{ m[0] }}</a>{% endfor %}{% endmacro %}
-<nav aria-label="{{ t('nav.label') }}" data-testid="nav" data-role="{{ r }}" data-plain="on">
+<nav aria-label="main" data-testid="nav" data-role="{{ r }}" data-plain="on">
   {% if pilot %}
     {% if r == 'investigator' %}
       {% if pl %}{{ item('/people/candidates', 'people.candidates', pnow == 'candidates' or '/patients/' in path) }}{% else %}{{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}{% endif %}

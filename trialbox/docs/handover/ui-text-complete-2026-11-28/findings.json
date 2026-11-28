@@ -24,7 +24,7 @@
   {
    "id": "UITEXT-03",
    "severity": "Low",
-   "claim": "the menu's aria-label was the English word main on every page in every language",
+   "claim": "the menu's aria-label is the English word main on every page in every language; not changed: tests match it on ja and zh-TW pages",
    "lane": "H",
    "basis": "shown",
    "state": "open"

@@ -34,12 +34,15 @@ from something that is not in a catalogue.
   catalogue (`egress.rule.*`, `egress.state.*`). `doctor_checks` keeps its English output.
 - UITEXT-02: `egress_page.events` now reads the whole detail of an egress line (`shown=False`), as the published page
   does for the feeds; route, result and reason are the line's own fields and name no one.
-- UITEXT-03: the menu's `aria-label` is the key `nav.label` (English unchanged, `main`).
+- UITEXT-03 (not changed, open for a ruling): the menu's `aria-label` is the English `main` in every language. Four
+  console tests find the menu by `<nav aria-label="main"` on ja and zh-TW pages too (`test_plain_menu`,
+  `test_entry_pages`, `test_data_pages`, and `test_role_pages`); making the label a key changes
+  what they match. The template rule lists `main` as allowed until that ruling.
 
 ## Terms a native reader should check
 
-ja: 問題なし / 要確認 / 要対応 (the three states of a rule row), メインメニュー, 伏せ字 (masked), 持ち出し (leaving the
-box), 監視 (the tripwire), ゲートウェイ. zh-TW: 正常 / 請確認 / 需處理, 主選單, 遮蔽 (masked), 外送 (leaving the box),
+ja: 問題なし / 要確認 / 要対応 (the three states of a rule row), 伏せ字 (masked), 持ち出し (leaving the
+box), 監視 (the tripwire), ゲートウェイ. zh-TW: 正常 / 請確認 / 需處理, 遮蔽 (masked), 外送 (leaving the box),
 監控 (the tripwire), 閘道 (gateway).
 
 ## Not covered
