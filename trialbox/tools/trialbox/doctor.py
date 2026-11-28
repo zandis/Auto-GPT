@@ -192,6 +192,7 @@ import contextlib
 import functools
 import importlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -832,7 +833,7 @@ def check_judge_route(inp: DoctorInputs) -> Check:
         gw = Gateway(
             RoutingPolicy.load(inp.routing_path),
             Registry.load(Path(env.get("TB_REGISTRY_PATH") or DEFAULT_PATH), _override(inp)),
-            AuditLog(Path(tmp) / "audit"),
+            AuditLog(Path(tmp) / "audit", anchors={}),  # REAL2 M-5: a new chain, never held to the box's heads
             GatewayConfig.from_env(env),
             http=httpx.Client(transport=httpx.MockTransport(upstream)),
             guard=Guard(None),
@@ -1341,6 +1342,15 @@ def check_backup(inp: DoctorInputs) -> Check:
         why = "the deploy folder is not known: run with --env-file deploy/.env"
         return Check("backup", "FAIL" if prod else "WARN", why)
     cfg = bs.config(inp.deploy, dict(inp.env), process_env=False)
+    in_image = inp.in_image
+    if in_image is None:
+        from tools.trialbox import launch
+
+        in_image = launch.in_box_image()
+    unseen = [str(t) for t in cfg.targets if not t.exists()] if in_image else []
+    if unseen:  # REAL2 M-5: read as "every target is on this box" while the finish check had shown the share off it
+        return Check("backup", "WARN", f"not judged in the box image: the backup target(s) {', '.join(unseen)} are "
+                     "the host's (trialbox doctor on the host judges them)")  # fmt: skip
     st = bs.status(cfg)
     fails = list(st["problems"])
     # H-92: the timer where systemd is the init, else the cron file and a cron daemon; one action when none fires
@@ -1544,7 +1554,8 @@ def _soft(inp: DoctorInputs) -> Status:
 def check_backup_key(inp: DoctorInputs) -> Check:
     """RC3 (E2E P-01): the backup's public key from the key ceremony is on the box (``TB_BACKUP_PUBKEY``, else
     ``deploy/secrets/backup.pub``). Without it every backup and every update's backup is skipped; the ``backup`` row
-    judges the schedule and the targets, not the key. Only the file's presence and size are looked at: no key is read.
+    judges the schedule and the targets, not the key. The backup's own encryption is run on empty input to the public
+    key (TB-01: a truncated or wrong file passed when only its size was looked at); no private key is read.
     FAIL in VALIDATION and PRODUCTION, WARN elsewhere."""
     if inp.platform:
         return Check("backup_key", "PASS", "not a host check on a platform: see backup_target and backup_job")
@@ -1560,6 +1571,18 @@ def check_backup_key(inp: DoctorInputs) -> Check:
     if not size:
         return Check("backup_key", _soft(inp), f"no backup key {key}: every backup is skipped; make it in the key "
                      "ceremony with hospital IT (python -m tools.backup_key_ceremony, RUNBOOK §5)")  # fmt: skip
+    try:
+        from tools.trialbox import backup as bk
+
+        bk._Encryptor(io.BytesIO(), bk.load_public(key), {}).finish()
+    except ModuleNotFoundError as e:
+        if not _host_lacks(e):
+            raise
+        return Check("backup_key", "WARN", f"backup key {key.name} is on the box; cannot look here: {e.name}")
+    except (OSError, ValueError) as exc:  # binascii.Error is a ValueError
+        return Check("backup_key", _soft(inp), f"the backup cannot encrypt to {key} ({type(exc).__name__}): it is not "
+                     "the public key of the key ceremony; every backup would fail. Make it again with hospital IT "
+                     "(python -m tools.backup_key_ceremony, RUNBOOK §5)")  # fmt: skip
     return Check("backup_key", "PASS", f"backup key {key.name} is on the box")
 
 

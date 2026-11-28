@@ -19,6 +19,7 @@ import pytest
 
 from tools.box import plan as bp
 from tools.trialbox import __main__ as cli
+from tools.trialbox import backup as bk
 from tools.trialbox import doctor as d
 
 pytestmark = pytest.mark.nodb
@@ -47,11 +48,23 @@ def test_no_backup_key_fails_on_production_and_a_key_passes(tmp_path: Path) -> N
     assert c.status == "FAIL" and "no backup key" in c.detail and "ceremony" in c.detail
     assert d.check_backup_key(_inp(tmp_path, TB_ENV="DEV")).status == "WARN"
     pub = tmp_path / "deploy" / "secrets" / "backup.pub"
-    pub.parent.mkdir()
-    pub.write_text("age1 synthetic public key for a test\n", encoding="utf-8")
+    bk.keygen(tmp_path / "backup.key", pub)  # a throwaway key pair: the backup can encrypt to it
     assert d.check_backup_key(inp).status == "PASS"
     pub.write_text("", encoding="utf-8")  # an empty file is no key
     assert d.check_backup_key(inp).status == "FAIL"
+
+
+def test_a_backup_key_the_backup_cannot_encrypt_to_fails(tmp_path: Path) -> None:
+    """TB-01: a file that is there is not yet a key; the backup must be able to encrypt to it."""
+    inp = _inp(tmp_path)
+    pub = tmp_path / "deploy" / "secrets" / "backup.pub"
+    bk.keygen(tmp_path / "backup.key", pub)
+    good = pub.read_text(encoding="utf-8").strip()
+    for bad in ("age1 synthetic public key for a test", good[: len(good) // 2], "A" * 43 + "="):
+        pub.write_text(bad + "\n", encoding="utf-8")
+        c = d.check_backup_key(inp)
+        assert c.status == "FAIL" and "cannot encrypt" in c.detail, (bad, c)
+        assert d.check_backup_key(_inp(tmp_path, TB_ENV="DEV")).status == "WARN"
 
 
 def test_the_installers_site_mapping_maps_tables_and_an_empty_one_fails(tmp_path: Path) -> None:
@@ -133,3 +146,34 @@ def test_strict_always_asks_the_model_servers(
     assert "serving" not in asked[-1]  # the plain doctor is as before
     assert cli.main(["doctor", "--strict"]) == 0
     assert "serving" in asked[-1] and "doctor passed" in capsys.readouterr().out
+
+
+def test_the_box_image_does_not_call_a_target_it_cannot_see_on_this_box(tmp_path: Path) -> None:
+    """REAL2 M-5: the host check runs the doctor in the box image, where the hospital's share is not mounted; it said
+    "1 target(s), 0 off-box" while the install's finish check had shown the same share off the box."""
+    share = tmp_path / "srv-share-on-the-host"  # not there in this process: the image's view of a host folder
+    inp = _inp(tmp_path, TB_BACKUP_TARGETS=str(share), TB_BACKUP_ALERT_CMD="true")
+    c = d.check_backup(inp)
+    assert c.status == "WARN" and "not judged in the box image" in c.detail and str(share) in c.detail, c
+    assert "every target is on this box" not in c.detail
+    on_host = d.check_backup(d.DoctorInputs(env=inp.env, settings={}, deploy=inp.deploy, in_image=False))
+    assert on_host.status == "FAIL" and "every target is on this box" in on_host.detail, on_host
+
+
+def test_the_doctors_stand_in_audit_is_not_held_to_the_boxs_signed_heads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REAL2 M-5: on a box whose anchor folder holds a signed head (event 308), judge_route's throwaway audit chain
+    (a new temporary folder) refused its first write with AuditAnchorBroken: "check error", a FAIL on a healthy box."""
+    from tb_common import audit
+
+    from tests.unit.test_gateway_one_role_one_model import _doctor_env
+
+    heads = tmp_path / "anchor" / "heads"
+    heads.mkdir(parents=True)
+    head = {"lines": 308, "hash": "ab" * 32, "ts": "2026-11-27T11:35:53+00:00"}
+    (heads / "20261127T113553+0000-000000000308.json").write_text(json.dumps(head), encoding="utf-8")
+    monkeypatch.setenv(audit.ANCHOR_TARGETS_ENV, str(tmp_path / "anchor"))
+    env = _doctor_env(tmp_path / "box", TB_AUDIT_ANCHOR_TARGETS=str(tmp_path / "anchor"))
+    c = d.check_judge_route(d.DoctorInputs(env=env))
+    assert c.status == "PASS", c

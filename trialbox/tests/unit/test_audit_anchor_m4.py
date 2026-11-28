@@ -359,6 +359,17 @@ def test_a_folder_the_doctor_may_not_read_is_a_warn_that_says_so(
     assert c.status == "WARN" and "cannot look" in c.detail
 
 
+def test_an_audit_folder_not_seen_here_is_a_warn_not_a_tampered_trail(box: dict[str, Path]) -> None:
+    """REAL2 M-5: the host check's doctor (the box image) had the anchor folder but not the audit volume; it read
+    "the trail has 0 events" against the head at event 308 and called a healthy trail tampered (FAIL)."""
+    _events(AuditLog(box["audit"]), 3)
+    assert _night(box).ok
+    box["gone"] = box["audit"].parent / "audit-volume-not-mounted-here"
+    c = _doctor(box, "PRODUCTION", NIGHT + timedelta(hours=1), which="gone")
+    assert c.status == "WARN" and str(box["gone"]) in c.detail and "not compared" in c.detail, c
+    assert "removed or rewritten" not in c.detail
+
+
 def _sign_at(box: dict[str, Path], targets: list[Path], log: AuditLog, now: datetime) -> Any:
     log.append("test.event", ts=now - timedelta(minutes=5), actor="tester", detail={"n": 1})
     return audit_heads.sign_night(box["audit"], box["secrets"], targets, record=_recorder(log), now=now)
