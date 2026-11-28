@@ -1,4 +1,3 @@
-# ruff: noqa: F811 - the box fixture is imported and taken by name
 """MVP-B (REAL2 M-3): the candidates list, the week page and the patient sheet within 2 s (nearest-rank p95) on a
 study of 100,000 listed and excluded patients (50,000 listed, six criteria a row: about 90 MB stored), on the console
 test box (its stand-in backend: the object store, the lake's death check and the registry answer in process, so this
@@ -16,7 +15,6 @@ from typing import Any
 
 import pytest
 
-from tests.console.test_console_app import box  # noqa: F401
 from tests.console.timing_walk import JOB, clients
 
 pytestmark = [pytest.mark.perf]

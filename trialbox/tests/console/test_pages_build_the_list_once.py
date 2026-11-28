@@ -1,4 +1,3 @@
-# ruff: noqa: F811 - the box fixture is imported and taken by name
 """MVP-B (REAL2 M-3, E2E P-06): at 100,000 patients the candidates list, the week page and the patient sheet took
 9.7 to 20.7 s. Each view read and parsed the run's whole stored list (twice on the week page), wrote every listed
 pseudonym into ``weekly_seen`` again, and worked out every row's fit again. A view now:
@@ -20,7 +19,7 @@ from console.backend import RulesetInfo
 from tb_common import db as tbdb
 from tb_contracts import RegistryEntry
 
-from tests.console.test_console_app import box, login, name_pi  # noqa: F401
+from tests.console.test_console_app import name_pi
 from tests.console.test_role_pages import _user
 from tests.console.test_site_realities_t629 import T0, A
 from tests.console.timing_walk import JOB, PID, clients
