@@ -691,10 +691,12 @@ def _restore_cmd(a: argparse.Namespace, installed: bool) -> int:
         a.file = _resolve_backup(a.file, "restore")
         if a.file is None:
             return 2
-    if a.no_copy and not a.yes_really:  # review R3: the kept copy is the way back if the put-back fails
+    host = installed or not launch.has_libs((*launch.CRYPTO, "psycopg"))
+    # review R3: the kept copy is the way back if the put-back fails. The host wants --yes-really; in this process
+    # (the restore's own container, started by the host after that) --yes is the acknowledgement it has always been
+    if a.no_copy and not a.yes_really and (host or not a.yes):
         print(say("restore_no_copy"), file=sys.stderr)
         return 2
-    host = installed or not launch.has_libs((*launch.CRYPTO, "psycopg"))
     if host:
         from tools.trialbox import box_restore, update
 

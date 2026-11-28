@@ -199,7 +199,8 @@ def test_u008_no_copy_is_refused_in_process_too_and_neither_backend_starts(
     argv = ["restore", str(f), "--key", "k", "--deploy", str(deploy), "--no-copy"]
     assert cli.main(argv) == 2
     assert step.got is None and not ran and "--yes-really" in capsys.readouterr().err
-    assert cli.main([*argv, "--yes-really"]) == 0 and len(ran) == 1  # acknowledged: the in-process restore runs
+    assert cli.main([*argv, "--yes"]) == 0 and len(ran) == 1  # the container the host started: --yes, as before
+    assert cli.main([*argv, "--yes-really"]) == 0 and len(ran) == 2  # acknowledged: the in-process restore runs
     assert "trialbox restore <" not in capsys.readouterr().err  # it keeps no copy here: no way back is promised
 
 
