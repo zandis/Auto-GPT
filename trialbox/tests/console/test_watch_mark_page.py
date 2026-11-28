@@ -66,7 +66,7 @@ def test_a_fired_watch_stays_on_the_list_when_the_next_run_reads_the_first_answe
     pi.post(f"/studies/GZQO/patients/{A}/mark", data=mark)
     _screen(box, 9822, "3.0.0", [_row("fail")], 2)
     assert f'data-testid="watch-fired-{A[:8]}"' in pi.get("/studies/GZQO/week?list=all").text  # the view keeps it
-    _screen(box, 9823, "3.0.0", [_row("unknown")], 0)  # the run after reads the first answer, no change
+    _screen(box, 9823, "3.0.0", [_row("unknown")], 4)  # the run after reads the first answer, no change
     assert f'data-testid="watch-fired-{A[:8]}"' in pi.get("/studies/GZQO/week?list=all").text
     pi.post(f"/studies/GZQO/patients/{A}/mark", data=mark)  # the PI marks again
     assert f'data-testid="row-{A[:8]}"' not in pi.get("/studies/GZQO/week?list=all").text  # set aside afresh
