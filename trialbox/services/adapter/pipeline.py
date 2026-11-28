@@ -1888,31 +1888,31 @@ _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of 
 
 
 def _who(r: Resource) -> dict[str, str]:
-    """H34-06: what a Patient says of who the person is: birth date and sex; on a bulk Patient before it is
-    pseudonymised (review P-04-3) also each identifier by its system and each name by its use and representation
-    (JP Core gives kanji and kana as two official names)."""
-    out = {k: str(r[k]) for k in _WHO if r.get(k)}
-    for i in r.get("identifier") or ():
-        if isinstance(i, dict) and i.get("value"):
-            out[f"identifier:{i.get('system') or ''}"] = str(i["value"])
-    for n in r.get("name") or ():
-        if not isinstance(n, dict):
-            continue
-        said = " ".join([str(n.get("family") or ""), *map(str, n.get("given") or ())]).split()
-        how = [str(e.get("valueCode") or "") for e in n.get("extension") or () if isinstance(e, dict)]
-        if said := said or str(n.get("text") or "").split():
-            out[f"name:{n.get('use') or ''}:{'/'.join(how)}"] = " ".join(said)
-    return out
+    return {k: str(r[k]) for k in _WHO if r.get(k)}
 
 
 def _bulk_who(
     resources: Iterable[Resource], key: bytes, seen: dict[str, dict[str, str]], conflicts: set[str]
 ) -> Iterator[Resource]:
-    """Review P-04-3: :func:`_two_people_seen` of each bulk Patient as it arrives, by the pid it is written under."""
+    """Review P-04-3: :func:`_two_people_seen` of each bulk Patient as it arrives, by the pid it is written under, with
+    what pseudonymisation drops: each identifier by its system (not the chart number itself, which every row of the
+    pid gives) and each name by its use and representation (JP Core gives kanji and kana as two official names)."""
     for r in resources:
         if r.get("resourceType") == "Patient":
-            pid = bulk_id(key, "Patient", str(r.get("id")))
-            if _two_people_seen(seen, pid, _who(r)):
+            rid = str(r.get("id"))
+            said = _who(r)
+            for i in r.get("identifier") or ():
+                if isinstance(i, dict) and i.get("value") and str(i["value"]) != rid:
+                    said[f"identifier:{i.get('system') or ''}"] = str(i["value"])
+            for n in r.get("name") or ():
+                if not isinstance(n, dict):
+                    continue
+                words = " ".join([str(n.get("family") or ""), *map(str, n.get("given") or ())]).split()
+                how = [str(e.get("valueCode") or "") for e in n.get("extension") or () if isinstance(e, dict)]
+                if words := words or str(n.get("text") or "").split():
+                    said[f"name:{n.get('use') or ''}:{'/'.join(how)}"] = " ".join(words)
+            pid = bulk_id(key, "Patient", rid)
+            if _two_people_seen(seen, pid, said):
                 conflicts.add(pid)
         yield r
 

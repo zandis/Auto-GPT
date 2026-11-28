@@ -329,9 +329,14 @@ def test_chart_numbers_a_merge_makes_one_patient_are_one_person(good: Any, tmp_p
     finally:
         pm.close()
     assert survivor == pid
+    if not both:  # the served patient's chart is not in tonight's feed at all (else the completeness gate holds it)
+        for f in feed.glob("*.csv"):
+            kept = [r for r in _rows(f) if r.get("mrn") != first["mrn"]]
+            if kept and "mrn" in kept[0]:
+                _write(f, kept)
     rows = _rows(feed / "patient.csv")
     other = {**_other_person(first), "mrn": MERGED}
-    _write(feed / "patient.csv", [*rows, other] if both else [other, *rows[1:]])
+    _write(feed / "patient.csv", [*rows, other])
     enc = _rows(feed / "encounter.csv")
     _write(feed / "encounter.csv", [*enc, {**enc[0], "enc_no": "E9999002", "mrn": MERGED,
                                            "visit_datetime": "2026-10-09 11:11:00"}])  # fmt: skip
