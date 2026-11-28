@@ -84,11 +84,21 @@ def test_p_met_is_inside_zero_and_one_an_abstention_is_one_half_and_a_repeat_is_
 
 def test_an_over_confident_judge_gets_a_temperature_above_one_and_a_smaller_ece() -> None:
     rows = [({"pass": 0.98, "fail": 0.01, "unknown": 0.01}, i % 10 < 7) for i in range(200)]  # right 70 % of the time
-    t = label_p.fit_temperature(rows)
+    t, _ = label_p.fit(rows)
     assert t > 1
     rec = label_p.record(name="synthetic", ids=[str(i) for i in range(200)], rows=rows, prompt="judge_chart@1",
                          pin="sha256:test", date="2026-11-28")  # fmt: skip
     assert rec["temperature"] == t and rec["ece"] < rec["ece_raw"] and rec["rows"] == 200
-    assert set(rec) == {"kind", "set", "set_sha", "rows", "temperature", "ece_raw", "ece", "prompt", "pin", "date"}
+    assert set(rec) == {"kind", "set", "set_sha", "rows", "temperature", "unknown_weight", "ece_raw", "ece", "prompt",
+                        "pin", "date"}  # fmt: skip
     assert label_p.set_sha(["b", "a"]) == label_p.set_sha(["a", "b"])
     assert label_p.record_id(rec) == label_p.record_id(dict(rec))
+
+
+def test_where_the_labels_read_an_abstention_as_not_met_the_fitted_share_of_unknown_goes_to_zero() -> None:
+    abstains = {"pass": 0.02, "fail": 0.03, "unknown": 0.95}
+    says_yes = {"pass": 0.9, "fail": 0.05, "unknown": 0.05}
+    rows = [(abstains, False)] * 60 + [(says_yes, True)] * 40
+    t, u = label_p.fit(rows)
+    assert u == 0.0 and label_p.p_met(abstains, t, u) < 0.1
+    assert label_p.p_met(abstains) == pytest.approx(0.5, abs=0.05)  # with no fit an abstention says nothing either way

@@ -8,11 +8,12 @@ alternative that spells the start of a label. The pinned server returns raw log-
 ``logprobs_mode = raw_logprobs``, its default: before the grammar mask, which does not renormalise), so the three
 labels are renormalised here over themselves.
 
-:func:`p_met` applies one temperature to the three labels and reads ``pass`` plus half of ``unknown``: an abstention
-says nothing either way, so it counts as the no-information value 0.5, never as "not met". The temperature is fitted
-on public or licensed labelled rows (:func:`fit_temperature`), and its :func:`record` (the set's sha, the rows, T, the
-ECE before and after, the prompt and the pin) goes into the bundle; a pin change invalidates it. P never decides: the
-three-valued verdict stays the record (D-1069), and P only orders and labels.
+:func:`p_met` applies one temperature to the three labels and reads ``pass`` plus a share ``u`` of ``unknown``.
+With no fit, ``u`` is one half (an abstention says nothing either way). Both are fitted together on public or licensed
+labelled rows (:func:`fit`: the share of abstentions the labels count as "met" is the content-free prior of
+``unknown``; on a set whose gold reads an unmentioned fact as not met, ``u`` goes to 0), and the :func:`record` (the
+set's sha, the rows, T, u, the ECE before and after, the prompt and the pin) goes into the bundle; a pin change
+invalidates it. P never decides: the three-valued verdict stays the record (D-1069), and P only orders and labels.
 """
 
 from __future__ import annotations
@@ -68,17 +69,17 @@ def scaled(p3: Mapping[str, float], temperature: float) -> dict[str, float]:
     return {lab: v / z for lab, v in e.items()}
 
 
-def p_met(p3: Mapping[str, float], temperature: float = 1.0) -> float:
-    """P(the criterion's note question is answered yes): ``pass`` plus half of ``unknown``, after the temperature,
-    rounded so a repeat is byte-identical. Strictly between 0 and 1."""
+def p_met(p3: Mapping[str, float], temperature: float = 1.0, unknown: float = 0.5) -> float:
+    """P(the criterion's note question is answered yes): ``pass`` plus the share ``unknown`` of ``unknown``, after the
+    temperature, rounded so a repeat is byte-identical. Strictly between 0 and 1."""
     s = scaled(p3, temperature)
-    return min(max(round(s["pass"] + 0.5 * s["unknown"], 6), 1e-6), 1 - 1e-6)
+    return min(max(round(s["pass"] + unknown * s["unknown"], 6), 1e-6), 1 - 1e-6)
 
 
-def _nll(rows: Sequence[tuple[Mapping[str, float], bool]], temperature: float) -> float:
+def _nll(rows: Sequence[tuple[Mapping[str, float], bool]], temperature: float, unknown: float = 0.5) -> float:
     total = 0.0
     for p3, met in rows:
-        p = p_met(p3, temperature)
+        p = p_met(p3, temperature, unknown)
         total -= math.log(p if met else 1 - p)
     return total / max(1, len(rows))
 
@@ -87,10 +88,15 @@ def _nll(rows: Sequence[tuple[Mapping[str, float], bool]], temperature: float) -
 GRID = tuple(math.exp(math.log(0.05) + i * (math.log(50) - math.log(0.05)) / 199) for i in range(200))
 
 
-def fit_temperature(rows: Sequence[tuple[Mapping[str, float], bool]]) -> float:
-    """The temperature with the least negative log-likelihood of the gold "met" over ``rows`` (label probs, met)."""
-    best: float = min(GRID, key=lambda t: (_nll(rows, t), t))
-    return round(best, 4)
+#: the shares of ``unknown`` tried: 0 to 1 in twentieths
+SHARES = tuple(i / 20 for i in range(21))
+
+
+def fit(rows: Sequence[tuple[Mapping[str, float], bool]]) -> tuple[float, float]:
+    """The temperature and the share of ``unknown`` with the least negative log-likelihood of the gold "met" over
+    ``rows`` (label probs, met); ties go to the smaller temperature, then to the share nearest one half."""
+    best = min(((t, u) for t in GRID[::2] for u in SHARES), key=lambda tu: (_nll(rows, *tu), tu[0], abs(tu[1] - 0.5)))
+    return round(best[0], 4), best[1]
 
 
 def ece(ps: Sequence[float], met: Sequence[bool], bins: int = 10) -> float:
@@ -116,8 +122,8 @@ def set_sha(ids: Iterable[str]) -> str:
 def record(
     *, name: str, ids: Sequence[str], rows: Sequence[tuple[Mapping[str, float], bool]], prompt: str, pin: str, date: str
 ) -> dict[str, Any]:
-    """The calibration record of one fit (aggregates only): set, rows, T, ECE raw and scaled, prompt, pin, date."""
-    t = fit_temperature(rows)
+    """The calibration record of one fit (aggregates only): set, rows, T, u, ECE raw and scaled, prompt, pin, date."""
+    t, u = fit(rows)
     met = [y for _, y in rows]
     return {
         "kind": "label_p.temperature",
@@ -125,8 +131,9 @@ def record(
         "set_sha": set_sha(ids),
         "rows": len(rows),
         "temperature": t,
+        "unknown_weight": u,
         "ece_raw": ece([p_met(p3) for p3, _ in rows], met),
-        "ece": ece([p_met(p3, t) for p3, _ in rows], met),
+        "ece": ece([p_met(p3, t, u) for p3, _ in rows], met),
         "prompt": prompt,
         "pin": pin,
         "date": date,
@@ -138,4 +145,4 @@ def record_id(rec: Mapping[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(json.dumps(rec, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
-__all__ = ["LABELS", "ece", "fit_temperature", "p_met", "record", "record_id", "scaled", "set_sha", "slots"]
+__all__ = ["LABELS", "ece", "fit", "p_met", "record", "record_id", "scaled", "set_sha", "slots"]
