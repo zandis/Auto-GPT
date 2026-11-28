@@ -183,7 +183,7 @@ def test_no_named_form_is_readable(route: str, container: str, form: str) -> Non
     assert value in _all_text(payload)
     audit = Audit()
     try:
-        out = ee.leave(route, "somewhere", payload, audit=audit, actor="t")
+        out = ee.leave(route, "somewhere", payload, audit=audit, actor="t", named=["somewhere"])
     except ee.Refused as exc:
         assert exc.reason in ("identifiers", "free_text"), exc.reason
         out = ""
@@ -213,7 +213,7 @@ def test_a_clean_payload_leaves_as_it_is() -> None:
     clean = {"Arm": "A", "count": 12, "made": "2026-11-25T08:00:00+09:00", "pid": "0f3a0912345678ab", "n": "<5"}
     for route in sorted(k for k in BOUND if k != "download.audit"):
         for p in (ee.File("a.json", json.dumps(clean).encode()), ee.File("a.csv", _csv("Arm", "A", "no one"))):
-            assert ee.leave(route, "x", p, audit=Audit(), actor="t") == p
+            assert ee.leave(route, "x", p, audit=Audit(), actor="t", named=["x"]) == p
 
 
 def test_the_same_payload_leaves_as_the_same_bytes() -> None:

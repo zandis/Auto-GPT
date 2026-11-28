@@ -77,11 +77,13 @@ def keeps(kind: str, condition_present: bool) -> bool:
     return not condition_present if kind == "exclusion" else condition_present
 
 
-def not_documented(kind: str, reason: str | None, quote: str | None) -> bool:
-    """BENCH-2 §2, the exclusion side only: the models read the notes, abstained and quoted nothing. The answer is
+def not_documented(kind: str, reason: str | None, quote: str | None, quoted: bool = False) -> bool:
+    """BENCH-2 §2, the exclusion side only: the models read the notes, abstained and quoted nothing (``quoted``: the
+    answer's quote as the model gave it, read before an unknown's quote is cleared; an unsure answer that quoted the
+    note is not a silent chart). The answer is
     relabelled "not documented in the notes" (``not_documented``); it stays unknown, so the tier does not change. On
     an inclusion, absence stays ``abstained``: never "not met"."""
-    return kind == "exclusion" and reason == "abstained" and not quote
+    return kind == "exclusion" and reason == "abstained" and not (quoted or (quote or "").strip())
 
 
 def note_answer_may(

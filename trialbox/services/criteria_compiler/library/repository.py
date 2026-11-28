@@ -175,14 +175,28 @@ class CriterionLibrary:
         valuesets: Mapping[str, Mapping[str, Any]] | None = None,
         terminology_version: str | None = None,
         text_source: str | None = None,
+        approved: LibraryApproval | None = None,
+        supersedes: str | None = None,
     ) -> tuple[CriterionLibraryRecord, bool]:
         """Add ``ir`` as a ``draft`` record, or attach its text and ruleset to the record with the same canonical
-        hash. Returns ``(record, created)``."""
+        hash. Returns ``(record, created)``.
+
+        ``approved``: the record is written ``approved`` with that gate and approval in the same single ``put`` (one
+        transaction); a draft with the same hash is approved by it, an approved one keeps its own approval, a
+        deprecated one is refused. ``supersedes``: the lib_id a new record replaces (it must exist; it is not
+        changed)."""
         chash = self.hash_of(ir, valuesets)
         text = LibraryText(lang=ir.text.lang or "und", text=ir.text.source, source=text_source or ir.id)
+        if supersedes is not None:
+            self._require(supersedes)
         existing = self.by_hash(chash)
         if existing is not None:
             changed = False
+            if approved is not None and existing.status == "deprecated":
+                raise LibraryError(f"{existing.lib_id} is deprecated and cannot be approved again")
+            if approved is not None and existing.status == "draft":
+                existing = existing.model_copy(update={"status": "approved", "approved": approved})
+                changed = True
             if not any(t.lang == text.lang and t.source == text.source for t in existing.texts):
                 existing.texts.append(text)
                 changed = True
@@ -204,7 +218,9 @@ class CriterionLibrary:
             {
                 "lib_id": f"cl_{new_ulid()}",
                 "canonical_hash": chash,
-                "status": "draft",
+                "status": "draft" if approved is None else "approved",
+                "approved": approved.model_dump() if approved else None,
+                "supersedes": supersedes,
                 "kind": ir.kind,
                 "class": ir.class_,
                 "ir": lib_ir.model_dump(by_alias=True, exclude_none=True),

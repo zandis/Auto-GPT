@@ -561,24 +561,11 @@ def _bare(
     need: tuple[str, str, str] | None = None,
 ) -> _Shared:
     """:func:`verdict_of`'s answer that carries no record, quote, confidence, opinion or call."""
+    ev = Evidence(resource_refs=[], quote=None, quote_date=None, confidence=None, reason=reason, opinions=None)
+    if need:  # set only when there is one: an unset field is not in the fields set, so the bytes are as before
+        ev.needs = Need(view=need[0], field=need[1], concept=need[2])
     return _Shared(
-        CriterionVerdict(
-            id=cid,
-            verdict=status,
-            evidence=Evidence(
-                resource_refs=[],
-                quote=None,
-                quote_date=None,
-                confidence=None,
-                reason=reason,
-                opinions=None,
-                needs=Need(view=need[0], field=need[1], concept=need[2]) if need else None,
-            ),
-            final=final,
-            basis=basis,
-            affirmed=affirmed,
-            prov=[],
-        )
+        CriterionVerdict(id=cid, verdict=status, evidence=ev, final=final, basis=basis, affirmed=affirmed, prov=[])
     )
 
 

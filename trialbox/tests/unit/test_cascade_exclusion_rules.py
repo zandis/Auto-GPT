@@ -412,3 +412,10 @@ def test_bench2_a_reply_carrying_not_documented_is_stored_abstained_unless_the_c
     assert quoted.outcomes[EXC_FLARE.id].reason == "abstained"
     bare = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said(None)).traces["P-HIT"]
     assert bare.outcomes[EXC_FLARE.id].reason == "abstained"  # reply reason is not "abstained": the check fails
+
+
+def test_an_unsure_exclusion_that_quoted_the_note_stays_abstained_on_the_cascade(lake: Any) -> None:
+    """The judge's quote is cleared from an unknown before the engine reads it (INT-S-C); the reply says it quoted."""
+    unsure = ScriptedJudge(lambda role, kw: replace(reply("unknown", 0.0), reason="abstained", quoted=True))
+    o = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], unsure).traces["P-HIT"].outcomes[EXC_FLARE.id]
+    assert o.status == "unknown" and o.reason == "abstained"

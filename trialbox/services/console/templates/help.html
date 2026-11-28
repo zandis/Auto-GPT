@@ -28,6 +28,7 @@
   <h2>{{ t('help.ask') }}</h2>
   <p>{{ t('help.ask.text', mail=settings.admin_email or '–') }}</p>
   <p><a href="/help/guide" data-testid="help-guide">{{ t('help.guide.link') }}</a></p>{# T-317 (D-774) #}
+  {% if user.role in ('investigator', 'coordinator', 'steward', 'admin') %}<p><a href="/help/first-day" data-testid="help-first-day">{{ t('fd.link') }}</a></p>{% endif %}
 </section>
 <p><a class="button secondary" href="{{ back }}" data-testid="help-back">{{ t('cmd.back') }}</a></p>
 </div>

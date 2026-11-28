@@ -833,8 +833,9 @@ def watcher_problem(
     extra: dict[str, str], prod: bool, errors: list[str], warnings: list[str], bad: frozenset[str] = frozenset()
 ) -> None:
     """10K-21 (D-1365): the health page as the backup alert route (``TB_BACKUP_ALERT_ROUTE=health-page``, D-735)
-    names the person who opens it every working day (``TB_BACKUP_ALERT_WATCHER``). Unnamed: refused in PRODUCTION,
-    a warning elsewhere. A box's first-run page asks it (``health_page_person``)."""
+    names the person who opens it every working day (``TB_BACKUP_ALERT_WATCHER``). Unnamed: a warning naming who is
+    told meanwhile, on every box (TOL-1 T-I168, T-I169: PRODUCTION refused it before). A box's first-run page asks it
+    (``health_page_person``)."""
     from tb_common.box_answers import person_name
 
     if extra.get("TB_BACKUP_ALERT_ROUTE", "").strip().lower() != HEALTH_PAGE:
@@ -842,9 +843,10 @@ def watcher_problem(
     if "TB_BACKUP_ALERT_WATCHER" in bad:  # env_extra refused the name already
         return
     if not person_name(extra.get("TB_BACKUP_ALERT_WATCHER")):
-        why = ("the backup alert route is the health page and nobody is named to open it every working day: give "
-               "TB_BACKUP_ALERT_WATCHER (a box: health_page_person) (D-1365)")  # fmt: skip
-        (errors if prod else warnings).append(why)
+        why = ("the backup alert route is the health page and nobody is named to open it every working day: the "
+               "first administrator is told there meanwhile; give TB_BACKUP_ALERT_WATCHER (a box: health_page_person) "
+               "(D-1365)")  # fmt: skip
+        warnings.append(why)
 
 
 def new_year_default(country: str) -> str:
@@ -1021,7 +1023,12 @@ def main(argv: list[str] | None = None) -> int:
         help="after writing, run the box's live preflight on what was written; exit 1 on a red line (10K-3)",
     )
     ap.add_argument("--lang", default="", help="--preflight: en, ja or zh-TW (default: the report language)")
+    ap.add_argument(  # TOL-1: deploy/install.sh's preflight, at minute 1 before the load
+        "--dry-run", action="store_true", help="with --answers: read them by this wizard's rules and write nothing"
+    )
     args = ap.parse_args(argv)
+    if args.dry_run and args.answers:
+        return dry_run(args.answers, args.environment, list(args.mapping_dir))
     from tb_common.config import ConfigError, load_settings
 
     if args.check:
@@ -1050,6 +1057,40 @@ def main(argv: list[str] | None = None) -> int:
     print(f"wrote {args.out}" + (f" and {args.env_out} (0600)" if args.env_out else ""))
     if args.preflight:
         return preflight(args.out, args.env_out, args.lang or str(a.get("locale") or ""))
+    return 0
+
+
+def dry_run(answers: Path, environment: str, mapping_dirs: list[Path]) -> int:
+    """TOL-1 (section 2.1, rule 2: stop at second 0 or not at all): deploy/install.sh's preflight, at minute 1, before
+    the bundle is loaded, on the host's python3 (yaml and the standard library: ``tb_common.config`` is not read). The
+    answers are read by :func:`build`, the rules the settings step applies after the load: a refusal is said here
+    (exit 1, nothing was written), then each warning and each item that stays open on "Information still needed"
+    (``tb_common.site_needs``), one line each."""
+    from tb_common import site_needs
+
+    refused = "the answers are refused, nothing was loaded or written: "
+
+    def where(exc: yaml.YAMLError) -> str:  # its text quotes the source line: only where, never what (a name, a secret)
+        mark = getattr(exc, "problem_mark", None)
+        return f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+
+    try:
+        a = yaml.safe_load(answers.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        print(f"{refused}{answers.name} is not valid YAML{where(exc)}", file=sys.stderr)
+        return 1
+    try:
+        settings, env, warnings = build(a, [*mapping_dirs, answers.parent / "mapping"], environment=environment)
+    except WizardError as exc:
+        print(f"{refused}{exc}", file=sys.stderr)
+        return 1
+    except yaml.YAMLError as exc:  # a file the answers name (the site mapping) is not valid YAML
+        print(f"{refused}a file the answers name is not valid YAML{where(exc)}", file=sys.stderr)
+        return 1
+    for w in warnings:
+        print(f"warning: {w}")
+    for need, _state in site_needs.still_needed(env=env, settings=settings):
+        print(f"still needed after the install (the box runs meanwhile): {need.title['en']}: {need.stand_in['en']}")
     return 0
 
 

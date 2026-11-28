@@ -54,6 +54,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.totp_enrolled": ("Second factor set up", "二要素認証の登録", "設定第二驗證因子"),
     "console.totp_reset": ("Second factor reset", "二要素認証のリセット", "重設第二驗證因子"),
     "console.unlock": ("Account unlocked", "アカウントのロック解除", "解除帳號鎖定"),
+    "console.support_session": ("Support session started or ended", "サポート接続の開始・終了", "支援連線開始或結束"),
     "console.enrol_code": ("Enrolment code issued", "登録コードの発行", "核發註冊碼"),
     "console.user": ("Account changed", "アカウントの変更", "帳號變更"),
     "console.pref_set": ("Own preference set", "自分の表示設定の変更", "變更自己的顯示設定"),  # 10F-1 (D-1387)

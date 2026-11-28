@@ -233,10 +233,16 @@ def test_a_production_box_makes_its_backup_key_at_install_and_a_backup_restores(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # the ad hoc commands stay refused on PRODUCTION (rc1): the install is the box's one way to its key (L-02)
-    assert trialbox_main(["backup-keygen", "--private", str(tmp_path / "k"), "--public", str(tmp_path / "p")]) == 1
-    assert "rc1 holds no backup key ceremony" in capsys.readouterr().err
-    assert not (tmp_path / "k").exists() and not (tmp_path / "p").exists()
+    # SAFE-1 A2 (the owner's decision of 2026-11-28): the ad hoc keygen is allowed on PRODUCTION too; a second one
+    # never replaces the pair that is there (older backups stay restorable)
+    assert trialbox_main(["backup-keygen", "--private", str(tmp_path / "k"), "--public", str(tmp_path / "p")]) == 0
+    assert "rc1" not in capsys.readouterr().err
+    first = ((tmp_path / "k").read_bytes(), (tmp_path / "p").read_bytes())
+    assert trialbox_main(["backup-keygen", "--private", str(tmp_path / "k2"), "--public", str(tmp_path / "p")]) == 1
+    assert "never overwritten" in capsys.readouterr().err and not (tmp_path / "k2").exists()
+    assert trialbox_main(["backup-keygen", "--private", str(tmp_path / "k"), "--public", str(tmp_path / "p2")]) == 1
+    assert "never overwritten" in capsys.readouterr().err and not (tmp_path / "p2").exists()
+    assert ((tmp_path / "k").read_bytes(), (tmp_path / "p").read_bytes()) == first
     term = Terminal()
     rec = _install(term)
     shown = term.getvalue()
@@ -1227,7 +1233,7 @@ def test_the_unattended_install_takes_the_passphrase_file_to_the_backup_key_and_
         "-m tools.backup_key_ceremony --install --sealed-stdin",
         PASS,
     ]
-    assert ((rec / "seal").read_text(encoding="utf-8") == PASS + "\n") if seal_step else not (rec / "seal").exists()
+    assert (rec / "seal").read_text(encoding="utf-8") == PASS + "\n"  # P-28: on every profile, the poc host too
     assert not pp.exists() and f"the passphrase file {pp} is removed" in r.stdout
     assert "FAIL:" not in r.stdout and "was not used" not in r.stdout + r.stderr and PASS not in r.stdout + r.stderr
 

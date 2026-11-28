@@ -41,7 +41,7 @@ from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
-from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong, unknown_carries_nothing
+from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong, unknown_carries_nothing, was_quoted
 from tb_common.pair import DECIDED, Vote, combine, floor, needs_verifier, same_model, served_keys
 from tb_common.quotes import as_in
 from tb_common.reasons import Reason, code_of
@@ -239,6 +239,7 @@ class NoteResult:
     # BENCH-2 §2 (``judge_excerpts(demote=True)``): on a disagreement, the judge's own answer, never affirmed. The
     # answer above stays the pair's ``unknown``; ``note_verdict`` takes this one only where it keeps the patient
     kept: NoteResult | None = None
+    quoted: bool = False  # the model quoted the note, before an unknown's quote was cleared (``not_documented``)
 
 
 def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
@@ -446,7 +447,7 @@ class NoteJudge:
         with self._lock:
             names = self.served.setdefault(role, {})
             names[str(res.model)] = names.get(str(res.model), 0) + 1
-        r = postprocess(res.data, excerpts, source)
+        r = postprocess(res.data, excerpts, source, getattr(res, "quoted", False))
         call_id = getattr(res, "call_id", "") or res.output_sha[:16]  # D-989: the call that gave it
         return replace(
             r,
@@ -576,9 +577,12 @@ def check_judge(judge: NoteJudge | None) -> None:
         raise share_exceeded(judge.failures, total)
 
 
-def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str = "chunks") -> NoteResult:
+def postprocess(
+    d: dict[str, Any], excerpts: list[dict[str, Any]], source: str = "chunks", quoted: bool = False
+) -> NoteResult:
     """SPEC §7.3: the quote must be a substring of one excerpt (whitespace-normalised), else ``unknown``. A quote from
     a sentence the guard's planted-instruction screen flags is ``unknown`` too (T-606, D-359)."""
+    quoted = quoted or was_quoted(d)  # the model's own quote, read before an unknown's is cleared (``not_documented``)
     d = unknown_carries_nothing(d)  # INT-S-C: an abstention has no quote, date or confidence, whatever the reply says
     verdict = str(d.get("verdict", "unknown"))
     quote = d.get("quote")
@@ -610,6 +614,7 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
         model_reason=model_reason,
         sentence=sentence,
         affirmed=affirms(d),  # an abstention never excludes, whatever it says
+        quoted=quoted,
     )
 
 
@@ -680,7 +685,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     why = r.reason
     abstained = r.predicate == "unknown"  # INT-S-C: an abstention has no quote, date or confidence, from any result
     affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
-    if pred is None and not_documented(c.kind, why, r.quote):  # BENCH-2 §2: a label, never a tier change
+    if pred is None and not_documented(c.kind, why, r.quote, r.quoted):  # BENCH-2 §2: a label, never a tier change
         why = Reason.NOT_DOCUMENTED.value
     if pred is not None:
         # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An

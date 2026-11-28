@@ -876,7 +876,19 @@ def snapshot(box: Box) -> dict[str, Any]:
         "logs": {"days": log_days},
         "disk": disks,
         "health": health_facts(box),
+        "open_items": open_items(box.deploy),
     }
+
+
+def open_items(deploy: Path) -> list[dict[str, str]]:
+    """TOL-1: what an install, start or update warned about and went on (``tools/trialbox/stops.py``), newest per
+    point, for the Operations page; a list that cannot be read is one item saying so."""
+    from tools.trialbox import stops
+
+    entries, problems = stops.read(deploy)
+    return [{"key": e.key, "what": e.what, "at": e.at} for e in entries] + [
+        {"key": "", "what": p, "at": ""} for p in problems
+    ]
 
 
 def health_facts(box: Box) -> dict[str, Any]:

@@ -500,8 +500,10 @@ class KeptAnswers:
         if raw is None:
             return None
         try:
-            out = LlmResult(**json.loads(raw))
-        except (TypeError, ValueError):  # written by another build of the code: asked again
+            kept = json.loads(raw)
+            kept["label_p"] = tuple(kept.get("label_p") or ())  # JSON has no tuple: the answer as it was given
+            out = LlmResult(**kept)
+        except (TypeError, ValueError, AttributeError):  # written by another build of the code: asked again
             return None
         if out.build_sha != build:  # another build of the model said it: asked again
             return None

@@ -696,6 +696,7 @@ class Config:
     tz: str = "UTC"
     mailto: str = ""  # D-274: cron's MAILTO, an alert route only where the host has a mail transfer agent
     alert_page: bool = False  # D-735: TB_BACKUP_ALERT_ROUTE=health-page, the site chose the /admin health tab
+    alert_defaulted: bool = False  # TOL-1 T-I144: PRODUCTION gave no route, so the health tab is it (said, a warning)
     alert_watcher: str = ""  # 10K-21 (D-1365): TB_BACKUP_ALERT_WATCHER, the person who opens it every working day
     archive_set: str = ""  # TB_PG_ARCHIVE_MODE as written ("" when the site never chose)
     pgbackrest_repo: str = ""
@@ -761,6 +762,8 @@ def _unquote(v: str) -> str:
 
 
 PAGE_ROUTE = "health-page"
+#: backup-install's line when it wrote the health page as PRODUCTION's route (install.sh lists it as an open item)
+ROUTE_DEFAULTED = "backup-install: warning: the backup alert route cannot carry the alerts"
 ROUTE_HINT = (
     "TB_BACKUP_ALERT_CMD (a command that reads the message on stdin), or TB_BACKUP_MAILTO and a mail relay, or, on a "
     f"box with no mail, TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} (the /admin health tab), in deploy/.env (RUNBOOK §5)"
@@ -815,11 +818,15 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
     proc = {k: v for k, v in os.environ.items() if k.startswith("TB_")} if process_env else {}
     e = {k: _unquote(v) for k, v in {**env, **proc}.items()}
     errors: list[str] = []
+    page = _alert_page(e, errors)
+    production = (e.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION"
+    given = ("TB_BACKUP_ALERT_CMD", "TB_BACKUP_MAILTO", "TB_BACKUP_ALERT_ROUTE")
+    defaulted = production and not any((e.get(k) or "").strip() for k in given)
     return Config(
         deploy=deploy,
         targets=[Path(t) for t in _split(e.get("TB_BACKUP_TARGETS", ""))],
         public_key=absolute(Path(e.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub")),
-        production=(e.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION",
+        production=production,
         keep=int(e.get("TB_BACKUP_KEEP") or 14),
         max_age_hours=float(e.get("TB_BACKUP_MAX_AGE_HOURS") or MAX_AGE_HOURS),
         archive_on=(e.get("TB_PG_ARCHIVE_MODE") or "off").lower() == "on",
@@ -829,7 +836,8 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
         site=e.get("TB_SITE_ID", ""),
         tz=e.get("TB_TZ") or "Asia/Taipei",
         mailto=e.get("TB_BACKUP_MAILTO", ""),
-        alert_page=_alert_page(e, errors),
+        alert_page=page or defaulted,
+        alert_defaulted=defaulted,
         alert_watcher=(e.get("TB_BACKUP_ALERT_WATCHER") or "").strip(),  # 10K-21 (D-1365)
         archive_set=(e.get("TB_PG_ARCHIVE_MODE") or "").lower(),
         pgbackrest_repo=e.get("TB_PGBACKREST_REPO", ""),
@@ -1497,7 +1505,11 @@ def _route_notes(cfg: Config, has_mta: bool) -> list[str]:
     if cfg.production and not cfg.alert_route:
         bad = "".join(f"; {x}" for x in cfg.setting_errors if "TB_BACKUP_ALERT_ROUTE" in x)
         raise ValueError("PRODUCTION needs a backup alert route: " + ROUTE_HINT + bad)
-    if cfg.page_only(has_mta):
+    if cfg.alert_defaulted:
+        notes.append("warning: no backup alert route was given, so it is the /admin health tab "
+                     f"(TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE}, the default; or {ROUTE_HINT}); "
+                     + cfg.page_watch())  # fmt: skip
+    elif cfg.page_only(has_mta):
         notes.append("note: backup alerts reach the /admin health tab and the audit only; nobody is mailed: someone "
                      "must open the health tab every working day (TB_BACKUP_ALERT_ROUTE, RUNBOOK §5); "
                      + cfg.page_watch())  # fmt: skip
@@ -1786,12 +1798,27 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
                  systemd_dir: Path = SYSTEMD_DIR) -> int:  # fmt: skip
     """``trialbox backup-install`` (install.sh's backup step, D-274): the schedule, WAL archiving, the first
     backup. The schedule (H-92): the systemd timers where systemd is the init and this runs as root (TB_SYSTEMD=0,
-    install.sh's, keeps the cron file), else the cron file. Exit 1 only when the schedule cannot be installed (in
-    PRODUCTION: no alert route)."""
+    install.sh's, keeps the cron file), else the cron file. Exit 1 only when the schedule cannot be installed.
+    TOL-INSTALL (the owner's ruling): a PRODUCTION alert route that cannot carry the alerts (a bad
+    TB_BACKUP_ALERT_ROUTE, a TB_BACKUP_MAILTO with no mail agent) never leaves the box without backups: the health
+    page is written to deploy/.env as the route, said (:data:`ROUTE_DEFAULTED`), and the schedule installed."""
     from tools.trialbox import update
 
     deploy = absolute(deploy)
     cfg = config(deploy, update._env_file(deploy / ".env"))
+    try:
+        _route_notes(cfg, has_mta())
+    except ValueError:  # its text quotes the value given (an address, a login): never printed, a fixed reason
+        try:
+            set_env(deploy / ".env", "TB_BACKUP_ALERT_ROUTE", PAGE_ROUTE)
+        except OSError as w:
+            print(f"backup-install: the route given cannot carry alerts, and TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} "
+                  f"cannot be written to deploy/.env ({type(w).__name__})")  # fmt: skip
+            return 1
+        os.environ.pop("TB_BACKUP_ALERT_ROUTE", None)  # a caller's bad value would win over the one written
+        cfg = config(deploy, update._env_file(deploy / ".env"))
+        print(f"{ROUTE_DEFAULTED} (the route given cannot carry alerts): TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} is "
+              f"written to deploy/.env, so the backups run; {cfg.page_watch()}")  # fmt: skip
     for x in cfg.setting_errors:  # D-735 (review): a bad setting is said where the backup is installed
         print(f"backup-install: bad setting: {x}")
     root = deploy.resolve().parent

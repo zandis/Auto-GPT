@@ -179,6 +179,78 @@
       });
     });
   } catch (e) { /* no session storage: the page works as before */ }
+  // 6b. TOL-AUTH (T-A030): a form sent after the session ended comes back once the same account has signed in again.
+  // The server kept what it carried (never a password, a code or the CSRF token) and gives it to its page once
+  // (#tb-draft, data only). Empty fields of the form with the same action are filled, choices ticked again; the
+  // page's own CSRF token and anything typed since stay; the D-1222 notice says how many came back. Only the ONE form
+  // with that action whose hidden values (the patient, the record) are the kept ones is filled: with two such forms,
+  // or none, nothing is (a row's answers never land in another patient's row).
+  try {
+    var dj = document.getElementById("tb-draft"), dv = dj ? JSON.parse(dj.textContent || "null") : null;
+    var same = dv && dv.fields ? Array.prototype.filter.call(document.querySelectorAll("form"), function (f) {
+      if ((f.getAttribute("action") || "") !== dv.action) return false;
+      var names = {};
+      Array.prototype.forEach.call(f.elements, function (x) { names[x.name] = true; });
+      if (!Object.keys(dv.fields).every(function (n) { return names[n]; })) return false; // every kept name is here
+      // every identifying field must match the kept value exactly: a hidden input (not the CSRF token), a read-only
+      // input with a value, a choice list named in the kept form; a kept value that is missing is no match
+      return Array.prototype.every.call(f.elements, function (x) {
+        if (!x.name || x.name === "csrf") return true;
+        var ident = x.type === "hidden" || (x.readOnly && x.value) || (x.tagName === "SELECT" && !x.multiple && dv.fields[x.name]);
+        var v = dv.fields[x.name];
+        return !ident || (!!v && v.indexOf(x.value) >= 0);
+      });
+    }) : [];
+    if (same.length === 1) {
+      same.forEach(function (f) {
+        var put = [], left = {};
+        Object.keys(dv.fields).forEach(function (n) { left[n] = dv.fields[n].slice(); });
+        Array.prototype.forEach.call(f.elements, function (x) {
+          var v = left[x.name];
+          if (!v || x.disabled || x.readOnly || ["hidden", "submit", "button", "password", "file"].indexOf(x.type) >= 0) return;
+          if (x.type === "checkbox" || x.type === "radio") {
+            if (v.indexOf(x.value) >= 0 && !x.checked) { put.push({ x: x, was: x.value }); x.checked = true; }
+          } else if (x.tagName === "SELECT" && x.multiple) { // every kept choice, not the first only
+            var was = Array.prototype.map.call(x.options, function (o) { return o.selected; });
+            Array.prototype.forEach.call(x.options, function (o) { o.selected = v.indexOf(o.value) >= 0; });
+            v.length = 0;
+            put.push({ x: x, was: was, multi: true });
+          } else if (x.tagName === "SELECT") {
+            v.shift(); // it matched (the form is the kept one): its choice stays
+          } else if (!x.value) {
+            put.push({ x: x, was: x.value });
+            x.value = v.shift();
+            put[put.length - 1].now = x.value;
+          } else {
+            v.shift(); // typed since: kept as it is
+          }
+        });
+        if (!put.length) return;
+        put.forEach(function (p) { p.x.classList.add("restored"); });
+        var note = document.createElement("p"), span = document.createElement("span"), btn = document.createElement("button");
+        note.className = "warn";
+        note.setAttribute("role", "status");
+        note.setAttribute("data-testid", "form-restored");
+        span.textContent = (dj.getAttribute("data-msg") || "{n}").replace("{n}", String(put.length)) + " ";
+        btn.type = "button";
+        btn.className = "secondary small";
+        btn.setAttribute("data-testid", "form-discard");
+        btn.textContent = dj.getAttribute("data-discard") || "\u00d7";
+        btn.addEventListener("click", function () { // undo: each field as the page showed it, unless changed since
+          put.forEach(function (p) {
+            if (p.multi) Array.prototype.forEach.call(p.x.options, function (o, i) { o.selected = p.was[i]; });
+            else if (p.x.type === "checkbox" || p.x.type === "radio") p.x.checked = false;
+            else if (p.x.value === p.now) p.x.value = p.was;
+            p.x.classList.remove("restored");
+          });
+          note.parentNode.removeChild(note);
+        });
+        note.appendChild(span);
+        note.appendChild(btn);
+        f.parentNode.insertBefore(note, f);
+      });
+    }
+  } catch (e) { /* a malformed kept form: the page works as before */ }
   // 7. D-1370 (9g-19, A11Y-3): shortly before the idle lock (a minute; half the limit when it is shorter) a warning with
   // "Stay signed in"; at the session's absolute end the same warning without it (that limit never grows). The
   // times come from the server with the page and count from the navigation's start on the page's own monotonic clock
