@@ -199,6 +199,11 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "此帳號沒有電子郵件信箱，請聯絡管理員",
     ),
     "this job is not waiting for approval": ("このジョブは承認待ちではありません", "此作業並非等待核准"),
+    "the page language changed since this page was shown": (
+        "このページを表示してから言語が変わりました。ページを開き直してください",
+        "顯示此頁後語言已變更，請重新開啟頁面",
+    ),
+    "a JSON object": ("JSON のオブジェクトを送ってください", "請傳送 JSON 物件"),
     "unknown action": ("この操作はありません", "沒有此操作"),
     "unknown study type or cohort kind": (
         "試験の種類またはコホートの種類が正しくありません",
