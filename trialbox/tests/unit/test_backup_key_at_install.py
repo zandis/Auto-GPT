@@ -1559,7 +1559,9 @@ def test_the_passphrase_file_is_there_while_the_ceremony_runs_and_removed_after_
     """R1/R3: the ceremony finds the file (the only copy) when it starts and when it ends; once it exits 0 the
     install removes it and says so."""
     seen = tmp_path / "seen"
-    pp, run = _shell_install(tmp_path, f'cat >/dev/null\n[ -f {tmp_path}/root/trialbox-kek.pass ] && echo there >> {seen}\n')
+    pp, run = _shell_install(
+        tmp_path, f"cat >/dev/null\n[ -f {tmp_path}/root/trialbox-kek.pass ] && echo there >> {seen}\n"
+    )
     key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
     _write_pass(pp)
     r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}")
