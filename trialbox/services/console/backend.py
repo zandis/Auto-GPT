@@ -547,8 +547,13 @@ class HttpBackend:
                 data = self.orch.post_raw("/patients/deceased", {"pids": pids[i : i + DECEASED_PAGE]}).json()
             except ServiceError as exc:
                 raise failed(exc) from exc  # one page not answered: nobody is called (never a partial "no deaths")
-            if isinstance(data, dict):
-                dead |= {str(p) for p in (data.get("deceased") or [])}
+            except ValueError as exc:
+                raise Unavailable("orchestrator answered the death check without JSON") from exc
+            # P05-1: a page answered 200 but not as {"deceased": [pid, ...]} is not "no deaths" on that page
+            found = data.get("deceased") if isinstance(data, dict) else None
+            if not isinstance(found, list) or not all(isinstance(p, str) for p in found):
+                raise Unavailable("orchestrator answered the death check in a shape the console does not read")
+            dead |= set(found)
         return dead
 
     # ------------------------------------------------------------------ candidate registry (D-92)
