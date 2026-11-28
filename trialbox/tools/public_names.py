@@ -3,6 +3,8 @@ folder or machine of the project's own.
 
     TB_PUBLIC_NAMES_FILE=<file outside the repository> python -m tools.public_names check [BUNDLE_ARGS]
 
+The real pattern list is held by the integrator and is not in the repository.
+
 The pattern list is never in the repository: it is a file kept outside it, named by ``TB_PUBLIC_NAMES_FILE``, one
 regular expression per line (case-insensitive), ``#`` starts a comment line, blank lines are skipped. The check reads
 every file ``git ls-files`` lists (text files; a file with a NUL byte in its first 8 KiB is binary and skipped) and
@@ -11,7 +13,9 @@ matched: ``path:line: pattern N``, or ``tracked path K (git ls-files | sed -n Kp
 
 Exit 0: no hit. Exit 1: a hit. Exit 2: not checked (the variable unset or empty, the list unreadable, empty, inside
 the repository, or a pattern that does not compile), said plainly on stderr; a release gate never reads exit 2 as a
-pass. ``make release-bundle`` runs it first (``make public-names``).
+pass. ``make release-bundle`` runs it first (``make public-names``) with its ``BUNDLE_ARGS``: for a bundle that is
+not a release (``--rehearsal`` or ``--allow-dirty``, as ``tools/security_contact.py`` reads them) a check that could
+not run is a warning and exit 0; a hit is exit 1 there too.
 
 Standard library only.
 """
@@ -28,6 +32,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
 ENV = "TB_PUBLIC_NAMES_FILE"
+# what a bundle that is not a release carries in make_bundle.sh's arguments (tools/security_contact.py)
+NOT_A_RELEASE = ("--rehearsal", "--allow-dirty")
 BINARY_PROBE = 8192
 EXIT_HIT = 1
 EXIT_NOT_CHECKED = 2
@@ -104,11 +110,20 @@ def scan(repo: Path, patterns: list[re.Pattern[str]]) -> tuple[list[str], int]:
     return hits, len(paths)
 
 
-def check(repo: Path, value: str | None) -> int:
+def not_a_release(bundle_args: list[str]) -> str | None:
+    """The flag that makes these make_bundle.sh arguments a non-release bundle, if any."""
+    return next((arg for arg in bundle_args if arg in NOT_A_RELEASE), None)
+
+
+def check(repo: Path, value: str | None, bundle_args: list[str] | None = None) -> int:
     try:
         patterns = load_patterns(value, repo)
         hits, count = scan(repo, patterns)
     except NotChecked as exc:
+        flag = not_a_release(bundle_args or [])
+        if flag:
+            print(f"public-names: WARNING, not a release ({flag}): {exc}", file=sys.stderr)
+            return 0
         print(f"public-names: {exc}", file=sys.stderr)
         return EXIT_NOT_CHECKED
     noun = "pattern" if len(patterns) == 1 else "patterns"
@@ -124,9 +139,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     ap.add_argument("--repo", type=Path, default=REPO, help=argparse.SUPPRESS)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    # check takes make_bundle.sh's arguments (BUNDLE_ARGS) as they are, after the command
     sub.add_parser("check", help=f"exit 1 on a hit, 2 when not checked ({ENV} unset)")
-    args = ap.parse_args(argv)
-    return check(args.repo, os.environ.get(ENV))
+    args, bundle_args = ap.parse_known_args(argv)
+    return check(args.repo, os.environ.get(ENV), bundle_args)
 
 
 if __name__ == "__main__":

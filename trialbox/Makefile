@@ -870,9 +870,10 @@ media-linux:
 	PYTHONPATH=libs:. $(PY) -m tools.linux_media build --out dist/media --measured deploy/measured $(MEDIA_ARGS)
 
 # hygiene item 4: no tracked file names a person, host, home folder or machine of the project's own; the pattern list
-# is a file kept outside the repository, named by TB_PUBLIC_NAMES_FILE. Unset, it says so and exits 2 (never a pass)
+# is a file kept outside the repository, named by TB_PUBLIC_NAMES_FILE. Unset, it says so and exits 2 (never a pass);
+# for a --rehearsal or --allow-dirty bundle, unset is a warning (as security-contact-check); a hit fails either way
 public-names:
-	$(PY) -m tools.public_names check
+	$(PY) -m tools.public_names check $(BUNDLE_ARGS)
 
 security-contact-check:
 	PYTHONPATH=libs:. $(PY) -m tools.security_contact release-check $(BUNDLE_ARGS)

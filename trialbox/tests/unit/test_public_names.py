@@ -139,4 +139,20 @@ def test_the_release_bundle_target_runs_the_check_first() -> None:
     text = (ROOT / "Makefile").read_text(encoding="utf-8")
     rule = next(line for line in text.splitlines() if line.startswith("release-bundle:"))
     assert "public-names" in rule.split(":", 1)[1].split()
-    assert "public-names:" in text
+    assert "\t$(PY) -m tools.public_names check $(BUNDLE_ARGS)" in text
+
+
+@pytest.mark.parametrize("flag", ["--rehearsal", "--allow-dirty"])
+def test_a_bundle_that_is_not_a_release_warns_when_unset_but_still_fails_on_a_hit(tmp_path: Path, flag: str) -> None:
+    repo = _repo(tmp_path, {"a.md": "zorbek\n"})
+    rc, out, err = _run(repo, None, "--key", "k", flag, "a reason")
+    assert rc == 0
+    assert f"WARNING, not a release ({flag})" in err and "NOT checked" in err
+    rc, out, _ = _run(repo, str(_patterns(tmp_path, "zorbek\n")), flag, "a reason")
+    assert rc == 1 and "a.md:1: pattern 1" in out
+
+
+def test_release_arguments_without_a_flag_still_refuse_when_unset(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"a.md": "clean\n"})
+    rc, _, err = _run(repo, None, "--key", "k", "--id", "2026.11-1")
+    assert rc == 2 and "is not set" in err
