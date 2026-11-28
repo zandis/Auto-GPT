@@ -185,7 +185,10 @@ def register(app: FastAPI, h: Helpers) -> None:
 
         http.event_hooks["request"].append(edge)
         try:
-            return tools.connection_status(base, token, http)
+            out = tools.connection_status(base, token, http)
+            out["plain_http"] = bool(guard and base.lower().startswith("http://")
+                                     and guard.environment not in ("DEV", "TEST"))  # fmt: skip
+            return out
         except egress_edge.Refused as exc:
             return {"configured": bool(base and token), "reachable": False, "module": False, "pending": None,
                     "dead_letter": None, "reason": f"refused by the egress edge ({exc.reason})"}  # fmt: skip

@@ -549,6 +549,7 @@ class EgressGuard:
         extra: Iterable[tuple[str, int]] = (),
         env: Mapping[str, str] | None = None,
         resolver: Resolver | None = None,
+        http_ok: Iterable[tuple[str, int]] = (),
     ) -> None:
         from tb_common.config import environment_name
 
@@ -556,6 +557,8 @@ class EgressGuard:
         self.service = service
         self.declared = declared_egress(service, e) | {(h.lower().rstrip("."), int(p)) for h, p in extra}
         self.environment = environment_name(e)
+        #: named destinations that may use plain ``http`` outside DEV and TEST (a WARN each time)
+        self.http_ok = {(h.lower().rstrip("."), int(p)) for h, p in http_ok}
         self.resolver = resolver or resolve_now
         self.log = logging.getLogger("tb.egress")
 
@@ -578,7 +581,11 @@ class EgressGuard:
         if scheme not in ("http", "https"):
             raise self._refuse(host, "scheme", f"{scheme}:// is not an HTTP address", request)
         if scheme == "http" and self.environment not in ("DEV", "TEST"):
-            raise self._refuse(host, "http_outside_dev", f"http://{host} outside DEV and TEST (https only)", request)
+            if (host, u.port or 80) not in self.http_ok:
+                raise self._refuse(
+                    host, "http_outside_dev", f"http://{host} outside DEV and TEST (https only)", request
+                )
+            self.log.warning("plain http to the declared host", extra={"egress_host": host, "caller": self.service})
         if not host:
             raise self._refuse(host, "no_host", "the address has no host", request)
         if _odd_ipv4(host):  # after httpx's own parsing too
@@ -633,12 +640,13 @@ def guarded_client(
     verify: Any = True,
     timeout: Any = 30.0,
     follow_redirects: bool = False,
+    http_ok: Iterable[tuple[str, int]] = (),
 ) -> httpx.Client:
     """The HTTP client for a call a person or an outside document can steer (D-450). ``service``: whose egress
     table applies (default ``TB_SERVICE_NAME``). The proxy variables of the environment are not used: a proxy would
     connect on the guard's behalf to whatever it is told."""
     e = os.environ if env is None else env
-    guard = EgressGuard(service or e.get("TB_SERVICE_NAME") or "", extra, e, resolver)
+    guard = EgressGuard(service or e.get("TB_SERVICE_NAME") or "", extra, e, resolver, http_ok)
     return httpx.Client(
         transport=GuardedTransport(guard, inner, verify), timeout=timeout, follow_redirects=follow_redirects,
         trust_env=False,
@@ -656,12 +664,24 @@ def declared_host(url: str) -> tuple[str, int] | None:
     return (host, port or (443 if u.scheme == "https" else 80)) if host else None
 
 
+def _own_machine(host: str) -> bool:
+    """A loopback or reserved literal address, or ``localhost``: the box itself, never declared from a typed URL."""
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    return address_class(host) in ("loopback", "reserved")
+
+
 def declared_client(url: str, service: str | None = None, **kw: Any) -> httpx.Client:
     """:func:`guarded_client` with ``url``'s own host and port declared (:func:`declared_host`), as the operator who set
-    that URL declared it (P-13 ruling, the EDC tool door): a metadata or link-local address, any other host, or
-    ``http`` outside DEV and TEST is still refused."""
+    that URL declared it (P-13 ruling, the EDC tool door): a metadata or link-local address, or any other host, is
+    still refused. Plain ``http`` to that declared host is let through outside DEV and TEST (a WARN is logged and the
+    page shows one); ``http`` to any other host stays refused. A loopback or reserved host is not declared from a typed
+    URL (the box's own services); a caller that means one passes it in ``extra``."""
     where = declared_host(url)
-    return guarded_client(service, extra=[where] if where else [], **kw)
+    if where and _own_machine(where[0]):
+        where = None
+    plain = [where] if where and httpx.URL(url).scheme == "http" else []
+    return guarded_client(service, extra=[where] if where else [], http_ok=plain, **kw)
 
 
 def guard_of(client: httpx.Client) -> EgressGuard | None:

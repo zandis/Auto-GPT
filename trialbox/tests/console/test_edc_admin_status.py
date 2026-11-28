@@ -194,3 +194,54 @@ def test_an_address_that_is_not_valid_says_so_and_nothing_leaves(box: dict[str, 
     assert page.status_code == 200 and 'data-testid="edc-status-down"' in page.text
     assert "The EDC's tool URL is not a valid address" in html.unescape(page.text)  # M6b: the explanation itself
     assert _egress(tmp_path) == []
+
+
+def _lan(handler: Any, base: str = "http://edc.lan") -> httpx.Client:
+    """The tool door's real client for an ``http`` URL on the hospital LAN, on a production box."""
+    from tb_common.http import declared_client
+
+    return declared_client(base, inner=httpx.MockTransport(handler), env={"TB_ENV": "PRODUCTION"},
+                           resolver=lambda host, port: ["10.20.30.40"] if host == "edc.lan" else ["93.184.216.34"])  # fmt: skip
+
+
+def test_an_http_lan_tool_url_works_and_the_page_warns(box: dict[str, Any], edc_env: pytest.MonkeyPatch,
+                                                       caplog: pytest.LogCaptureFixture) -> None:  # fmt: skip
+    """P-13 review: plain http to the site's own declared EDC host is let through; the page and the log say so."""
+    edc_env.setenv("TB_EDC_TOOL_URL", "http://edc.lan")
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"modules": [{"id": "trialbox"}]})
+
+    edc_env.setattr(tools, "http_client", lambda: _lan(answer))
+    c, _ = login(box["app"])
+    with caplog.at_level("WARNING", logger="tb.egress"):
+        text = html.unescape(c.get("/admin/edc").text)
+    assert 'data-testid="edc-status-up"' in text and 'data-testid="edc-status-plain-http"' in text
+    assert "is plain http" in text
+    assert any("plain http" in r.getMessage() and "tool-token" not in repr(r.__dict__) for r in caplog.records)
+
+
+def test_http_to_another_host_is_still_refused_before_any_call(box: dict[str, Any], edc_env: pytest.MonkeyPatch,
+                                                               tmp_path: Any) -> None:  # fmt: skip
+    edc_env.setenv("TB_EDC_TOOL_URL", "http://edc.lan")
+    sent: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return httpx.Response(200, json={})
+
+    edc_env.setattr(tools, "http_client", lambda: _lan(answer))
+    edc_env.setattr(tools, "connection_status", lambda base, token, http: http.get("http://other.example/x").json())
+    c, _ = login(box["app"])
+    assert c.get("/admin/edc").status_code == 200 and sent == []
+    assert [(r["destination"], r["result"], r["reason"]) for r in _egress(tmp_path)] == [
+        ("other.example", "refused", "http_outside_dev")
+    ]
+
+
+@pytest.mark.parametrize("base", ["http://127.0.0.1:8080", "https://localhost", "https://[::1]"])
+def test_a_typed_loopback_or_reserved_url_is_not_declared(base: str) -> None:
+    from tb_common.http import declared_client, guard_of
+
+    guard = guard_of(declared_client(base, env={"TB_ENV": "PRODUCTION"}))
+    assert guard is not None and guard.declared == set() and guard.http_ok == set()
