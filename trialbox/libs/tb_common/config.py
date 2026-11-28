@@ -789,6 +789,11 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
+    "TB_LANG": Declared(
+        "str",
+        "",
+        "language of the trialbox command line's plain messages: en, ja or zh-TW (TOL-CLI; else LC_ALL, LANG)",
+    ),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
     "TB_HOST_PROFILE": Declared(
         "str",

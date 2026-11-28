@@ -310,6 +310,15 @@ def run_in_image(args: Sequence[str], need: Need, box: Mapping[str, str]) -> int
     """Run the command in the box image; its output and exit code are the command's own. The runtime and the image
     are the box file's or the defaults, never the caller's (a caller's TB_DOCKER would run as this user)."""
     docker = shlex.split(box.get("TB_DOCKER") or "docker")
+    if command_of(args) == "backup" and not _values(args, "--public"):
+        # M-6 (TOL-1 §2.4): the image does not hold the box's key: name it here so that it is mounted
+        pub = Path(box.get("TB_BACKUP_PUBKEY") or DEPLOY / "secrets" / "backup.pub")
+        if not pub.is_file():
+            from tools.trialbox.cli_text import say
+
+            print(say("backup_no_pub", path=pub), file=sys.stderr)
+            return 2
+        args = [*args, "--public", str(pub)]
     argv = container_argv(args, need, box, Path.cwd(), os.getuid(), os.getgid(), docker)
     try:
         return subprocess.run(argv, check=False).returncode
