@@ -104,6 +104,9 @@ case "$mod ${1:-}" in
     has "$k-did-not-run" && { echo "finish-check: error (stand-in)" >&2; exit 2; }
     exit 0 ;;
   "tools.trialbox secrets") echo "service tokens: present (stand-in)"; exit 0 ;;
+  "tools.settings_wizard --answers")  # TOL-1: the preflight (the settings wizard stands in through docker below)
+    has preflight-answers && { echo "the answers are refused, nothing was loaded or written: tz is required (stand-in)" >&2; exit 1; }
+    exit 0 ;;
   "tools.trialbox anchors-compose")
     has anchors-compose && { echo "anchor: cannot be mounted (stand-in)" >&2; exit 1; }
     has anchor-read && { printf '%s\n%s\n' "$TB_H94_TMP/anchors.yml" "$TB_H94_TMP/anchor"; exit 0; }

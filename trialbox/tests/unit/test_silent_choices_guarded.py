@@ -175,8 +175,9 @@ PAGE = {"TB_BACKUP_ALERT_ROUTE": "health-page"}
 
 
 def test_the_page_route_without_a_named_person_is_refused_in_production() -> None:
-    with pytest.raises(settings_wizard.WizardError, match="nobody is named to open it every working day"):
-        _build("PRODUCTION", env_extra=PAGE)
+    # TOL-1 T-I168, T-I169: a warning in PRODUCTION too, naming who is told meanwhile
+    _env, warnings = _build("PRODUCTION", env_extra=PAGE)
+    assert any("nobody is named to open it every working day: the first administrator is told" in w for w in warnings)
     _env, warnings = _build("", env_extra=PAGE)  # the box's apply step after its page: a warning
     assert any("nobody is named" in w for w in warnings)
     env, warnings = _build("PRODUCTION", env_extra={**PAGE, "TB_BACKUP_ALERT_WATCHER": "陳 小明"})

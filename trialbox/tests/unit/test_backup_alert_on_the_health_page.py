@@ -49,9 +49,12 @@ def test_production_without_mail_installs_when_the_site_chose_the_health_page(tm
 
 
 def test_unset_production_still_refuses_as_d274_decided(tmp_path: Path) -> None:
+    """TOL-1 T-I144 (the owner's CLINICAL TOLERANCE): PRODUCTION with no route given takes the health page as the
+    default and says so, naming who opens it; the schedule installs, so the backups run."""
     deploy = _deploy(tmp_path)
-    with pytest.raises(ValueError, match="PRODUCTION needs a backup alert route"):
-        bs.install_cron(bs.config(deploy, PROD), tmp_path / "cron.d", deploy.parent, has_mta=False)
+    notes = bs.install_cron(bs.config(deploy, PROD), tmp_path / "cron.d", deploy.parent, has_mta=False)
+    assert any(n.startswith("warning: no backup alert route was given") and "health-page" in n for n in notes), notes
+    assert (tmp_path / "cron.d" / bs.CRON_NAME).is_file()
     assert "TB_BACKUP_ALERT_ROUTE=health-page" in bs.ROUTE_HINT
 
 
@@ -64,7 +67,9 @@ def test_any_other_value_is_a_setting_error_and_no_route(tmp_path: Path, value: 
 
 def test_status_is_not_red_for_a_missing_route_when_the_page_is_chosen(tmp_path: Path) -> None:
     deploy = _deploy(tmp_path)
-    assert any("no alert route" in p for p in bs.status(bs.config(deploy, PROD))["problems"])
+    # TOL-1 T-I144: an unset PRODUCTION route is the page by default, so it is not a red problem either
+    assert bs.config(deploy, PROD).alert_defaulted
+    assert not any("alert route" in p for p in bs.status(bs.config(deploy, PROD))["problems"])
     assert not any("alert route" in p for p in bs.status(bs.config(deploy, PAGE))["problems"])
 
 

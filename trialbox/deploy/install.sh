@@ -846,6 +846,22 @@ if [ -n "$ANSWERS" ] && [ -f "$ANSWERS" ] && [ ! -f deploy/settings.yaml ] && [ 
   PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.answers_files "$ANSWERS" --deploy "$ROOT/deploy" ${GATE_ENV:+--environment "$GATE_ENV"}
 fi
 # ---- end of ANSWERS-FILES
+# PREFLIGHT (TOL-1 section 2.1, rule 2: stop at second 0 or not at all): a PRODUCTION install's answers are read at
+# minute 1, before the bundle is loaded, by the settings wizard's own rules (tools/settings_wizard.py --dry-run, on
+# the host's python3). A refused answer ends the run here as the settings step would after the load (set -e, as
+# ANSWERS-FILES): otherwise an hour of loading ends in a box with no settings, whose services cannot start. Its
+# warnings and the items still needed are said now; the box goes on with them, and the same points are listed at the
+# end. A PoC box goes on as before (its settings step warns), as does a box's own install (TB_BOX: its page asks)
+PF_ENV="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
+[ -n "$PF_ENV" ] || [ "$REHEARSAL" != 1 ] || PF_ENV=VALIDATION
+[ -n "$PF_ENV" ] || [ ! -f deploy/.env ] || PF_ENV="$(tb_env_of deploy/.env)"
+if [ "${PF_ENV:-PRODUCTION}" = PRODUCTION ] && [ "${TB_BOX:-0}" != 1 ] && [ -n "$ANSWERS" ] && [ -f "$ANSWERS" ] \
+    && [ ! -f deploy/settings.yaml ] && [ "$SIGNED_RUN" != 1 ] && [ -d "$ROOT/libs/tb_common" ] \
+    && python3 -c 'import yaml' 2>/dev/null; then
+  say "preflight: the answers, read before the load"
+  PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.settings_wizard --answers "$ANSWERS" --dry-run --environment PRODUCTION | indent
+fi
+# ---- end of PREFLIGHT
 
 # ------------------------------------------------------------------------------------------------ 2. bundle
 # D-888: a re-run on a box installed before deploy/.env named its settings: the update's guard (and compose) see them

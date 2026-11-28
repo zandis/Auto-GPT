@@ -207,7 +207,14 @@ NEEDS: tuple[Need, ...] = (
     Need(
         key="backup_alarm",
         before=("first_real_run",),
-        answers=(("env:TB_BACKUP_MAILTO", "env:TB_BACKUP_ALERT_WATCHER", "env:TB_BACKUP_ALERT_CMD"),),
+        answers=(  # TOL-1 (REAL2 M-17): the health page as the route answers it too
+            (
+                "env:TB_BACKUP_MAILTO",
+                "env:TB_BACKUP_ALERT_WATCHER",
+                "env:TB_BACKUP_ALERT_CMD",
+                "env:TB_BACKUP_ALERT_ROUTE",
+            ),
+        ),
         who="it",
         title={
             "en": "Who is told when a backup fails",
