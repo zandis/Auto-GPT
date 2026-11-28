@@ -756,7 +756,7 @@ def test_cql_carries_the_same_rules_and_translates() -> None:
     assert "when TB.UnitKey(Q) = '%' then Q.value.value" in cql
     assert "TB.ObsValue(" not in cql  # no bare number in a value comparison
     assert "Patient.gender.value in { 'male', 'female' }" in cql
-    assert "X.dispenseRequest.validityPeriod.end is null" in cql and "then null as Boolean else false" in cql
+    assert '"TE_SAFE-INC-04_1"(X) is null' in cql and "then null as Boolean else false" in cql
     assert "P.gender.value in { 'male', 'female' }" in common and 'define function "UnitKey"' in common
     if not available():
         pytest.skip("cql-translator jars not available on the host (.cache/jvm)")

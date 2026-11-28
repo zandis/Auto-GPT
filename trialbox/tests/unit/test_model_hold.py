@@ -126,7 +126,8 @@ def test_released_note_reading_asks_the_models_again(tmp_path: Path) -> None:
     nj = NoteJudge(lake=_Chunks(), llm=llm, verifier=verifier)  # type: ignore[arg-type]
     out = evaluate_patients(ruleset([EXC]), ["P1"], IDX, _NoStructured(), nj, 0.75, only={EXC.id},
                             all_candidates=True, workers=1, note_block=True)  # fmt: skip
-    assert llm.calls == 1 and verifier.calls == 1 and out["P1"].tier == "excluded"
+    # D-1072 (ring 0): the pair's stated exclusion is review, no longer excluded
+    assert llm.calls == 1 and verifier.calls == 1 and out["P1"].tier == "review"
 
 
 # ------------------------------------------------------------------------------------------------ hold and release

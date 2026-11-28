@@ -18,7 +18,7 @@ they apply.
 | --- | --- | --- | --- |
 | FEAS (counts per trial) | no | nothing: coded filters only, no model | |
 | SCREEN, coded criteria | no | coded filters exclude on structured data | |
-| SCREEN, note criteria | two models: the judge (Gemma 4 26B-A4B) and the verifier (Qwen3.5-9B) | a note excludes a patient only when **both** say "fail" and each quotes the note; one "fail" or an "unknown" sends the patient to review | that a patient is eligible: the list goes to the study team |
+| SCREEN, note criteria | two models: the judge and the verifier of `models/registry.yaml` | no note answer excludes a patient (D-1072); when **both** say "fail" and each quotes the note, the notes may speak against the criterion and the patient goes to review, as with one "fail" or an "unknown" | that a patient is eligible: the list goes to the study team |
 | Drafts (consent explanation, translation, CRF prefill, documents) | the judge model | a draft a person reads, edits and sends | nothing is sent or saved as final without a person |
 | Criteria import and messages (criteria to IR, concept mapping, intent of a message) | the judge model | a proposal: the investigator approves the ruleset, and a person handles each message | nothing runs on a patient before the investigator approves the ruleset |
 
@@ -39,8 +39,8 @@ development gates.
 | 3 | Data sets represent the intended population | Tests in ja, zh-TW and en: the SIGIR, TREC CT, MedTxt and synthetic sets. Real-data accuracy waits for the dry run and Study A |
 | 4 | Training data independent of test data | We train no model. The prompts were not tuned on the gate sets, and Study A removes the patients used for tuning (`docs/plan/study-a-protocol.md`) |
 | 5 | Reference standards from the best available methods | N-12 uses the NIST TREC labels as given. The sample check of the labels was done by an AI assistant, not a clinician, so **N-12 is reported unadjusted** and the adjusted figure is a note only (§6) |
-| 6 | Model design fits the data and the intended use | Two models must agree before a note excludes a patient. "Unknown" never excludes. The context fits the longest prompt (`qualify`'s `longest_prompt` step) |
-| 7 | Performance of the human-AI team | The model never excludes alone; the team reviews disagreements. Study A measures the team |
+| 6 | Model design fits the data and the intended use | A note answer never excludes a patient; two models must agree before it is final (D-1072). "Unknown" never excludes. The context fits the longest prompt (`qualify`'s `longest_prompt` step) |
+| 7 | Performance of the human-AI team | The model never excludes; the team reviews disagreements and every note that may speak against a criterion. Study A measures the team |
 | 8 | Testing under clinically relevant conditions | the pair canary, N-11, N-12, `public_e2e` on public notes, the 5,000-patient synthetic hospital (`docs/VALIDATION.md`) |
 | 9 | Users get clear, essential information | The user guide, the reason and quote shown for every model answer, and the models page with the champion's record |
 | 10 | Deployed models are monitored; re-training risks are managed | The canary runs before every night's jobs (`orchestrator.selftest`). We do no re-training. Every change follows the model change protocol |
@@ -54,7 +54,7 @@ This note is what we give an AI governance body if it asks.
 | Principle | TrialBox control |
 | --- | --- |
 | 永續發展與福祉 sustainable development and well-being | Runs on one site GPU, with no cloud. The aim is fewer missed trial patients |
-| 人類自主 human autonomy | The model never excludes alone and never enrols anyone. Investigators and the study team decide (§1) |
+| 人類自主 human autonomy | The model never excludes and never enrols anyone. Investigators and the study team decide (§1) |
 | 隱私保護與資料治理 privacy and data governance | Patient data stays at the site. Pseudonymous keys. Data classes are enforced by the gateway. The PHI tripwire. No note text in logs (`qualify`'s `log_marker` step) |
 | 資安與安全 security and safety | Signed updates, the gateway's policy, injection screening (T-606, T-208), the canary before each run |
 | 透明與可解釋 transparency and explainability | Every model answer shows its reason and a quote from the note. The prompt and build of each answer are recorded |
@@ -69,7 +69,7 @@ common principles (共通の指針):
 | Principle | TrialBox control |
 | --- | --- |
 | 人間中心 human-centric | People decide; the model narrows a list (§1) |
-| 安全性 safety | Two models must agree to exclude. The canary and the planted-defect check in every qualification |
+| 安全性 safety | No note answer excludes a patient (D-1072). The canary and the planted-defect check in every qualification |
 | 公平性 fairness | Gates per language; Japanese notes in N-11 and MedTxt |
 | プライバシー保護 privacy | Data stays at the site; the SS-MIX2 input is pseudonymised at ingest |
 | セキュリティ確保 security | The gateway's policy, signed updates and injection screening |
@@ -101,10 +101,10 @@ unadjusted.
 ## 7. Summaries
 
 **日本語.** TrialBox は治験候補者の絞り込みを支援するもので、診断や治療の判断はしない。ノートを根拠に患者を除外する
-のは、二つのモデルがともに「不適格」と答え、ノートを引用した場合だけである。最終判断は研究チームが行う。モデルの変更は
+ことはない。ノートが基準に反する可能性を示す場合は、引用を付けて確認に回す。最終判断は研究チームが行う。モデルの変更は
 すべて変更手順書(model change protocol)の自動テストと閾値で確認し、その記録が手順書を引用する。N-12 は補正前の値
 (9.4 %、基準 5 % に不合格)を正式な結果とする。
 
-**繁體中文.** TrialBox 協助研究團隊篩選可能符合試驗的病人，不做診斷或治療決定。只有兩個模型都判定「不符合」並引用病歷
-原文時，才會依病歷排除病人；最後由研究團隊決定。每一次模型變更都依模型變更規程的自動測試與門檻驗證，驗證紀錄會引用該
+**繁體中文.** TrialBox 協助研究團隊篩選可能符合試驗的病人，不做診斷或治療決定。系統不會依病歷文字排除病人；
+病歷文字可能不利於某條件時，附上引文送交確認；最後由研究團隊決定。每一次模型變更都依模型變更規程的自動測試與門檻驗證，驗證紀錄會引用該
 規程。N-12 以未經校正的數值(9.4 %，門檻 5 %，未通過)為正式結果。

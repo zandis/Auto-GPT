@@ -253,14 +253,12 @@ TIER_RS = _ruleset(TIER_CRITERIA)
 STATED_02 = "T-EXC-02 present."  # a quote that states T-EXC-02's condition (the criterion's text is its id)
 
 
-def test_p1_tier_excludes_only_on_a_coded_fail_or_a_sure_blocking_note_fail() -> None:
+def test_p1_tier_excludes_only_on_a_coded_fail() -> None:
     """``tier`` over every verdict for two structured criteria, two note criteria at three confidences and a human
     criterion, with note answers allowed to block or not, and the note exclusion's quote stated or absent:
-    ``excluded`` exactly when a structured verdict fails, or the note exclusion fails on a quote that states its
-    condition, with confidence at or above the threshold, while note answers may block. Kills U03. The note
-    inclusion's "not met" is review, never an exclusion (R22-17, D-1069; ruled on #639 7079180333), and so is the
-    note exclusion's "present" with no quote (L1, #639 7107834329); a quoted one excludes only when the row says both
-    models affirmed it (round 5, #639 7115208555).
+    ``excluded`` exactly when a structured verdict fails. Kills U03. The note inclusion's "not met" is review, never
+    an exclusion (R22-17, D-1069; ruled on #639 7079180333), and so is the note exclusion's "present", with or
+    without a quote, affirmed or not (ring 0, D-1072: a note answer never excludes).
     """
     threshold = 0.75
     sv: tuple[Verdict, ...] = ("pass", "fail", "unknown")
@@ -279,9 +277,8 @@ def test_p1_tier_excludes_only_on_a_coded_fail_or_a_sure_blocking_note_fail() ->
             CriterionVerdict(id="T-INC-03", verdict="pending_human", evidence=Evidence(resource_refs=[])),
         ]
         t, _, n_unknown = tier(TIER_RS, verdicts, threshold, note_block=block)
-        # R22-17: the note exclusion only; L1: only on its quote (``q2``); round 5: only when affirmed (``a2``)
-        sure_note_fail = block and n2 == "fail" and c2 >= threshold and q2 is not None and a2 is True
-        assert (t == "excluded") is ("fail" in (s1, s2) or sure_note_fail), (s1, s2, n1, c1, n2, c2, block, q2, t)
+        # D-1072 (ring 0): no note answer excludes, a sure, stated, affirmed pair's neither; only a coded fail does
+        assert (t == "excluded") is ("fail" in (s1, s2)), (s1, s2, n1, c1, n2, c2, block, q2, t)
         assert n_unknown == [s1, s2, n1, n2].count("unknown")
         if t != "excluded" and "unknown" in (s1, s2, n1, n2):
             assert t == "review"
@@ -742,11 +739,13 @@ def gap_lake() -> _DuckLake:
     con.execute(
         "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, code VARCHAR, system VARCHAR, onset DATE, recorded DATE)"
     )
-    con.execute("CREATE TABLE medication (pid VARCHAR, mid VARCHAR, atc VARCHAR, authored DATE)")
+    con.execute(
+        'CREATE TABLE medication (pid VARCHAR, mid VARCHAR, atc VARCHAR, authored DATE, start DATE, "end" DATE)'
+    )
     for pid, code, system, onset, recorded, _ in GAP_ROWS:
         con.execute("INSERT INTO condition VALUES (?, ?, ?, ?, ?, ?)", [pid, f"c-{pid}", code, system, onset, recorded])
     for pid, atc, authored, _ in MED_ROWS:
-        con.execute("INSERT INTO medication VALUES (?, ?, ?, ?)", [pid, f"m-{pid}", atc, authored])
+        con.execute("INSERT INTO medication VALUES (?, ?, ?, ?, NULL, NULL)", [pid, f"m-{pid}", atc, authored])
     return _DuckLake(con)
 
 
@@ -943,12 +942,10 @@ def _run_for_map(note_block: bool = True) -> Any:
 SPAN = {"did": "d1", "start": 0, "end": 5, "date": INDEX.isoformat(), "sentence_hash": "h", "quote": "q"}
 
 
-def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_block() -> None:
-    """``_map`` over every verdict, reason, confidence, span and note-block setting, for both kinds: a hard fail
-    only for a decided answer with a verified span, confidence at or above the floor, the condition answer that makes
-    the patient ineligible on an exclusion (an inclusion's "not met" from the notes is soft: R22-17), and note answers
-    allowed to block, and for an exclusion's "present", both models affirmed it (round 5 of R22-16, #639 7115208555).
-    Otherwise never a hard fail."""
+def test_judge_reply_mapping_is_never_hard() -> None:
+    """``_map`` over every verdict, reason, confidence, span and note-block setting, for both kinds: never a hard
+    fail (ring 0, D-1072; before it, a hard fail for a pair's verified, sure, affirmed exclusion "present" while note
+    answers were allowed to block). An inclusion's "not met" from the notes is soft (R22-17)."""
     by = {c.id: c for c in CASCADE_CRITERIA}
     n = 0
     # D-985 (F6): the quote states the condition (both criteria's), or only names a drug: an exclusion "present" on
@@ -974,10 +971,8 @@ def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_bloc
         # R22-17 (D-1069; ruled on #639 7079180333): an inclusion's "not met" from the notes is never a hard fail
         excl = c.kind == "exclusion"
         unsaid = excl and verdict == "pass" and not affirmed  # round 5: not affirmed by both
-        want_hard = (
-            decided and span is not None and ineligible and conf >= 0.75 and block and not guess and excl and not unsaid
-        )
-        assert o.hard is want_hard, (cid, verdict, reason, conf, span is not None, block, o)
+        # D-1072 (ring 0): a note answer is never a hard fail, a pair's stated, affirmed, sure "present" neither
+        assert o.hard is False, (cid, verdict, reason, conf, span is not None, block, o)
         if o.hard:
             assert o.status == "fail" and o.stratum == STRATUM_S3 and o.reason == "not_met"
         if not decided:
@@ -1001,18 +996,19 @@ def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_bloc
     assert n == 2 * 3 * 3 * 4 * 2 * 2 * 2 * 2
 
 
-def test_s3_hard_fail_stops_the_patient_and_leaves_the_rest_unjudged() -> None:
-    """CAS-3: the first verified hard ``not_met`` excludes at S3; the criteria after it are ``unknown``."""
+def test_s3_a_note_fail_never_stops_the_patient_and_every_criterion_is_judged() -> None:
+    """Ring 0 (D-1072): a pair's verified, sure, stated "not met" from the notes is no hard fail, so CAS-3 never stops
+    a patient at S3 on a note answer: the patient stays, for review, and every note criterion is judged (before
+    D-1072 the first such answer excluded the patient and the criteria after it were ``unknown``)."""
     judge = _Judge({("judge", "Active infection"): ("pass", 0.95), ("judge", "Gout flare documented"): ("fail", 0.95)})
     lake = _lake(CASCADE_RS, ["J-1"], [_note("J-1", "Gout flare with infection.")])
     res = _cascade(lake, lexicon=LEXICON, judge=judge, sample_per_stratum=None)
     t = res.traces["J-1"]
-    assert t.exit_stage == "S3" and t.tier == "excluded"
-    hard = [o for o in t.outcomes.values() if o.hard]
-    assert len(hard) == 1 and hard[0].stratum == STRATUM_S3 and hard[0].criterion_id == t.exit_criterion
-    rest = [o for c, o in t.outcomes.items() if c in ("N-INC-01", "N-EXC-01") and c != t.exit_criterion]
-    assert [o.reason for o in rest] == ["not judged (CAS-3 stop)"] and rest[0].status == "unknown"
-    assert len(judge.calls) == 1
+    assert t.exit_stage is None and t.tier == "potential:uncertain"
+    assert not [o for o in t.outcomes.values() if o.hard]
+    rest = [o for c, o in t.outcomes.items() if c in ("N-INC-01", "N-EXC-01")]
+    assert [o.status for o in rest] == ["fail", "fail"] and "not judged (CAS-3 stop)" not in [o.reason for o in rest]
+    assert len(judge.calls) == 2
 
 
 def test_s3_not_sampled_and_out_of_budget_never_exclude() -> None:
@@ -1026,7 +1022,9 @@ def test_s3_not_sampled_and_out_of_budget_never_exclude() -> None:
     lake = _lake(rs, pids, [_note(p, INFECTED, did="same") for p in pids])
     res = _cascade(lake, lexicon=LEXICON, judge=judge, sample_per_stratum=1)
     sampled = [p for p in pids if res.traces[p].sampled]
-    assert len(sampled) == 1 and res.traces[sampled[0]].exit_stage == "S3"
+    # D-1072 (ring 0): the judged patient's "present" is a "not met" for review, no longer an exclusion at S3
+    assert len(sampled) == 1 and res.traces[sampled[0]].exit_stage is None
+    assert res.traces[sampled[0]].outcomes["N-EXC-01"].status == "fail"
     for p in set(pids) - set(sampled):
         t = res.traces[p]
         o = t.outcomes["N-EXC-01"]

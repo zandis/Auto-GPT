@@ -35,17 +35,18 @@ from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
 from matching.inferred import sentence_of
-from matching.note_answer import affirms, keeps, not_documented, note_answer_may
+from matching.note_answer import NOTES_SUGGEST_REASON, affirms, keeps, not_documented, note_answer_may
 from matching.proposed import Proposed
 from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
-from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
+from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong, unknown_carries_nothing
 from tb_common.pair import DECIDED, Vote, combine, floor, needs_verifier, same_model, served_keys
 from tb_common.quotes import as_in
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
+from tb_common.verdict_word import against_ids, flagged_last
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
 from tb_llm.budget import shown as shown_excerpt
 
@@ -232,6 +233,9 @@ class NoteResult:
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
     qualification: str = ""  # SAFE-1 A1: "unqualified" when a model behind the answer holds no record
+    # D-1072: on an agreed answer, each model's answer, verified quote and note (``did``), judge first. Published only
+    # on a "not eligible" (``note_verdict``, ``engine._map``), so the investigator reads both quotes
+    pair_opinions: list[dict[str, Any]] = field(default_factory=list)
     # BENCH-2 §2 (``judge_excerpts(demote=True)``): on a disagreement, the judge's own answer, never affirmed. The
     # answer above stays the pair's ``unknown``; ``note_verdict`` takes this one only where it keeps the patient
     kept: NoteResult | None = None
@@ -533,6 +537,11 @@ class NoteJudge:
             sentence=sentence,
             affirmed=first.affirmed and (second is None or second.affirmed),  # round 5: both models said it
             qualification=qualification,
+            pair_opinions=[
+                {**_opinion(role, r), "did": next(iter(r.dids), None)}
+                for role, r in (("judge", first), ("verifier", second))
+                if r is not None and second is not None
+            ],
         )
 
 
@@ -570,6 +579,7 @@ def check_judge(judge: NoteJudge | None) -> None:
 def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str = "chunks") -> NoteResult:
     """SPEC §7.3: the quote must be a substring of one excerpt (whitespace-normalised), else ``unknown``. A quote from
     a sentence the guard's planted-instruction screen flags is ``unknown`` too (T-606, D-359)."""
+    d = unknown_carries_nothing(d)  # INT-S-C: an abstention has no quote, date or confidence, whatever the reply says
     verdict = str(d.get("verdict", "unknown"))
     quote = d.get("quote")
     conf = float(d.get("confidence", 0.0))
@@ -668,6 +678,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
     why = r.reason
+    abstained = r.predicate == "unknown"  # INT-S-C: an abstention has no quote, date or confidence, from any result
     affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
     if pred is None and not_documented(c.kind, why, r.quote):  # BENCH-2 §2: a label, never a tier change
         why = Reason.NOT_DOCUMENTED.value
@@ -678,17 +689,23 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
         may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence, affirmed=r.affirmed)
         if may.effect == "review" and not may.reading_stands:
             verdict, why = "unknown", code_of(may.reason, "unknown")
-        affirmed = True if may.effect == "excludes" and c.kind == "exclusion" else None
+        elif may.reason == NOTES_SUGGEST_REASON:  # ring 0 (D-1072): the row says why it is review, for the page
+            why = code_of(may.reason)
+        affirmed = True if may.reason == NOTES_SUGGEST_REASON else None  # D-1072: kept on the row, now review
         # a "not met" the rule sends to review keeps its row: the status rule (``decision.answer_of``) reads the same
-        # function and says review
+        # function and says review. D-1072: with both models' quotes, and both notes (the judge's first)
+        if may.reading_stands and r.pair_opinions:
+            r = replace(r, opinions=[{k: v for k, v in o.items() if k != "did"} for o in r.pair_opinions])
+            dids = [*r.dids, *(str(o["did"]) for o in r.pair_opinions if o["did"])]
+            refs = [f"DocumentReference/{d}" for d in dict.fromkeys(dids)]
     return CriterionVerdict(
         id=c.id,
         verdict=verdict,
         evidence=Evidence(
             resource_refs=refs,
-            quote=r.quote,
-            quote_date=r.quote_date,
-            confidence=r.confidence,
+            quote=None if abstained else r.quote,
+            quote_date=None if abstained else r.quote_date,
+            confidence=None if verdict == "unknown" else r.confidence,
             reason=why,
             opinions=[Opinion(**o) for o in r.opinions] or None,
             qualification="unqualified" if r.qualification else None,  # SAFE-1 A1
@@ -775,10 +792,9 @@ NOTE_BLOCK_POLICIES = ("both_agree", "never")
 
 
 def note_block_policy() -> str:
-    """``TB_NOTE_BLOCK`` (D-95): ``both_agree`` (default) lets a note criterion exclude a patient, which with a verifier
-    configured means both models agreed (D-89); ``never`` (single-model boxes such as one RTX 4090) never lets a note
-    answer exclude: a note ``fail`` keeps its verdict and quote but sends the patient to review."""
-    v = os.environ.get("TB_NOTE_BLOCK", "both_agree").strip().lower() or "both_agree"
+    """``TB_NOTE_BLOCK`` (D-95): ``never`` (default, D-1072) or ``both_agree``, which only says a pair's note "not met"
+    is final. No note answer excludes a patient under either: it keeps its verdict and quote and goes to review."""
+    v = os.environ.get("TB_NOTE_BLOCK", "never").strip().lower() or "never"
     if v not in NOTE_BLOCK_POLICIES:
         raise ValueError(f"TB_NOTE_BLOCK must be one of {', '.join(NOTE_BLOCK_POLICIES)}, not {v!r}")
     return v
@@ -831,7 +847,7 @@ def note_block_why(judge: NoteJudge | None) -> tuple[bool, str, str, str]:
 
 
 def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
-    """Whether a confident note ``fail`` may exclude a patient on this run (D-95, D-97).
+    """Whether a confident note ``fail`` is final on this run (D-95, D-97); none excludes a patient (D-1072).
 
     ``both_agree`` promises that two models agreed; without a verifier that promise cannot be kept, so the run falls
     back to ``never`` (a single model may send a patient to review, never out) and says so. The same holds when the
@@ -847,7 +863,7 @@ def tier(
     (:func:`matching.decision.status_of`, T-709, D-478), under this run's policy.
 
     high: every structured and note criterion says yes, only criteria a person decides are open; excluded: an
-    answer says no (a note answer only when a pair gave it, it is final, sure enough and ``note_block``); review
+    answer says no (never a note answer, D-1072); review
     otherwise. ``note_block`` is required and comes from the job's decision context (D-477): the configured policy
     alone is not enough (no verifier, one model twice, the canary gate; D-276, review F-01)."""
     st = decision.status_of(rs.by_id(), verdicts, decision.Policy(threshold, note_block))
@@ -971,3 +987,14 @@ def sort_key(r: CandidateRow) -> tuple[Any, ...]:
     """Next appointment ascending (none last), then tier (high before review), then pid."""
     nxt = r.next_appointment.isoformat() if r.next_appointment else ""
     return (r.next_appointment is None, nxt, {"high": 0, "review": 1}.get(r.tier, 2), r.pid)
+
+
+def sort_rows(rows: list[CandidateRow]) -> list[CandidateRow]:
+    """:func:`sort_key` order, then (INT-S-B) on each appointment day the review rows with a note that may speak
+    against a criterion last among that day's review rows. The same rows, none hidden; only that order changes."""
+    return flagged_last(
+        sorted(rows, key=sort_key),
+        lambda r: r.next_appointment.isoformat()[:10] if r.next_appointment else "",
+        lambda r: r.tier == "review",
+        lambda r: bool(against_ids(r.criteria)),
+    )

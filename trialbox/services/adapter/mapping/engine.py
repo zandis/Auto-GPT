@@ -45,6 +45,7 @@ import csv
 import hashlib
 import hmac
 import json
+import logging
 import math
 import re
 from collections import Counter
@@ -60,6 +61,7 @@ import yaml
 from tb_common import dates as tb_dates
 from tb_common import labvalue
 from tb_common.codekey import HALF_WIDTH, fold_key
+from tb_common.config import ConfigError, site_tz
 from tb_common.crypto import pid_for_mrn, with_a_letter
 
 Row = dict[str, Any]
@@ -241,9 +243,18 @@ class DateRangeError(MappingError):
 
 def _zone(path: Path, name: object) -> ZoneInfo:
     """A mapping states its source's zone (``tz``); it is the site's zone, and doctor compares it with ``TB_TZ``.
-    A mapping without one is refused: there is no default zone (D-315)."""
+    A mapping without one takes the site's own zone (``TB_TZ``, from site.tz) and says so (TOL-HOLDS, T-M002bb);
+    with neither it is refused: there is no default zone in the code (D-315)."""
     if not name:
-        raise MappingError(f"{path}: no tz: state the source's IANA time zone (the site's site.tz, e.g. Asia/Tokyo)")
+        try:
+            name = site_tz()
+        except ConfigError as exc:
+            raise MappingError(
+                f"{path}: no tz: state the source's IANA time zone (the site's site.tz, e.g. Asia/Tokyo)"
+            ) from exc
+        logging.getLogger("adapter").warning(
+            "%s: no tz: the time zone is taken from the site settings: %s", path.name, name
+        )
     try:
         return ZoneInfo(str(name))
     except Exception as exc:

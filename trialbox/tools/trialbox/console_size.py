@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import sys
 from pathlib import Path
 
 from tools.trialbox.memcaps import _parse_env
@@ -55,11 +56,21 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--env-file", type=Path, required=True)
     ap.add_argument("--write", action="store_true")
+    ap.add_argument("--default-if-bad", action="store_true", help="a missing or bad TB_CONSOLE_USERS: warn, use 25")
     ap.add_argument("--cpus", type=int, default=os.cpu_count() or 1)
     a = ap.parse_args(argv)
     text = a.env_file.read_text(encoding="utf-8") if a.env_file.is_file() else ""
     env = _parse_env(text)
-    n, declared = users(env)
+    try:
+        n, declared = users(env)
+        bad = None if declared or not a.default_if_bad else "TB_CONSOLE_USERS is not set"
+    except ValueError as e:
+        if not a.default_if_bad:
+            raise
+        n, declared, bad = DEFAULT_USERS, False, str(e)
+    if bad:  # the install goes on with the default (integrator's ruling: this is never a stop)
+        print(f"console_size: warning: {bad}; using {DEFAULT_USERS}: "
+              "set TB_CONSOLE_USERS in deploy/.env to a whole number, then re-run", file=sys.stderr)  # fmt: skip
     wrote = next((ln[len(MARKER) :].strip() for ln in text.splitlines() if ln.startswith(MARKER)), None)
     by_hand = "TB_CONSOLE_WORKERS" in env and env["TB_CONSOLE_WORKERS"] != wrote
     if by_hand and not (env["TB_CONSOLE_WORKERS"].isdigit() and int(env["TB_CONSOLE_WORKERS"]) >= 1):

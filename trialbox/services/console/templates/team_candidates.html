@@ -14,22 +14,24 @@
 {% if not standing.pi and standing.logged and user.role == 'investigator' %}<p class="hint" data-testid="your-tasks">{{ t('team.you.tasks') }} {% for k in standing.tasks|sort %}<span class="pill">{{ t('team.task.' + k) }}</span> {% endfor %}</p>{% endif %}
 {% if not wk %}<section class="card"><p class="empty">{{ t('week.none') }}</p></section>{% else %}
 {% include "_asof.html" %}
-<p class="hint"><a href="?show=" {% if not show %}aria-current="page"{% endif %}>{{ t('team.cand.show.all') }}</a> · <a href="?show=unknown" data-testid="show-unknown"{% if show == 'unknown' %} aria-current="page"{% endif %}>{{ t('team.cand.show.unknown') }}</a> · <a href="?show=open"{% if show == 'open' %} aria-current="page"{% endif %}>{{ t('team.cand.show.open') }}</a></p>
+<p class="hint"><a href="?show=&amp;order={{ order }}" {% if not show %}aria-current="page"{% endif %}>{{ t('team.cand.show.all') }}</a> · <a href="?show=unknown&amp;order={{ order }}" data-testid="show-unknown"{% if show == 'unknown' %} aria-current="page"{% endif %}>{{ t('team.cand.show.unknown') }}</a> · <a href="?show=open&amp;order={{ order }}"{% if show == 'open' %} aria-current="page"{% endif %}>{{ t('team.cand.show.open') }}</a></p>
+<p class="hint" data-testid="cand-order">{{ t('team.cand.order') }}: <a href="?show={{ show }}" data-testid="order-visit"{% if not order %} aria-current="page"{% endif %}>{{ t('team.cand.order.visit') }}</a> · <a href="?show={{ show }}&amp;order=closest" data-testid="order-closest"{% if order == 'closest' %} aria-current="page"{% endif %}>{{ t('team.cand.order.closest') }}</a>{% if order == 'closest' %} <span data-testid="order-closest-help">{{ t('team.cand.order.help') }}</span>{% endif %}</p>
 <section class="card">
 {% if not rows %}<p class="empty">{{ t('wb.empty') }}</p>{% else %}
 <div class="scroll" tabindex="0" role="region" aria-label="{{ t('team.cand.title') }}"><table class="candidates" data-testid="candidates">
-<thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('patient.tier') }}</th><th>{{ t('team.cand.doctor') }}</th><th>{{ t('wb.c.visit') }}</th><th>{{ t('wb.c.needed') }}</th><th>{{ t('team.log.referral') }}</th><th>{{ t('log.mark') }}</th><th>{{ t('person.col.state') }}</th></tr></thead>
+<thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('patient.tier') }}</th><th>{{ t('team.cand.doctor') }}</th><th>{{ t('wb.c.visit') }}</th><th>{{ t('wb.c.needed') }}</th><th>{{ t('team.cand.coded') }}</th><th>{{ t('team.log.referral') }}</th><th>{{ t('log.mark') }}</th><th>{{ t('person.col.state') }}</th></tr></thead>
 <tbody>{% for r in rows %}<tr data-testid="cand-{{ r.short }}">
 <td><a href="/studies/{{ rs }}/candidates/{{ r.pid }}" data-testid="cand-open-{{ r.short }}"><b class="nowrap">{{ t('week.patient', p=r.short) }}</b></a>{% if r.screening_no %}<br><span class="hint mono">{{ r.screening_no }}</span>{% endif %}</td>
 <td><span class="pill" data-tone="{{ tone('tier', r.tier) }}">{{ t('tier.' + r.tier) }}</span></td>
 <td data-testid="doctor-{{ r.short }}">{% if r.doctor.known %}{{ given(r.doctor.name) }} <span class="hint">{{ t('team.doctor.suggested') }}</span>{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span>{% endif %}{% if r.department %}<br><span class="hint">{{ given(r.department) }}</span>{% endif %}</td>
 <td class="num">{{ r.visit_text or t('week.no_visit') }}</td>
 <td class="num">{{ r.n_open }}</td>
+<td class="num" data-testid="cand-coded-{{ r.short }}">{{ t('team.cand.coded.n', k=r.coded[0], n=r.coded[1]) }}</td>
 <td>{% if r.referral %}<span class="pill" data-tone="{{ tone('referral', r.referral.state) }}">{{ t('team.state.' + r.referral.state) }}</span>{% else %}–{% endif %}</td>
-<td data-testid="cand-mark-{{ r.short }}">{% if r.mark %}{{ t('mark.' + r.mark.mark) }}{% if r.mark.mark == 'not_now' and r.mark.reason %} · {{ t('mark.recheck_on', d=r.mark.reason) }}{% endif %}{% else %}–{% endif %}</td>
+<td data-testid="cand-mark-{{ r.short }}">{% if r.mark %}{{ t('mark.' + r.mark.mark) }}{% if r.mark.mark == 'not_now' and r.mark.reason %} · {{ t('mark.recheck_on', d=r.mark.reason[:10]) }}{% if ' watch:' in r.mark.reason %} · {{ t('mark.watching', c=r.mark.reason.partition(' watch:')[2].partition('=')[0]) }}{% endif %}{% endif %}{% else %}–{% endif %}</td>
 <td>{{ person_pill(r.person, 'cand-state-' + r.short) }}</td>
 </tr>{% endfor %}</tbody></table></div>
-{% if pages > 1 %}<nav class="pager" aria-label="{{ t('wb.pages') }}" data-testid="pager">{% if page_no > 1 %}<a href="?show={{ show }}&amp;page={{ page_no - 1 }}" rel="prev">← {{ t('wb.prev') }}</a>{% endif %}<span class="hint">{{ t('wb.page_of', n=page_no, of=pages) }}</span>{% if page_no < pages %}<a href="?show={{ show }}&amp;page={{ page_no + 1 }}" rel="next">{{ t('wb.next') }} →</a>{% endif %}</nav>{% endif %}
+{% if pages > 1 %}<nav class="pager" aria-label="{{ t('wb.pages') }}" data-testid="pager">{% if page_no > 1 %}<a href="?show={{ show }}&amp;order={{ order }}&amp;page={{ page_no - 1 }}" rel="prev">← {{ t('wb.prev') }}</a>{% endif %}<span class="hint">{{ t('wb.page_of', n=page_no, of=pages) }}</span>{% if page_no < pages %}<a href="?show={{ show }}&amp;order={{ order }}&amp;page={{ page_no + 1 }}" rel="next">{{ t('wb.next') }} →</a>{% endif %}</nav>{% endif %}
 {% endif %}
 </section>
 {% endif %}

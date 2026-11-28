@@ -138,6 +138,8 @@ closed). Checks:
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
   ``TB_SITE_PATIENTS``. FAIL when a cap is below the need (the night's ingest or rebuild may be killed); WARN when there
   is no count or no record.
+* ``console_users`` (P2-11): WARN "console users not set; using 25" when ``TB_CONSOLE_USERS`` is missing or not a whole
+  number (the install warns the same and goes on with 25); PASS with the number otherwise.
 * ``release_tree`` (H-144): on an installed release, the install folder holds no copy of a folder the box image
   carries and the signed host tree does not (``services/``, ``models/``, ``rulesets/``, ``catalogue/``, ``eval/``:
   ``host_tree.IMAGE_ONLY``). An update neither replaces nor checks such a copy: WARN, naming it and the command that
@@ -990,7 +992,9 @@ def check_note_block(inp: DoctorInputs) -> Check:
                 "serves is known only from its /models at start, so this check cannot confirm two models. Use the "
                 "gateway verifier build (TB_GATEWAY_VERIFIER_MODEL), whose build hash is compared on every answer",
             )
-        return Check("note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree to exclude")
+        return Check(
+            "note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree; no note answer excludes"
+        )
     why = "TB_SCREEN_JUDGE=single" if mode == "single" else "no verifier configured"
     env = inp.env.get("TB_ENV", "DEV")
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
@@ -1632,7 +1636,10 @@ def check_backup_key(inp: DoctorInputs) -> Check:
     ``deploy/secrets/backup.pub``). Without it every backup and every update's backup is skipped; the ``backup`` row
     judges the schedule and the targets, not the key. The backup's own encryption is run on empty input to the public
     key (TB-01: a truncated or wrong file passed when only its size was looked at); no private key is read.
-    FAIL in VALIDATION and PRODUCTION, WARN elsewhere."""
+    FAIL in VALIDATION and PRODUCTION, WARN elsewhere. During the install (``TB_DOCTOR_INSTALL_PHASE``, which install.sh
+    hands the host check) an absent key is a WARN carrying the ceremony line: the key can only be made once the box
+    runs, so the install cannot require it; the first night on PRODUCTION refuses without it (``site_needs``) and a
+    later ``doctor`` and ``doctor --strict`` FAIL it."""
     if inp.platform:
         return Check("backup_key", "PASS", "not a host check on a platform: see backup_target and backup_job")
     if inp.deploy is None:
@@ -1645,7 +1652,8 @@ def check_backup_key(inp: DoctorInputs) -> Check:
     except OSError:
         size = 0
     if not size:
-        return Check("backup_key", _soft(inp), f"no backup key {key}: every backup is skipped; make it in the key "
+        status = "WARN" if inp.env.get("TB_DOCTOR_INSTALL_PHASE", "").strip() else _soft(inp)
+        return Check("backup_key", status, f"no backup key {key}: every backup is skipped; make it in the key "
                      "ceremony with hospital IT (python -m tools.backup_key_ceremony, RUNBOOK §5)")  # fmt: skip
     try:
         from tools.trialbox import backup as bk
@@ -2125,6 +2133,20 @@ def check_postgres_memory(inp: DoctorInputs) -> Check:
         return Check("postgres_memory", "WARN", "PostgreSQL's sizes were not judged: give --env-file <deploy/.env>")
     status, detail = pgsize.check(inp.env, inp.proc)
     return Check("postgres_memory", status, detail)
+
+
+def check_console_users(inp: DoctorInputs) -> Check:
+    """P2-11: the site's declared concurrent users (``TB_CONSOLE_USERS``), which size the console's workers."""
+    from tools.trialbox import console_size
+
+    try:
+        n, declared = console_size.users(dict(inp.env))
+    except ValueError:
+        declared = False
+    if not declared:
+        return Check("console_users", "WARN", f"console users not set; using {console_size.DEFAULT_USERS} "
+                     "(set TB_CONSOLE_USERS in deploy/.env to a whole number, then re-run the install)")  # fmt: skip
+    return Check("console_users", "PASS", f"{n} concurrent users declared (TB_CONSOLE_USERS)")
 
 
 # No check here warns on last night's peak against 80 % of a cap: the box keeps no per-container peak record (only
@@ -2711,9 +2733,14 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
         return Check(
             "provenance_index", "PASS", "NOT CHECKED: no TB_DB_URL (run trialbox provenance --check on the box)"
         )
+    audit = Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit"))
+    if not audit.is_dir():  # the host check's one-off container mounts no audit volume: no marker to read here
+        return Check("provenance_index", "WARN", f"NOT CHECKED here: no audit folder {audit} (run trialbox "
+                     "provenance --check on the box)")  # fmt: skip
+    marker = idx.read_marker(audit)
+    if not marker.clean:  # P19-DESIGN-3 §2: before any database work, with the operator's step
+        return Check("provenance_index", "FAIL", marker.text)
     from tb_common.audit_writer import _dsn, _psycopg
-
-    from tools.trialbox.provenance import _erased
 
     try:
         con = _psycopg().connect(_dsn(url), autocommit=True, connect_timeout=10)
@@ -2724,7 +2751,7 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
             why = ("not installed: the role script creates provenance.model_calls and provenance.model_uses (D-989 "
                    "step 2c); until then the chain is written without the index")  # fmt: skip
             return Check("provenance_index", "WARN", why)
-        diff = idx.check(con, Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")), _erased(url))
+        diff = idx.check(con, Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")))
     finally:
         con.close()
     if not diff.ok:
@@ -2828,6 +2855,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_bench_serving,
     check_prefix_cache,
     check_memory_caps,
+    check_console_users,
     check_postgres_memory,
     check_db_passwords,
     check_wsl2_memory,

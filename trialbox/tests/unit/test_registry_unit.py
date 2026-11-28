@@ -239,3 +239,36 @@ def test_pid_maps_of_different_keys_do_not_mix(tmp_path: Path, db_url: str) -> N
     with Database.connect(db_url, "pidmap") as db:
         raw = repr(db.fetchall("SELECT * FROM pid_map") + db.fetchall("SELECT * FROM identity")).encode()
     assert b"10000001" not in raw and b"20000001" not in raw and b"'A'" not in raw
+
+
+def test_registry_promote_reports_a_damaged_approved_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review of #1547 R1: an approved copy that cannot be read whole (INT-R3A) is not "no version in force"; the
+    promotion is refused and promotes nothing, never a quiet ``{"added": 0}``."""
+    from fastapi.testclient import TestClient
+    from orchestrator import app as oapp
+    from tb_common import ruleset as rsmod
+
+    from tests.actor3 import signed
+
+    monkeypatch.setenv("TB_ENV", "TEST")
+    monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
+    called: list[Any] = []
+
+    def promote(*a: Any) -> int:
+        called.append(a)
+        return 0
+
+    reg = SimpleNamespace(promote=promote)
+    site = SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(tz="Asia/Taipei")))
+    fake = SimpleNamespace(rulesets_dir=tmp_path / "rulesets", today=NOW.date, cfg=site)
+    monkeypatch.setattr(oapp, "orch", lambda: fake)
+    monkeypatch.setattr(oapp, "registry_of", lambda _o: reg)
+
+    def damaged(*_a: Any, **_k: Any) -> Any:
+        raise rsmod.RulesetReadIncomplete("GZQO: the working copy differs from its approval tag")
+
+    monkeypatch.setattr(rsmod, "load_approved", damaged)
+    path = "/registry/GZQO/promote"
+    r = TestClient(oapp.app).post(path, json={}, headers=signed("request.prepare", "GZQO", "POST", path, {}))
+    assert r.status_code == 409 and "nothing was promoted" in r.json()["detail"]
+    assert called == []

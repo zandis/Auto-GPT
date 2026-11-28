@@ -89,11 +89,13 @@ def _reason(pv: PatientVerdicts, cid: str) -> str | None:
     return v.evidence.reason if v.evidence else None
 
 
-def test_two_different_models_that_agree_exclude(lake: LakeLocal) -> None:
+def test_two_different_models_that_agree_send_to_review(lake: LakeLocal) -> None:
     pv, judge, trace = _screen(
         lake, EXC_FLARE, "P-HIT", ScriptedModel("judge-a", says("pass", FLARE)), ScriptedModel("verifier-b", says("pass", FLARE))
     )  # fmt: skip
-    assert pv.tier == "excluded" and trace.exit_stage == "S3" and judge.disagreements == 0 and judge.same_model == 0
+    # D-1072 (ring 0): two different models that agree on a stated exclusion send the patient to review, never out
+    assert pv.tier == "review" and trace.exit_stage is None and judge.disagreements == 0 and judge.same_model == 0
+    assert _reason(pv, EXC_FLARE.id) == "notes_suggest_not_eligible"
     # the inclusion case beside it: the same pair's "not met" on the note inclusion is review (R22-17)
     pv, judge, trace = _screen(
         lake, INC, "P-HIT", ScriptedModel("judge-a", says("fail", FLARE)), ScriptedModel("verifier-b", says("fail", FLARE))
@@ -136,9 +138,9 @@ def test_one_model_named_twice_never_excludes(lake: LakeLocal) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ over HTTP (stub)
-def test_the_stub_pair_agrees_and_excludes_over_http(lake: LakeLocal) -> None:
+def test_the_stub_pair_agrees_and_sends_to_review_over_http(lake: LakeLocal) -> None:
     pv, _, trace = _screen(lake, ONGOING, "P-ZH-FLARE", stub_client("stub"), stub_client("stub-verifier"))
-    assert pv.tier == "excluded" and trace.exit_stage == "S3"
+    assert pv.tier == "review" and trace.exit_stage is None  # D-1072 (ring 0): no longer excluded
     # the inclusion case beside it: the stub pair's "not met" on a note inclusion is review (R22-17)
     pv, _, trace = _screen(lake, RESP, "P-ZH", stub_client("stub"), stub_client("stub-verifier"))
     assert pv.tier == "review" and trace.exit_stage is None
@@ -221,7 +223,8 @@ def test_v1_not_met_is_not_final_when_the_budget_left_retrieved_notes_out(monkey
     filler = "Routine follow-up, vitals stable, no change in plan. " * 75
     small = _Chunks([_chunk(n, f"{FLARE}. Seen in clinic, visit {n}.") for n in range(1, 6)])
     large = _Chunks([_chunk(n, f"{FLARE}. Visit {n}. {filler}") for n in range(1, 6)])  # distinct notes (D-905)
-    assert _v1(small, "pass", EXC_FLARE) == ("excluded", "note")  # control: every retrieved note was read
+    # control: every retrieved note was read, so the answer is decided (review since ring 0, D-1072)
+    assert _v1(small, "pass", EXC_FLARE) == ("review", "notes_suggest_not_eligible")
     assert _v1(small, "fail") == ("review", "note")  # the inclusion case beside it (R22-17)
     assert _v1(large, "fail") == ("review", "notes_over_budget")
     # T-603 (CR-004 flag half): an answer that keeps the patient stands, flagged: review, with the reason
@@ -257,7 +260,8 @@ def test_v1_an_answer_on_the_whole_window_is_final_when_the_context_holds_it() -
     assert present.window("P", EXC_FLARE, IDX).left_out == 0
     rs = ruleset([EXC_FLARE])
     out = evaluate_patients(rs, ["P"], IDX, _NoStructured(), present, 0.75, only={EXC_FLARE.id}, all_candidates=True)
-    assert (out["P"].tier, _reason(out["P"], EXC_FLARE.id)) == ("excluded", "note")  # the control: final, excludes
+    # the control: final, decided (review since ring 0, D-1072; it excluded before)
+    assert (out["P"].tier, _reason(out["P"], EXC_FLARE.id)) == ("review", "notes_suggest_not_eligible")
     assert _v1(large, "fail") == ("review", "notes_over_budget")  # the same notes, models that tell no context
 
 

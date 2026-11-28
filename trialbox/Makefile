@@ -860,7 +860,7 @@ hadolint-report:
 # inside it with release.json. BUNDLE_ARGS="--key ... --pub ... --id ... --release-seq N --out FRESH_FOLDER/trialbox-<id>.tar"
 # 10G-9 (D-1239): no release bundle while the public security contact (deploy/security/contact.json) is not set; a
 # --rehearsal or --allow-dirty bundle, which is no release, passes with a warning
-release-bundle: public-names security-contact-check release-images release-gates vocab-bundle-check
+release-bundle: security-contact-check public-names release-images release-gates vocab-bundle-check
 	tools/make_bundle.sh --gates $(SC_DIR)/gates.json --sbom-dir dist/sbom $(BUNDLE_ARGS)
 
 # OPS-006 (D-966): the offline media of a bare Ubuntu box from a signed bundle and the packages of

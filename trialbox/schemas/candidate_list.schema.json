@@ -83,6 +83,18 @@
               "comparator": {"type": ["string", "null"]}
             }
           }
+        },
+        "needs": {
+          "description": "H-7 (REAL2): what the site must supply for an open answer: the view and the field of the site mapping template (demo_his) the reason points at, and the concept the criterion reads (its value set, or a score and its missing input). Absent on a decided answer and on one a person decides.",
+          "title": "Need",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["view", "field", "concept"],
+          "properties": {
+            "view": {"type": "string"},
+            "field": {"type": "string"},
+            "concept": {"type": "string"}
+          }
         }
       }
     },

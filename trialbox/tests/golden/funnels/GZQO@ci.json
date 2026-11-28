@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "8e6f3b8a4f9c37dc380b472142aa5c21a6ab19f1",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "int/data: the jp-ss synthetic fixture has chart numbers of its own (prefix 9); it shared 2xxxxxxx with synthetic-jp-a, so the H34-06 identity hold fired on 398 chart numbers",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
@@ -70,22 +70,22 @@
     "2026-07": 2,
     "2026-08": 1,
     "2026-09": 4,
-    "2026-10": 3
+    "2026-10": 2
    },
-   "prevalent": 8,
-   "prevalent_pids_sha": "c40d1bbed53df22a106817c759bc0519169f7f88034881796ed4f6102a5864a1",
+   "prevalent": 7,
+   "prevalent_pids_sha": "c583ca53603d1e01b50194543f2226c980811bcd6d72ae7839ef8c96cf11f16a",
    "remaining": {
     "GZQO-EXC-01": 15,
     "GZQO-EXC-02": 15,
     "GZQO-EXC-03": 14,
-    "GZQO-EXC-04": 14,
-    "GZQO-EXC-05": 14,
-    "GZQO-EXC-06": 14,
-    "GZQO-EXC-07": 13,
-    "GZQO-EXC-08": 13,
-    "GZQO-EXC-09": 12,
-    "GZQO-EXC-10": 12,
-    "GZQO-EXC-13": 11,
+    "GZQO-EXC-04": 13,
+    "GZQO-EXC-05": 13,
+    "GZQO-EXC-06": 13,
+    "GZQO-EXC-07": 12,
+    "GZQO-EXC-08": 12,
+    "GZQO-EXC-09": 11,
+    "GZQO-EXC-10": 11,
+    "GZQO-EXC-13": 10,
     "GZQO-INC-01": 381,
     "GZQO-INC-02": 115,
     "GZQO-INC-03": 64,
@@ -103,8 +103,8 @@
     "GZQO-EXC-05": 0,
     "GZQO-EXC-06": 3,
     "GZQO-EXC-07": 0,
-    "GZQO-EXC-08": 3,
-    "GZQO-EXC-09": 8,
+    "GZQO-EXC-08": 2,
+    "GZQO-EXC-09": 7,
     "GZQO-EXC-10": 0,
     "GZQO-EXC-13": 3,
     "GZQO-INC-01": 0,
@@ -116,10 +116,10 @@
     "GZQO-INC-09": 0
    },
    "variants": {
-    "bmi=24": 19,
-    "bmi=25": 14,
-    "bmi=27": 11,
-    "unknown_as_pass": 30
+    "bmi=24": 18,
+    "bmi=25": 13,
+    "bmi=27": 10,
+    "unknown_as_pass": 29
    }
   },
   "synthetic-jp-a": {
@@ -298,7 +298,7 @@
     "bmi=24": 59,
     "bmi=25": 53,
     "bmi=27": 42,
-    "unknown_as_pass": 143
+    "unknown_as_pass": 142
    }
   }
  }

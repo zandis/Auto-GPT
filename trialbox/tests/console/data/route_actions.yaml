@@ -17,9 +17,13 @@ routes:
   "POST /admin/jobs/{job_id}/cancel": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /admin/jobs/{job_id}/retry": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /admin/models/canary": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "GET /admin/data-step": {actions: ["ops.view"], mode: all, why: "M5 (10K-16): the SS-MIX2 data step, counts only, for the administrator, as the operations pages (console.data_step)"}
+  "GET /admin/health": {actions: ["ops.view"], mode: all, why: "M5 (10K-6): the health page, counts and ages only, for the administrator, as the operations pages (console.health_page)"}
   "GET /admin/egress": {actions: ["ops.view"], mode: all, why: "D-1093 (M3): what left the box, for the administrator, as the operations pages"}
   "GET /admin/notice": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /admin/ops": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "GET /admin/support": {actions: ["ops.view"], mode: all, why: "M5 (10K-15, decision 99): the support session's page, for the administrator (console.support_page)"}
+  "POST /admin/support": {actions: ["ops.update_apply"], mode: all, why: "M5 (10K-15, decision 99): the administrator turns the support session on or off (console.support_page)"}
   "GET /admin/ops/network/{name}": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /admin/ops/{action}": {actions: ["ops.update_check"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /admin/still-needed": {actions: ["ops.view"], mode: all, why: "the administrator only, as the operations pages (console.still_needed)"}
@@ -37,7 +41,10 @@ routes:
   "GET /api/edc/oidc/userinfo": {kind: signed_in, why: "the EDC door's sign-on (D-1060); off on the test box"}
   "POST /api/edc/tools": {actions: ["redcap.connection"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /api/edc/tools/{proposal_id}/confirm": {actions: ["redcap.connection"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "POST /api/v1/admin/support": {actions: ["ops.update_apply"], mode: all, why: "M5 (10K-15, decision 99): the support form's twin (console.support_page)"}
   "GET /api/v1/admin/ops": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "GET /api/v1/admin/data-step": {actions: ["ops.view"], mode: all, why: "M5 (10K-16): the data step's twin (console.data_step)"}
+  "GET /api/v1/admin/health": {actions: ["ops.view"], mode: all, why: "M5 (10K-6): the health page's twin (console.health_page)"}
   "POST /api/v1/admin/still-needed/{item}": {actions: ["ops.update_apply"], mode: all, why: "the administrator only, as the operations pages (console.still_needed); the page's twin"}
   "GET /api/v1/ask": {actions: ["!report.sponsor_form"], mode: all, why: "D-104 (console/app.py _scope_check): a CRO account sees the reports pages only"}
   "POST /api/v1/audit/patients/by-chart": {actions: ["audit.browse"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
@@ -45,6 +52,7 @@ routes:
   "GET /api/v1/data/batches": {actions: ["dataops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /api/v1/data/batches/{bid}": {actions: ["dataops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /api/v1/data/batches/{bid}/decide": {actions: ["dataops.decide"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "POST /api/v1/jobs/{job_id}/approval/save": {actions: ["request.prepare", "criteria.approve"], mode: any, why: "H3-UX fix 2: the twin of the approval page's one form; labels ask request.prepare or criteria.approve, ticks and amber rows criteria.approve (checked in the route)"}
   "GET /api/v1/data/sources": {actions: ["dataops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /api/v1/site/charts": {actions: ["phi.view", "site.setup"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /api/v1/site/checks": {actions: ["phi.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
@@ -176,6 +184,7 @@ routes:
   "GET /pilot/jobs/{job_id}": {actions: ["!report.aggregate_only"], mode: all, why: "D-146 (J-03/J-04/J-05, console/app.py _aggregate_denied): closed to viewer and CRO accounts; the patient rows inside ask phi.view (D-280)"}
   "GET /pilot/jobs/{job_id}/approval": {actions: ["!report.aggregate_only"], mode: all, why: "D-146 (J-03/J-04/J-05, console/app.py _aggregate_denied): closed to viewer and CRO accounts; the patient rows inside ask phi.view (D-280)"}
   "POST /pilot/jobs/{job_id}/approval/label": {actions: ["request.prepare", "criteria.approve"], mode: any, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "POST /pilot/jobs/{job_id}/approval/save": {actions: ["request.prepare", "criteria.approve"], mode: any, why: "H3-UX fix 2: the approval page's one form; labels ask request.prepare or criteria.approve, ticks and amber rows criteria.approve (checked in the route)"}
   "POST /pilot/jobs/{job_id}/approval/tick": {actions: ["criteria.approve"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /pilot/jobs/{job_id}/approve": {actions: ["criteria.approve"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /pilot/jobs/{job_id}/files/{filename}": {actions: ["!report.aggregate_only"], mode: all, why: "D-146 (J-03): no job file for an aggregate-only account; each file's own level (D-101) is not walked"}

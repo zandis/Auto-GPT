@@ -1,0 +1,80 @@
+{
+ "card": "INTSA",
+ "title": "a note answer never takes a patient off the list (ring 0, D-1072)",
+ "date": "2026-11-25",
+ "source": "docs/handover/notes-never-exclude-int-s-a-2026-11-25.md",
+ "findings": [
+  {
+   "id": "INTSA-01",
+   "severity": "High",
+   "claim": "two models agreeing on a stated note exclusion took the patient off the investigator's list on every path; fixed: review with both quotes and the reason code notes_suggest_not_eligible",
+   "lane": "E",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/matching/note_answer.py"
+  },
+  {
+   "id": "INTSA-02",
+   "severity": "High",
+   "claim": "NAV dropped a patient for a note \"not met\" on an inclusion; fixed: the patient stays on the sheet with the inclusion a row to confirm, and a draft never writes a note exclusion as present",
+   "lane": "E",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/orchestrator/scenarios/nav.py classify"
+  },
+  {
+   "id": "INTSA-03",
+   "severity": "Low",
+   "claim": "with TB_NOTE_BLOCK=both_agree on v1 a pair's note not-met is stored final: true (cascade: false), so a patient the coded records exclude also lists that note criterion as a reason on the criteria-not-matched page, as an inclusion's did before; not under the default never",
+   "lane": "E",
+   "basis": "read",
+   "state": "open",
+   "place": "services/orchestrator/scenarios/evaluate.py not_final; services/orchestrator/scenarios/screen.py excluded_doc"
+  },
+  {
+   "id": "INTSA-04",
+   "severity": "Low",
+   "claim": "the schema texts of evidence.opinions, affirmed and final still say opinions mean a disagreement and that such an answer may exclude; the texts are the contract lane's",
+   "lane": "E",
+   "basis": "read",
+   "state": "open",
+   "place": "schemas/candidate_list.schema.json"
+  },
+  {
+   "id": "INTSA-05",
+   "severity": "Low",
+   "claim": "deploy comments, code docstrings and check labels of the end-to-end tools still say a note excludes when both models agree",
+   "lane": "H",
+   "basis": "read",
+   "state": "open",
+   "place": "deploy/docker-compose.*.yml, deploy/install.sh, deploy/dgpu48-profile.yaml, tools/e2e_simple.py, tools/public_e2e.py, tools/scenarios.py"
+  },
+  {
+   "id": "INTSA-06",
+   "severity": "Medium",
+   "claim": "feasibility counts drop a patient on an absence in the notes with no model answer (certified zero hits, index condition absent); a separate card after ring 0",
+   "lane": "E",
+   "basis": "read",
+   "state": "open",
+   "place": "services/matching/cascade/engine.py s2, s2b"
+  },
+  {
+   "id": "INTSA-07",
+   "severity": "Low",
+   "claim": "for lane H's card: the installer writes TB_NOTE_BLOCK=both_agree and the doctor reads an unset one as both_agree (its tests pin it); neither can exclude a patient, both decide final only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/install.sh, tools/trialbox/doctor.py check_note_block"
+  },
+  {
+   "id": "INTSA-08",
+   "severity": "Low",
+   "claim": "NAV still keeps a patient off the likely-eligible sheet for a note inclusion answered unknown (disagreement, no quote, weak or cut \"met\"), and for a coded unknown, as before; only the note \"not met\" was ruled",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "place": "services/orchestrator/scenarios/nav.py classify"
+  }
+ ]
+}

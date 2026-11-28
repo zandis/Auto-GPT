@@ -131,8 +131,8 @@ As the investigator: open each row to check, then approve all.
 | --- | --- | --- | --- |
 | In the top bar, click | This week's patients | 本週病人 | 今週の患者 |
 | Click | Criteria waiting for your approval: MYSTUDY v1.0.0 | 等待您核准的條件：MYSTUDY v1.0.0 | 承認待ちの基準：MYSTUDY v1.0.0 |
-| zh-TW and ja pages only: give each criterion a short label, then click | Save label | 儲存標籤 | 表示名を保存 |
-| On each row that has it, click | Open | 開啟 | 開く |
+| zh-TW and ja pages only: give each criterion a short label, then click | Save labels and ticks | 儲存標籤與確認 | 表示名と確認を保存 |
+| On each amber row, open the codes and tick | I have read this row | 我已看過這一列 | この行を確認しました |
 | Click | Approve all | 全部核准 | すべて承認 |
 | Click | Yes, do it | 是，執行 | はい、実行します |
 

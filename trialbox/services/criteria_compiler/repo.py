@@ -8,8 +8,14 @@
 
 from __future__ import annotations
 
+import contextlib
+import ctypes
+import fcntl
+import logging
+import os
 import shutil
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +27,45 @@ from tb_common.ruleset import SEEDED_TAG
 
 AUTHOR = b"TrialBox criteria-compiler <trialbox@localhost>"
 FILE_MODE = 0o100644
+_AT_FDCWD = -100
+_RENAME_EXCHANGE = 2
+
+log = logging.getLogger(__name__)
+
+
+def _write_synced(path: Path, data: bytes) -> None:
+    """Write ``path`` whole and fsync it. Its own write loop: ``os.write`` may write less than it is given."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o666)
+    try:
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view) :]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _exchange(a: Path, b: Path) -> None:
+    """Swap folders ``a`` and ``b`` in one rename (Linux ``renameat2`` RENAME_EXCHANGE). Where the kernel or the
+    file system has no exchange the approval fails and the old copy stays whole: never a moment with no copy."""
+    # ponytail: Linux only (the box runs in Linux containers); a pointer-file swap if another OS must write here
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.renameat2(_AT_FDCWD, os.fsencode(a), _AT_FDCWD, os.fsencode(b), _RENAME_EXCHANGE) != 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err), str(b))
+
+
+class SwapUnsupported(RuntimeError):
+    """INT-R3A: the rulesets folder's file system cannot exchange two folders in one rename, so an approval could
+    not swap a ruleset's working copy whole (:meth:`RulesetRepo.check_swap`)."""
 
 
 class RulesetRepo:
@@ -30,6 +75,7 @@ class RulesetRepo:
         if (path / ".git").exists():
             self.repo = Repo(str(path))
             self.refs: Any = self.repo.refs
+            self._clean_left_overs()
         else:
             self.repo = Repo.init(str(path))
             self.refs = self.repo.refs
@@ -180,6 +226,13 @@ class RulesetRepo:
         self.refs[key] = t.id
         return t.id
 
+    def files_before(self, name: str, prefix: str) -> dict[str, bytes]:
+        """The files under ``prefix`` one commit before the one tag ``name`` names (an approval's draft)."""
+        sha = self.ref(f"refs/tags/{name}")
+        commit: Any = self.repo[sha] if sha else None
+        parent = commit.parents[0] if commit is not None and commit.parents else None
+        return {p[len(prefix) :]: b for p, b in self._files(parent).items() if p.startswith(prefix)}
+
     def promote(self, ruleset: str, from_ref: str, message: str, author: str | None = None) -> bytes:
         """Copy ``<ruleset>/`` from ``from_ref`` onto ``main`` and refresh the materialized copy."""
         files = {p[len(ruleset) + 1 :]: b for p, b in self.files(from_ref, f"{ruleset}/").items()}
@@ -188,16 +241,73 @@ class RulesetRepo:
         return sha
 
     def materialize(self, ruleset: str, ref: str = "main") -> None:
-        target = self.path / ruleset
-        tmp = self.path / f".{ruleset}.tmp"
-        shutil.rmtree(tmp, ignore_errors=True)
-        for p, data in self.files(ref, f"{ruleset}/").items():
-            dest = tmp / p[len(ruleset) + 1 :]
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-        shutil.rmtree(target, ignore_errors=True)
-        if tmp.exists():
-            tmp.rename(target)
+        """INT-R3A: the new copy is built whole beside the old one and fsynced, then the two folders are exchanged
+        in one rename, so a reader finds the whole old copy or the whole new one, never none or a mix of files
+        written in place. The old copy is removed after the swap; a kill leaves ``.<ruleset>.tmp``, removed at the
+        next start (:meth:`_clean_left_overs`). One writer at a time (:meth:`_writing`)."""
+        with self._writing():
+            target = self.path / ruleset
+            tmp = self.path / f".{ruleset}.tmp"
+            shutil.rmtree(tmp, ignore_errors=True)
+            files = self.files(ref, f"{ruleset}/")
+            if not files:  # the ruleset is gone from ``ref``
+                shutil.rmtree(target, ignore_errors=True)
+                return
+            for p, data in files.items():
+                dest = tmp / p[len(ruleset) + 1 :]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                _write_synced(dest, data)
+            for d in sorted((x for x in tmp.rglob("*") if x.is_dir()), key=lambda x: len(x.parts), reverse=True):
+                _fsync_dir(d)
+            _fsync_dir(tmp)
+            if target.exists():
+                _exchange(tmp, target)
+                shutil.rmtree(tmp)
+            else:
+                os.rename(tmp, target)
+            _fsync_dir(self.path)
+
+    @contextlib.contextmanager
+    def _writing(self, wait: bool = True) -> Iterator[None]:
+        """The lock on the working copy's temporary folders: the compiler, an offline install, an update's restore
+        and the doctor each open this repository. ``wait`` False: BlockingIOError when another holds it. A killed
+        process's lock goes with it. On the ``.git`` folder itself: no lock file whose owner could shut another out."""
+        fd = os.open(self.path / ".git", os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield
+        finally:
+            os.close(fd)
+
+    def check_swap(self) -> None:
+        """INT-R3A (INTR3A-02): exchange two empty folders in the rulesets folder; :class:`SwapUnsupported` when its
+        file system cannot. An approval asks before it writes its commit and tag, so a refusal changes nothing."""
+        pair = (self.path / ".swap-a.tmp", self.path / ".swap-b.tmp")
+        with self._writing():
+            try:
+                for p in pair:
+                    shutil.rmtree(p, ignore_errors=True)
+                    p.mkdir()
+                _exchange(*pair)
+            except OSError as exc:
+                raise SwapUnsupported("the rulesets folder cannot swap two folders in one rename") from exc
+            finally:
+                for p in pair:
+                    shutil.rmtree(p, ignore_errors=True)
+
+    def _clean_left_overs(self) -> None:
+        """A copy a kill left part way (``.<ruleset>.tmp``, built or swapped out): removed, and said. Never one a
+        running writer holds (its lock), and a folder this process may not write is left and said."""
+        left = sorted(p for p in self.path.glob(".*.tmp") if p.is_dir() and not p.is_symlink())
+        if not left:
+            return
+        try:
+            with self._writing(wait=False):
+                for p in left:
+                    log.warning("rulesets: removing %s, left by an interrupted materialisation", p.name)
+                    shutil.rmtree(p, ignore_errors=True)
+        except OSError as exc:  # another process is writing, or this one only reads
+            log.warning("rulesets: %d temporary folder(s) left as they are (%s)", len(left), type(exc).__name__)
 
     def materialize_all(self, ref: str = "main") -> None:
         rulesets = {p.split("/", 1)[0] for p in self.files(ref) if "/" in p}

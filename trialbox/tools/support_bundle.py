@@ -48,9 +48,11 @@ is left out and listed.
 from __future__ import annotations
 
 import argparse
+import base64
 import errno
 import gzip
 import hashlib
+import html
 import io
 import json
 import os
@@ -87,6 +89,11 @@ ASSIGN = re.compile(r"^(?P<lead>\s*-?\s*)(?P<key>[A-Za-z_][A-Za-z0-9_.\-]*)(?P<s
 USERINFO = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*://)[^/@\s:]+:[^/@\s]+@")
 MAX_MEMBER = 16 * 2**20  # below the scan's 32 MB limit: a longer file keeps its last 16 MB
 HISTORY_LINES = 400
+#: H-76: a member larger than this is announced before its scrub, with the time it may take: the scrub, its second
+#: pass and the writer's check measured about 6 s a MB on a log of encoded URLs (the slowest kind; a plain log is
+#: faster); a 64 MiB log is about 6 to 7 minutes
+SAY_LARGE = 4 * 2**20
+SCRUB_SECONDS_PER_MB = 6.0
 DEFAULT_DAYS = 3
 DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -234,15 +241,17 @@ def secret_values(raw_env: Mapping[str, str], environ: Mapping[str, str], files:
 
 
 def _forms(value: str) -> list[str]:
-    """The value as text, as a URL carries it (both percent-encodings) and as JSON writes it."""
-    forms = {
-        value,
-        urllib.parse.quote(value, safe=""),
-        urllib.parse.quote(value),
-        urllib.parse.quote_plus(value),
-        json.dumps(value)[1:-1],
-        json.dumps(value, ensure_ascii=False)[1:-1],
-    }
+    """The value as text, as a URL carries it (both percent-encodings, up to three layers: H76-08, a value encoded
+    twice with no name next to it), as JSON and HTML write it, and in base64 (either alphabet, padded or not)."""
+    forms = {value, json.dumps(value)[1:-1], json.dumps(value, ensure_ascii=False)[1:-1], html.escape(value)}
+    for enc in (lambda v: urllib.parse.quote(v, safe=""), urllib.parse.quote, urllib.parse.quote_plus):
+        v = value
+        for _ in range(3):
+            v = enc(v)
+            forms |= {v}
+    raw = value.encode("utf-8")
+    for b in (base64.b64encode(raw).decode(), base64.urlsafe_b64encode(raw).decode()):
+        forms |= {b, b.rstrip("=")}
     return sorted(forms, key=len, reverse=True)
 
 
@@ -363,8 +372,12 @@ class Bundle:
         self, name: str, text: str, source: str, *, scrubbed: bool = False, mrn: re.Pattern[str] | None = None
     ) -> None:
         name = self._unique(self.scrubber.name(name), self.members)
-        if scrubbed:
-            text, n = scrub(text, mrn)
+        size = len(text.encode("utf-8"))
+        if size > SAY_LARGE:  # H-76: the operator is told before a long scrub, not left at a silent prompt
+            mb = size / 2**20
+            self.say(f"scrubbing {name} ({mb:.0f} MB): about {max(1, round(mb * SCRUB_SECONDS_PER_MB / 60))} minute(s)")
+        if scrubbed:  # H76: counted only; the scrub below applies the same patterns after it decodes each line
+            _, n = scrub(text, mrn)
             self.note(name, "redacted", n)
         # review H2: the scrub runs on the whole text, THEN the member is cut to its last MAX_MEMBER bytes: a cut made
         # first can open a PEM block, a quoted value or a YAML block in the middle, where no rule sees its start
@@ -588,11 +601,16 @@ def _logs_part(b: Bundle, deploy: Path, env: Mapping[str, str], days: int, mrn: 
             except (OSError, EOFError) as exc:
                 b.leave_out(f"logs/{d.name}/{svc}.log", f"unreadable ({type(exc).__name__})")
                 continue
-            text = bs.as_text(data, cut=len(data) == MAX_MEMBER * 4)  # review L3: a dropped last byte only if cut
+            cut = len(data) == MAX_MEMBER * 4
+            text = bs.as_text(data, cut=cut)  # review L3: a dropped last byte only if cut
             if text is None:  # H-71: not UTF-8 text (UTF-16, binary): left out and listed, never copied unscrubbed
                 b.leave_out(f"logs/{d.name}/{svc}.log", "not UTF-8 text the scrub can read")
                 continue
+            if cut:  # H76-10: the read limit cut the log; its last, partial line (a token cut in two) is dropped
+                text = text.rpartition("\n")[0] + "\n" if "\n" in text else ""
             b.add(f"logs/{d.name}/{svc}.log", text, str(f), scrubbed=True, mrn=mrn)
+            if cut:
+                b.note(f"logs/{d.name}/{svc}.log", "cut_at_read_limit", 1)
     for svc in sorted(third):
         b.leave_out(f"logs of {svc}", NEVER_LOGS.get(svc, "not a TrialBox service: its log is not scrubbed"))
     if not chosen:

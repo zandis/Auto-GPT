@@ -18,7 +18,8 @@ relative's sentence (the guard read only the quoted fragment); and 32 report sen
 suspected" or "stated absent", 8 per class and language (NTCIR-16 Real-MedNLP MedTxt-CR, Sociocom NAIST, CC BY 4.0;
 picked by the bench, #639 7078754293, as the ones the judge read as present most often). Both models of the pair
 agree, confidence 0.9, the quote verbatim in the record. A control per criterion (a quote that states the condition)
-still excludes on every path, so no check passes by never excluding.
+is decided on every path: a "not met" the row keeps, for review since ring 0 (D-1072; it excluded before), so no check
+passes by never deciding; a coded inclusion "not met" still excludes.
 
 One small lake and every path that decides a patient's status, driven in process on one box (``tests/inproc_box.py``)
 with a scripted pair that reads the text it is shown (``tests/judge_kit.py``), as ``test_path_independence.py`` does.
@@ -49,7 +50,13 @@ from lake.store import Lake
 from matching import decision
 from matching.cascade.judge import AgreementJudge, JudgeReply, verify_span
 from matching.inferred import inferred, sentence_of
-from matching.note_answer import INCLUSION_REASON, INFERRED_REASON, OTHER_KIND_REASON, note_answer_may
+from matching.note_answer import (
+    INCLUSION_REASON,
+    INFERRED_REASON,
+    NOTES_SUGGEST_REASON,
+    OTHER_KIND_REASON,
+    note_answer_may,
+)
 from orchestrator.scenarios import nav
 from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, PatientVerdicts, note_verdict
 from tb_common.crypto import pid_for_mrn
@@ -220,21 +227,21 @@ def _sentence(i: Input) -> str:
 
 
 def test_the_inputs_are_inferences_and_the_controls_are_not() -> None:
-    """The premise: the one rule sends every input to review and lets every control exclude."""
+    """The premise: the one rule sends every input to review as an inference and every control to review as what the
+    notes suggest (ring 0, D-1072; before it, every control excluded)."""
     for i in INPUTS:
         assert i.quote in PATIENTS[i.patient]["note"]
         may = note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i), affirmed=True)
         assert may.effect == "review" and may.reason == INFERRED_REASON, i.name
     for i in CONTROLS:
-        assert (
-            note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i), affirmed=True).effect
-            == "excludes"
-        ), i.name
+        may = note_answer_may("exclusion", True, i.quote, BY_ID[i.cid].text, _sentence(i), affirmed=True)
+        assert (may.effect, may.reason) == ("review", NOTES_SUGGEST_REASON), i.name
 
 
 def test_a_fragment_is_read_in_its_sentence() -> None:
     """The fragment alone states the condition; its sentence is a relative's (the guard read only the fragment)."""
-    assert note_answer_may("exclusion", True, FRAGMENT, BY_ID[HIV].text, affirmed=True).effect == "excludes"
+    may = note_answer_may("exclusion", True, FRAGMENT, BY_ID[HIV].text, affirmed=True)
+    assert (may.effect, may.reason) == ("review", NOTES_SUGGEST_REASON)  # D-1072: stated, so not an inference
     assert sentence_of(FRAGMENT, PATIENTS["HIV_FRAGMENT"]["note"]) == FRAGMENT_SENTENCE
 
 
@@ -578,7 +585,7 @@ PATHS: dict[str, dict[str, tuple[tuple[str | None, ...], tuple[str | None, ...]]
         "case": (("sheet",), ("sheet",)),
     },
 }
-PATHS["inclusions"] = {**PATHS["exclusions"], "nav": (("-",), ("-",))}
+PATHS["inclusions"] = {**PATHS["exclusions"], "nav": (("likely_eligible",), ("-",))}  # D-1072: the note inclusion stays
 LISTS = [p for p in PATHS["exclusions"] if p not in ("nav", "case")]  # the paths that publish a tier and the rows
 EVERY = [pytest.param(path, i, id=f"{path}-{i.name}") for path in PATHS["exclusions"] for i in [*INPUTS, *I_INPUTS]]
 EVERY_CONTROL = [
@@ -628,11 +635,13 @@ def test_a_note_answer_never_excludes_on_any_path(request: pytest.FixtureRequest
 
 
 @pytest.mark.parametrize(("path", "case"), EVERY_CONTROL)
-def test_a_stated_exclusion_or_a_coded_inclusion_still_excludes_on_every_path(
+def test_a_coded_inclusion_still_excludes_and_a_stated_exclusion_is_review_on_every_path(
     request: pytest.FixtureRequest, path: str, case: Input
 ) -> None:
     s = _seen(request, case)[path]
-    assert s.status.get(case.patient) in PATHS[case.world][path][1], (path, case.name, s.status.get(case.patient))
+    # D-1072 (ring 0): a stated note exclusion is review, as an input is; only the coded inclusion still excludes
+    want = PATHS[case.world][path][1] if case.cid == I_AGE else PATHS["exclusions"][path][0]
+    assert s.status.get(case.patient) in want, (path, case.name, s.status.get(case.patient))
     row = s.rows.get(case.patient, {}).get(case.cid)
     if row is not None:  # the excluded list and NAV's "on no list" carry no verdict of the control's criterion
         assert row["verdict"] == "fail", (path, case.name, row)
@@ -649,7 +658,9 @@ def test_each_world_lists_every_input_on_each_list_path(request: pytest.FixtureR
         missing = [i.patient for i in inputs if i.patient not in seen[path].status]
         assert not missing, (path, missing)
     for path in ("screen.cascade", "screen.v1", "microbatch.new.cascade", "microbatch.new.v1"):
-        assert all(seen[path].status.get(i.patient) == "excluded" for i in controls), path
+        # D-1072 (ring 0): the stated note exclusions are review; the coded inclusion is excluded
+        want = {i.patient: "excluded" if i.cid == I_AGE else "review" for i in controls}
+        assert all(seen[path].status.get(p) == w for p, w in want.items()), path
 
 
 # ------------------------------------------------------------------------------------------------ each rule itself
@@ -680,10 +691,10 @@ def test_a_stored_row_on_an_inferred_quote_is_reviewed_by_the_status_rule(case: 
 
 
 @pytest.mark.parametrize("case", [pytest.param(i, id=f"pool.stored_row-{i.name}") for i in CONTROLS])
-def test_a_stored_row_on_a_stated_quote_still_excludes(case: Input) -> None:
+def test_a_stored_row_on_a_stated_quote_is_review(case: Input) -> None:
     v = _stored(case)
-    assert decision.answer_of(BY_ID[case.cid], v, POLICY) == "no"
-    assert decision.status_of(BY_ID, [AGE_MET, v], POLICY).tier == "excluded"
+    assert decision.answer_of(BY_ID[case.cid], v, POLICY) == "unknown"  # D-1072 (ring 0)
+    assert decision.status_of(BY_ID, [AGE_MET, v], POLICY).tier == "review"
 
 
 def _note_result(i: Input) -> NoteResult:
@@ -760,9 +771,9 @@ def test_the_sentence_is_read_and_never_published(case: Input) -> None:
 
 
 @pytest.mark.parametrize("case", [pytest.param(i, id=f"cascade.map-{i.name}") for i in CONTROLS])
-def test_the_cascade_outcome_of_a_stated_quote_is_a_hard_fail(case: Input) -> None:
+def test_the_cascade_outcome_of_a_stated_quote_is_a_soft_fail(case: Input) -> None:
     o = _cascade(case)
-    assert (o.status, o.hard) == ("fail", True)
+    assert (o.status, o.hard) == ("fail", False)  # D-1072 (ring 0)
 
 
 @pytest.mark.parametrize("kind", ["inclusion", "exclusion"])
@@ -852,10 +863,10 @@ def test_the_records_answer_and_a_persons_still_exclude(policy: decision.Policy)
     assert decision.answer_of(I_BY_ID[INC], person, policy) == "no"
 
 
-def test_an_exclusion_whose_quote_states_the_condition_still_excludes() -> None:
+def test_an_exclusion_whose_quote_states_the_condition_is_review() -> None:
     v = _i_note_row(I_CONTROLS[1])
-    assert decision.answer_of(I_BY_ID[I_HIV], v, POLICY) == "no"
-    assert decision.status_of(I_BY_ID, _i_patient(v), POLICY).tier == "excluded"
+    assert decision.answer_of(I_BY_ID[I_HIV], v, POLICY) == "unknown"  # D-1072 (ring 0)
+    assert decision.status_of(I_BY_ID, _i_patient(v), POLICY).tier == "review"
 
 
 def _i_note_result(i: Input) -> NoteResult:
@@ -891,23 +902,26 @@ class _IRs:
 
 @pytest.mark.parametrize("case", [pytest.param(i, id=f"nav.classify-{i.name}") for i in I_INPUTS])
 def test_nav_reads_an_inclusion_not_met_from_the_notes_as_a_row_to_confirm(case: Input) -> None:
-    """NAV (line 83: the status rule's answer per criterion): the inclusion is a 確認 row, not a "no". A patient with
-    an inclusion not "yes" is on no NAV list (``nav.lists``), so the row is what NAV's rule changes."""
+    """NAV (line 83: the status rule's answer per criterion): the inclusion is a 確認 row, not a "no", and the patient
+    stays on the sheet (D-1072; a patient with an inclusion not "yes" was on no NAV list before)."""
     v = note_verdict(I_BY_ID[case.cid], _i_note_result(case), pair=True)
     pv = PatientVerdicts("P1", _i_patient(v), "review", [], 0)
     name, missing = nav.classify(cast(Any, _IRs()), pv, None, None, RUN, 42, 90, 0.75, True)
-    assert name is None and [m.criterion_id for m in missing] == [case.cid]
+    assert name == "likely_eligible" and [m.criterion_id for m in missing] == [case.cid]  # D-1072
 
 
 @pytest.mark.parametrize("case", [pytest.param(i, id=f"nav.classify-{i.name}") for i in I_CONTROLS])
-def test_nav_reads_a_coded_inclusion_or_a_stated_exclusion_as_a_no(case: Input) -> None:
+def test_nav_reads_a_coded_inclusion_as_a_no_and_a_stated_exclusion_as_a_row_to_confirm(case: Input) -> None:
     if case.cid == I_AGE:
         v = CriterionVerdict(id=I_AGE, verdict="fail", evidence=Evidence(resource_refs=[], reason="coded"),
                              basis="coded", prov=[])  # fmt: skip
-    else:
+        pv = PatientVerdicts("P1", _i_patient(v), "excluded", [], 0)
+        assert nav.classify(cast(Any, _IRs()), pv, None, None, RUN, 42, 90, 0.75, True) == (None, [])
+    else:  # D-1072 (ring 0): listed, the stated exclusion a row to confirm
         v = _i_note_row(case)
-    pv = PatientVerdicts("P1", _i_patient(v), "excluded", [], 0)
-    assert nav.classify(cast(Any, _IRs()), pv, None, None, RUN, 42, 90, 0.75, True) == (None, [])
+        pv = PatientVerdicts("P1", _i_patient(v), "review", [], 0)
+        name, missing = nav.classify(cast(Any, _IRs()), pv, None, None, RUN, 42, 90, 0.75, True)
+        assert name == "likely_eligible" and [m.criterion_id for m in missing] == [I_HIV]
 
 
 def _i_cascade(i: Input, note_block: bool, stage: str = "S3") -> Any:
@@ -927,12 +941,12 @@ def test_the_cascade_outcome_of_an_inclusion_not_met_is_a_soft_fail(case: Input,
     assert (o.status, o.hard, o.stratum) == ("fail", False, None)
 
 
-def test_the_cascade_outcome_of_a_stated_exclusion_is_a_hard_fail() -> None:
+def test_the_cascade_outcome_of_a_stated_exclusion_is_a_soft_fail() -> None:
     c = I_CONTROLS[1]
     reply = JudgeReply("pass", PAIR, c.quote, "2026-09-20", "both agree", call_id="c1", prompt="judge@test",
                        affirmed=True)  # round 5 of R22-16: both models affirmed it  # fmt: skip
     o = _run_for_map(True)._map(I_BY_ID[c.cid], reply, {**SPAN, "quote": c.quote}, "S3")
-    assert (o.status, o.hard) == ("fail", True)
+    assert (o.status, o.hard) == ("fail", False)  # D-1072 (ring 0)
     unsaid = _run_for_map(True)._map(I_BY_ID[c.cid], replace(reply, affirmed=False), {**SPAN, "quote": c.quote}, "S3")
     assert (unsaid.status, unsaid.hard) == ("unknown", False)  # round 5: not affirmed by both models
 
@@ -1638,8 +1652,8 @@ def test_a_form_that_does_not_state_the_condition_goes_to_review_on_every_builde
 
 
 @pytest.mark.parametrize(("text", "quote"), ALL_CONTROLS, ids=[f[1] for f in ALL_CONTROLS])
-def test_the_same_criteria_on_a_stated_quote_still_exclude(text: str, quote: str) -> None:
-    assert _builders(text, quote, "") == ("excludes", "fail", "fail", True)
+def test_the_same_criteria_on_a_stated_quote_are_a_not_met_for_review(text: str, quote: str) -> None:
+    assert _builders(text, quote, "") == ("review", "fail", "fail", False)  # D-1072 (ring 0)
 
 
 # ------------------------------------------------------------------------------------------------ round 4 (#639 7107834329)
@@ -1700,7 +1714,7 @@ class _Says:
                           prompt=self.prompt, affirmed=True)  # fmt: skip
 
 
-@pytest.mark.parametrize(("verifier_quote", "want"), [(GRANDMOTHER, ("unknown", False)), (HAS_HIV, ("fail", True))])
+@pytest.mark.parametrize(("verifier_quote", "want"), [(GRANDMOTHER, ("unknown", False)), (HAS_HIV, ("fail", False))])
 def test_the_cascade_pair_reads_the_verifiers_quote_too(verifier_quote: str, want: tuple[str, bool]) -> None:
     """L3 on the cascade: the pair's reply carries the verifier's sentence (``JudgeReply.sentence``, never
     published), which the one rule reads beside the judge's span."""
@@ -1711,8 +1725,8 @@ def test_the_cascade_pair_reads_the_verifiers_quote_too(verifier_quote: str, wan
     assert reply.verdict == "pass" and reply.quote == HAS_HIV and reply.sentence == verifier_quote
     span = verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31))
     o = _run_for_map(True)._map(BY_ID[HIV], reply, span, "S3")
-    assert (o.status, o.hard) == want
-    assert verifier_quote not in json.dumps(o.evidence) or want[1]
+    assert (o.status, o.hard) == want  # D-1072 (ring 0): both stated is a soft "not met", no longer a hard fail
+    assert verifier_quote not in json.dumps(o.evidence) or want[0] == "fail"
 
 
 # ------------------------------------------------------------------------------------ lane J's reproduction
@@ -1722,7 +1736,7 @@ def test_the_cascade_pair_reads_the_verifiers_quote_too(verifier_quote: str, wan
 # ``tier``/``status_of``, the cascade through ``OrchestratorJudge`` -> ``verify_span`` -> ``_map`` (#639 7113069462).
 # Each input also runs with its quote wrapped in 「」 or "" as a model may write it, which lane J found matched no note
 # (``quote_not_found``); one enclosing pair of marks is now dropped before the quote is matched. A stated quote, bare
-# and wrapped, still excludes on both paths.
+# and wrapped, is decided on both paths: a "not met" for review since ring 0 (D-1072; it excluded before).
 J_IDX = date(2026, 2, 1)
 J_HIV, J_MI, J_HCV = "Known HIV infection", "History of myocardial infarction", "Active hepatitis C"
 J_HIV_JA = "HIV感染が既知の患者"
@@ -1809,14 +1823,14 @@ def test_no_path_excludes_on_a_negated_family_history_rule_out_or_suspected_quot
 
 @pytest.mark.parametrize("wrap", [False, True], ids=["bare", "wrapped"])
 @pytest.mark.parametrize(("criterion", "record", "quote"), J_STATED, ids=["en", "ja"])
-def test_lane_js_control_a_stated_quote_still_excludes_bare_or_in_marks(
+def test_lane_js_control_a_stated_quote_is_decided_bare_or_in_marks(
     criterion: str, record: str, quote: str, wrap: bool
 ) -> None:
     """Red before the marks were dropped (wrapped): the quote matched no note, so nothing could ever exclude on it."""
     v1_tier, status, v, o = _j_paths(criterion, record, _wrapped(quote) if wrap else quote)
-    assert (v1_tier, status) == ("excluded", "excluded"), (v1_tier, status)
+    assert (v1_tier, status) == ("review", "review"), (v1_tier, status)  # D-1072 (ring 0)
     assert v.verdict == "fail" and v.evidence is not None and v.evidence.quote == quote
-    assert o.status == "fail" and o.hard
+    assert o.status == "fail" and not o.hard
 
 
 @pytest.mark.parametrize(
@@ -1884,7 +1898,7 @@ def test_the_cascade_checks_the_verifiers_quote_against_the_record_as_v1_does(
     assert reply.verdict == want
     assert pair.disagreements == (want == "unknown")
     o = _run_for_map(True)._map(BY_ID[HIV], reply, verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31)), "S3")
-    assert (o.status, o.hard) == (("fail", True) if want == "pass" else ("unknown", False))
+    assert (o.status, o.hard) == (("fail", False) if want == "pass" else ("unknown", False))  # D-1072 (ring 0)
     # v1 on the same pair
     nj = NoteJudge(lake=None, llm=ScriptedModel("judge-a", says("pass", HAS_HIV)),  # type: ignore[arg-type]
                    verifier=ScriptedModel("verifier-b", says("pass", verifier_quote)))  # type: ignore[arg-type]  # fmt: skip
@@ -1894,15 +1908,15 @@ def test_the_cascade_checks_the_verifiers_quote_against_the_record_as_v1_does(
 
 def test_the_cascade_reads_the_judges_sentence_beside_the_verifiers() -> None:
     """Round 5, the re-review's surviving mutant at ``engine._map``: the judge's span sentence is a relative's, the
-    verifier's sentence states HIV. The rule reads both, so the patient goes to review; reading only the verifier's
-    would exclude."""
+    verifier's sentence states HIV. The rule reads both, so the answer is an inference for review; reading only the
+    verifier's would make it a stated "not met" (which excluded before ring 0, D-1072)."""
     reply = replace(JudgeReply("pass", PAIR, FRAGMENT, "2026-09-20", "both agree", call_id="c1", prompt="judge@test", affirmed=True),
                     sentence=HAS_HIV)  # fmt: skip
     o = _run_for_map(True)._map(BY_ID[HIV], reply, {**SPAN, "quote": FRAGMENT, "sentence": FRAGMENT_SENTENCE}, "S3")
     assert (o.status, o.hard, o.reason) == ("unknown", False, INFERRED_REASON)
     both_stated = replace(reply, quote=HAS_HIV)
     o = _run_for_map(True)._map(BY_ID[HIV], both_stated, {**SPAN, "quote": HAS_HIV, "sentence": HAS_HIV}, "S3")
-    assert (o.status, o.hard) == ("fail", True)  # the control: both state it
+    assert (o.status, o.hard, o.reason) == ("fail", False, NOTES_SUGGEST_REASON)  # the control: both state it
 
 
 @pytest.mark.parametrize(("quote", "text"), UNWRAP_CASES)
@@ -1946,10 +1960,11 @@ def test_only_affirmed_patient_current_affirms() -> None:
     assert not affirms({"verdict": "pass", "quote": HAS_HIV})  # a judge before v6: nothing said
 
 
-def test_a_stated_exclusion_excludes_only_when_both_models_affirmed_it() -> None:
+def test_a_stated_exclusion_is_what_the_notes_suggest_only_when_both_models_affirmed_it() -> None:
     from matching.note_answer import NOT_AFFIRMED_REASON
 
-    assert note_answer_may("exclusion", True, HAS_HIV, BY_ID[HIV].text, HAS_HIV, affirmed=True).effect == "excludes"
+    may = note_answer_may("exclusion", True, HAS_HIV, BY_ID[HIV].text, HAS_HIV, affirmed=True)
+    assert (may.effect, may.reason) == ("review", NOTES_SUGGEST_REASON)  # D-1072 (ring 0): no longer excludes
     for affirmed in (None, False):
         may = note_answer_may("exclusion", True, HAS_HIV, BY_ID[HIV].text, HAS_HIV, affirmed=affirmed)
         assert (may.effect, may.reason) == ("review", NOT_AFFIRMED_REASON)
@@ -1961,9 +1976,10 @@ def test_a_stated_exclusion_excludes_only_when_both_models_affirmed_it() -> None
 
 
 @pytest.mark.parametrize("other", NOT_AFFIRMED, ids=[str(t) for t in NOT_AFFIRMED])
-def test_a_v1_pair_excludes_only_when_both_models_affirm(other: tuple[str | None, ...]) -> None:
+def test_a_v1_pair_keeps_the_not_met_only_when_both_models_affirm(other: tuple[str | None, ...]) -> None:
     """v1: the judge affirms; the verifier agrees on "present" with the same stated quote but reads it otherwise (or
-    says nothing of it). Review; when both affirm, the patient is excluded."""
+    says nothing of it). Review, the row unknown; when both affirm, the row keeps the "not met", for review too since
+    ring 0 (D-1072; the patient was excluded before)."""
     ex = [{"did": "d1", "date": "2026-09-20", "text": HAS_HIV + " On ART since 2019."}]
 
     def answer(fields: tuple[str | None, ...]) -> Any:
@@ -1976,11 +1992,11 @@ def test_a_v1_pair_excludes_only_when_both_models_affirm(other: tuple[str | None
         v = note_verdict(BY_ID[HIV], r, pair=True)
         assert v.verdict == want
         assert v.affirmed is (True if want == "fail" else None)
-        assert decision.answer_of(BY_ID[HIV], v, POLICY) == ("no" if want == "fail" else "unknown")
+        assert decision.answer_of(BY_ID[HIV], v, POLICY) == "unknown"  # D-1072 (ring 0)
 
 
 @pytest.mark.parametrize("other", NOT_AFFIRMED, ids=[str(t) for t in NOT_AFFIRMED])
-def test_a_cascade_pair_excludes_only_when_both_models_affirm(other: tuple[str | None, ...]) -> None:
+def test_a_cascade_pair_keeps_the_not_met_only_when_both_models_affirm(other: tuple[str | None, ...]) -> None:
     """The cascade: the gateway judge parses each model's fields, ``AgreementJudge`` needs both, ``_map`` reads it,
     and the stored verdict says it (``verdict_of``)."""
     from orchestrator.scenarios.screen_cascade import verdict_of
@@ -1995,16 +2011,16 @@ def test_a_cascade_pair_excludes_only_when_both_models_affirm(other: tuple[str |
             return JudgeReply("pass", PAIR, HAS_HIV, "2026-09-20", "scripted", call_id="c-x", prompt="judge@test",
                               affirmed=_fields(self.fields) == _fields(("affirmed", "patient", "current")))  # fmt: skip
 
-    for second, want in ((other, ("unknown", False)), (("affirmed", "patient", "current"), ("fail", True))):
+    for second, want in ((other, ("unknown", False)), (("affirmed", "patient", "current"), ("fail", False))):
         pair = AgreementJudge(_Model(("affirmed", "patient", "current")), _Model(second))
         reply = pair.judge(role="judge", criterion_text=BY_ID[HIV].text, note_question="Q?", index_date=RUN,
                            excerpts=ex, study_id="D9", data_class="D3", step_id="t", purpose="screening")  # fmt: skip
         o = _run_for_map(True)._map(BY_ID[HIV], reply, verify_span(reply, ex, date(2026, 1, 1), date(2026, 12, 31)),
                                     "S3")  # fmt: skip
-        assert (o.status, o.hard) == want
+        assert (o.status, o.hard) == want  # D-1072 (ring 0): a soft "not met", no longer a hard fail
         v = verdict_of(o, pair=True)
-        assert v.affirmed is (True if want[1] else None)
-        assert decision.answer_of(BY_ID[HIV], v, POLICY) == ("no" if want[1] else "unknown")
+        assert v.affirmed is (True if want[0] == "fail" else None)
+        assert decision.answer_of(BY_ID[HIV], v, POLICY) == "unknown"  # D-1072 (ring 0)
 
 
 def test_the_gateway_judge_reads_the_three_fields() -> None:
@@ -2017,10 +2033,11 @@ def test_the_gateway_judge_reads_the_three_fields() -> None:
 
 
 def test_a_stored_row_that_does_not_say_affirmed_never_excludes() -> None:
-    """The status rule over a stored row: a pair's final, sure "present" on a stated quote excludes only when the row
-    says both models affirmed it; a row stored before the field (or by a judge before v6) is review."""
+    """The status rule over a stored row: a pair's final, sure "present" on a stated quote is review whether or not
+    the row says both models affirmed it (ring 0, D-1072; it excluded when affirmed before); a row stored before the
+    field (or by a judge before v6) is review."""
     v = _stored(CONTROLS[0])
-    assert decision.answer_of(BY_ID[HIV], v.model_copy(update={"affirmed": True}), POLICY) == "no"
+    assert decision.answer_of(BY_ID[HIV], v.model_copy(update={"affirmed": True}), POLICY) == "unknown"
     for flag in (None, False):
         assert decision.answer_of(BY_ID[HIV], v.model_copy(update={"affirmed": flag}), POLICY) == "unknown"
 

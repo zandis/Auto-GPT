@@ -506,7 +506,9 @@ def register(app: FastAPI, h: Hooks) -> None:
             try:
                 con = h.doors["provenance"]()
                 try:
-                    rows = provenance_index.search(con, limit=PROVENANCE_LIMIT, **given)
+                    # P-19: refused while the marker says rebuild-required (review P19-X1, P19-DESIGN-3): said
+                    # as an index that cannot be read
+                    rows = provenance_index.search(con, limit=PROVENANCE_LIMIT, directory=directory(), **given)
                 finally:
                     getattr(con, "close", lambda: None)()
             except Exception:  # the index or its database cannot be read: said on the page, never a 500

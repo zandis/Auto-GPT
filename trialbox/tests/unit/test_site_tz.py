@@ -115,8 +115,11 @@ def test_the_callers_take_the_site_zone_and_stop_without_one(tmp_path: Path, mon
             make()
 
 
-def test_a_mapping_without_tz_is_refused(tmp_path: Path) -> None:
+def test_a_mapping_without_tz_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no site zone either (TOL-HOLDS, T-M002bb: with one, the mapping takes it; the next test)."""
     from adapter.mapping.engine import Mapping, MappingError
+
+    monkeypatch.delenv("TB_TZ", raising=False)
 
     src = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
     doc = yaml.safe_load(src.read_text(encoding="utf-8"))
@@ -127,6 +130,26 @@ def test_a_mapping_without_tz_is_refused(tmp_path: Path) -> None:
     f.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
     with pytest.raises(MappingError, match="no tz"):
         Mapping.load(f)
+
+
+def test_a_mapping_without_tz_takes_the_sites_zone_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """TOL-HOLDS (T-M002bb): the box knows its zone (site.tz as TB_TZ); a mapping without tz loads with it."""
+    from adapter.mapping.engine import Mapping
+
+    src = ROOT / "services/adapter/mapping/tw_core/demo_his.yaml"
+    doc = yaml.safe_load(src.read_text(encoding="utf-8"))
+    doc.pop("tz")
+    for lookup in src.parent.glob("*.csv"):
+        (tmp_path / lookup.name).write_bytes(lookup.read_bytes())
+    f = tmp_path / "m.yaml"
+    f.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
+    with caplog.at_level("WARNING", logger="adapter"):
+        m = Mapping.load(f)
+    assert str(m.tz) == "Asia/Tokyo"
+    assert "time zone is taken from the site settings: Asia/Tokyo" in caplog.text
 
 
 def test_the_wizard_asks_for_the_zone_and_checks_it_against_the_mapping() -> None:
