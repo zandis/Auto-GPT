@@ -114,32 +114,26 @@ class NothingToPublish(RuntimeError):
 
 
 class TwoPeopleOneChart(RuntimeError):  # review M2: never caught as no held night
-    """H34-06: the held night has a chart number that arrived as two people; it is never published as it stands."""
+    """H34-06: the held night's folder does not say its identity check ran on it; it is never published as it stands."""
 
 
 def refuse_two_people(folder: Path) -> None:
-    """H34-06: :class:`TwoPeopleOneChart` when the held night's folder lists a chart number that arrived as two
-    people within the night (``adapter.pipeline.IDENTITY_CONFLICT``, ``tonight``): an accept would serve one of them
-    under the other's chart. A change against the served night alone (``against``) is the steward's to accept.
-    A file that cannot be read refuses too, and so does a night the check never ran on (no file and no
-    ``IDENTITY_CHECKED``: held by an earlier release, or by a run that stopped before the check; review M1)."""
-    from adapter.pipeline import IDENTITY_CHECKED, IDENTITY_CONFLICT
+    """H34-06: :class:`TwoPeopleOneChart` unless the held night's folder holds this night's identity check result
+    (``adapter.pipeline.IDENTITY_CHECKED``: written last by the run, after its records were written without the
+    records of a chart number that arrived as two people; PRODUCT-2, "hold records, not nights"). A night held by an
+    earlier release, by a run that stopped before the check, or with a result that is not this night's or cannot be
+    read is refused (review M1): its folder may hold two people's records under one chart."""
+    from adapter.pipeline import IDENTITY_CHECKED
 
     try:
-        tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
-    except FileNotFoundError:
-        if (folder / IDENTITY_CHECKED).is_file():
-            return
+        said = json.loads((folder / IDENTITY_CHECKED).read_text(encoding="utf-8"))
+        ok = isinstance(said, dict) and said.get("snapshot") == folder.name and isinstance(said.get("held"), list)
+    except (OSError, ValueError):
+        ok = False
+    if not ok:
         raise TwoPeopleOneChart(
             "the identity check (one chart number arriving as two people) never ran on this night: it was held by an "
             "earlier release or its run stopped before the check. Run the night again, then decide on it"
-        ) from None
-    except (OSError, ValueError, AttributeError):
-        tonight = True
-    if tonight:
-        raise TwoPeopleOneChart(
-            f"a chart number of this night arrived as two different people ({IDENTITY_CONFLICT}): it cannot be "
-            "accepted as it stands. Reject it, correct the chart at the source and run the night again"
         )
 
 
@@ -1182,8 +1176,8 @@ __all__ = [
     "NightRefused",
     "NothingToPublish",
     "Published",
-    "TwoPeopleOneChart",
     "RecoveryBusy",
+    "TwoPeopleOneChart",
     "derive",
     "fingerprint",
     "finish_served",
@@ -1195,8 +1189,8 @@ __all__ = [
     "read_record",
     "recover",
     "recover_all",
-    "refuse_two_people",
     "refuse_split",
+    "refuse_two_people",
     "restore",
     "settle",
     "verify_fhir",

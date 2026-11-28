@@ -644,6 +644,7 @@ def _run_ingest(
     spool = cleanup.enter_context(contextlib.closing(Spool(cfg.lake_dir / "tmp" / f"ingest-{snap}")))
     patient_ids: list[str] = []  # in the order sent: the merged chart numbers drop by id alone
     patient_who: dict[str, dict[str, str]] = {}  # H34-06: the demographics each chart number first arrived with
+    patient_names: dict[str, dict[str, str]] = {}  # H34-06: the name and national id each chart number arrived with
     identity_conflicts: set[str] = set()  # H34-06: chart numbers (pids) that arrived tonight as two people
 
     def to_spool(r: Resource) -> None:
@@ -708,7 +709,7 @@ def _run_ingest(
         bulk = FhirBulkSource(Path(source_path))
         inputs += [p for p in Path(source_path).iterdir() if p.is_file()]
         timed = read_times.timed(lambda r: str(r.get("resourceType") or "?"), bulk.resources())
-        for r in pseudonymise_bulk(timed, key):
+        for r in pseudonymise_bulk(_bulk_who(timed, key, patient_who, identity_conflicts), key):
             to_spool(r)
         for rtype, rid in bulk.deleted():
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
@@ -876,9 +877,8 @@ def _run_ingest(
                         (pid, {k: str(r.get(col) or "") for k, col in ident.items()})
                         for (pid, _), r in zip(patient_pairs, rows, strict=True)
                     ]
-                    names: dict[str, dict[str, str]] = {}  # H34-06: one chart number, two names or national ids
-                    for pid, said in identities:
-                        if _two_people_seen(names, pid, said):
+                    for pid, said in identities:  # H34-06: one chart number, two names or national ids
+                        if _two_people_seen(patient_names, pid, said):
                             identity_conflicts.add(pid)
             # STD-025 (T-615a): a row the mapping cannot read is rejected and counted by reason (its values left out);
             # the table goes on, and the night is held only when rejects pass REJECT_MAX_PCT % of the table's rows
@@ -974,14 +974,17 @@ def _run_ingest(
             if still_held is not None:
                 served_now = _current(cfg.lake_dir)
                 pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
-            pm.stage(snap, patient_pairs, identities or [])
-            # H34-06: tonight's name and national id against the served ones (the pid map's identity is written
-            # only when a night is published); the served NDJSON carries neither
-            # ponytail: one look-up per patient; a bulk read if it ever shows in the night's timings
-            for pid, said in identities:
-                if _two_people(pm.identity(pid) or {}, said):
-                    against_served.add(pid)
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
+            # H34-06: tonight's name and national id against the served ones (the pid map's identity is written
+            # only when a night is published); the served NDJSON carries neither. Review P-04-1: against every chart
+            # number written under the same patient (a merge), not only the one it arrived under
+            # ponytail: one look-up per patient; a bulk read if it ever shows in the night's timings
+            merged = _merged(aliases)
+            for pid, said in identities:
+                key_pid = aliases.get(pid, pid)
+                for q in {key_pid, *merged.get(key_pid, ())}:
+                    if _two_people(pm.identity(q) or {}, said):
+                        against_served.update({pid, q} - {key_pid} or {pid})
         finally:
             pm.close()
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
@@ -1023,6 +1026,43 @@ def _run_ingest(
             log.error("the chart merges could not be read: %s", type(exc).__name__)
             errors.append(f"the chart merges could not be read ({type(exc).__name__}); the night is held")
             aliases = {}
+    # H34-06 (T-659b: identity changes are a person's; DATA-017's "last row wins" is for one person's rows): a chart
+    # number that arrives as two people, tonight or against the served night, is never merged into one patient.
+    # PRODUCT-2 ("hold records, not nights"): its records are left out of the night and listed for the steward
+    # (IDENTITY_CONFLICT: the pseudonymous ids and the records held, per type); the rest of the night goes on
+    (out_dir / IDENTITY_CHECKED).unlink(missing_ok=True)  # review M1: an earlier attempt's result is not this one's
+    merged = _merged(aliases)
+    # review P-04-1: chart numbers a merge writes under one patient are one person: two of them tonight with two
+    # people's demographics are two people within the night. The merged ones are held, never the surviving chart
+    for key_pid, olds in merged.items():
+        sent = [p for p in (key_pid, *olds) if p in patient_who or p in patient_names]
+        seen: dict[str, dict[str, str]] = {}
+        if len(sent) > 1 and any(
+            [_two_people_seen(seen, "", {**patient_who.get(p, {}), **patient_names.get(p, {})}) for p in sent]
+        ):
+            identity_conflicts.update(p for p in sent if p != key_pid)
+    against: set[str] = set(against_served)
+    if last_good is not None and patient_who:
+        # one read of the served night's Patient file per night (an index if it ever shows in the night's timings)
+        for r in read_type(snapshot_dir(cfg.lake_dir, last_good), "Patient"):
+            q = str(r.get("id"))
+            key_pid = aliases.get(q, q)
+            for pid in {key_pid, *merged.get(key_pid, ())} & patient_who.keys():
+                if _two_people(_who(r), patient_who[pid]):
+                    against.update({pid, q} - {key_pid} or {pid})
+    against -= identity_conflicts
+    held = identity_conflicts | against
+    held |= {o for o, n in aliases.items() if n in held}  # nothing is written under a held chart
+    if held:  # a held chart number's merge is not applied tonight: what it holds is not written under another
+        aliases = {o: n for o, n in aliases.items() if o not in held}
+    if patient_pairs:
+        # T-723: the night's chart numbers staged for the pid map, the held ones' identity left out: the served
+        # identity is never replaced by another person's when the night is published
+        pm = cfg.pidmap()
+        try:
+            pm.stage(snap, patient_pairs, [(p, said) for p, said in identities if p not in held])
+        finally:
+            pm.close()
     if base is not None and aliases:
         survivors = set(aliases.values())
         carried = {str(r["id"]) for r in read_type(base, "Patient") if str(r["id"]) in survivors}
@@ -1036,6 +1076,7 @@ def _run_ingest(
         cfg.sample_fraction if validate else None,
         cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
         cap,
+        held,
     )
     removed: dict[str, int] = {}
     carried_moved: dict[str, int] = {}
@@ -1051,6 +1092,24 @@ def _run_ingest(
     if removed:  # D-528: counts per record type only
         log.info("records the feed's rows no longer give were removed: %s", dict(sorted(removed.items())))
     (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
+    if held:
+        (out_dir / IDENTITY_CONFLICT).write_text(
+            json.dumps({"snapshot": snap, "tonight": sorted(identity_conflicts),
+                        "against": {"snapshot": last_good, "pids": sorted(against)},
+                        "held": sorted(held), "records": dict(sorted(night.withheld.items()))}, indent=1) + "\n",
+            encoding="utf-8",
+        )  # fmt: skip
+        log.error("patient identity: %d chart number(s) arrive as two people tonight, %d against night %s: their "
+                  "%d record(s) are held, never merged into one patient (the pseudonymous ids are in %s)",
+                  len(identity_conflicts), len(against), last_good, sum(night.withheld.values()),
+                  IDENTITY_CONFLICT)  # fmt: skip
+    else:  # an earlier attempt of this night may have left one
+        (out_dir / IDENTITY_CONFLICT).unlink(missing_ok=True)
+    # review M1: the night says the identity check ran on it and its records were written without the held ones,
+    # last and whole; an accept of a held night without it is refused (adapter.publish.refuse_two_people)
+    checked = out_dir / f".{IDENTITY_CHECKED}"
+    checked.write_text(json.dumps({"snapshot": snap, "held": sorted(held)}) + "\n", encoding="utf-8")
+    checked.replace(out_dir / IDENTITY_CHECKED)
     defaulted, presence_read, shifted, aliased = (
         night.defaulted,
         night.presence_read,
@@ -1108,45 +1167,6 @@ def _run_ingest(
                     f"{feedguard.OVERRIDE_ENV}='{snap}: <reason>' (this night only; the reason is audited)"
                 )
                 completeness_msgs.append(errors[-1])
-    # H34-06 (T-659b: identity changes are a person's; DATA-017's "last row wins" is for one person's rows): a chart
-    # number that arrives as two people, tonight or against the served night, is never merged into one patient: the
-    # night is held and the pseudonymous ids go to a file in its folder. Two people within the night cannot be
-    # accepted (adapter.publish.refuse_two_people: an accept would serve one under the other's chart); a change
-    # against the served night is the steward's to accept (a correction of one person) or reject (another person)
-    against: set[str] = set(against_served)
-    if last_good is not None and patient_who:
-        # one read of the served night's Patient file per night (an index if it ever shows in the night's timings)
-        for r in read_type(snapshot_dir(cfg.lake_dir, last_good), "Patient"):
-            pid = str(r.get("id"))
-            if pid in patient_who and _two_people(_who(r), patient_who[pid]):
-                against.add(pid)
-    against -= identity_conflicts
-    # review M1: the night says the identity check ran on it; an accept of a held night without this (an earlier
-    # release's, or a run that stopped before here) is refused (adapter.publish.refuse_two_people)
-    (out_dir / IDENTITY_CHECKED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
-    if identity_conflicts or against:
-        (out_dir / IDENTITY_CONFLICT).write_text(
-            json.dumps({"snapshot": snap, "tonight": sorted(identity_conflicts),
-                        "against": {"snapshot": last_good, "pids": sorted(against)}}, indent=1) + "\n",
-            encoding="utf-8",
-        )  # fmt: skip
-        log.error("patient identity: %d chart number(s) arrive as two people tonight, %d against night %s",
-                  len(identity_conflicts), len(against), last_good)  # fmt: skip
-        then = (
-            "it cannot be accepted as it stands: correct the chart at the source and run the night again"
-            if identity_conflicts
-            else "accept it only if each is a correction of the same person's details; another person under a "
-            "served chart number is rejected and corrected at the source"
-        )
-        errors.append(
-            f"patient identity: {len(identity_conflicts) + len(against)} chart number(s) arrive with two different "
-            f"people's demographics (birth date, sex, name or national id differ; {len(identity_conflicts)} within "
-            f"this night, {len(against)} against the served night {last_good or '-'}): never merged into one "
-            f"patient. The night is held; {then} (the pseudonymous ids are in {IDENTITY_CONFLICT} in the night's "
-            "folder)"
-        )
-    else:  # an earlier attempt of this night may have left one
-        (out_dir / IDENTITY_CONFLICT).unlink(missing_ok=True)
     # dataflow review P0-2 (WS-08.1): validate first. fhir-store and the lake are loaded, and CURRENT moves, only for
     # a night that passed; a failed night is *held*: its NDJSON stays for the steward to look at, the box keeps
     # serving the previous snapshot
@@ -1558,10 +1578,12 @@ class _NightPass:
         fraction: float | None,
         per_type: int | None,
         cap: int | None = None,
+        held: set[str] | frozenset[str] = frozenset(),
     ) -> None:
         from lake.flatten import Unread  # the inbound FHIR contract (T-616), the lake's own reading
 
         self.zone, self.unit_defaults, self.presence, self.aliases = zone, unit_defaults, presence, aliases
+        self.held, self.withheld = held, Counter[str]()  # H34-06: chart numbers whose records are held, per type
         self.defaulted = self.presence_read = self.shifted = self.undated = 0
         self.missing: Counter[str] = Counter()
         self.unread = Unread()
@@ -1585,6 +1607,9 @@ class _NightPass:
             self.undated += 1
         for p in missing_required(r):
             self.missing[f"{rtype}.{p}"] += 1
+        if self.held and _about(r, self.held):  # before the merges: a held chart's own records only
+            self.withheld[rtype] += 1
+            return False
         if not self.aliases(r):
             return False
         if self.sample is not None:
@@ -1863,7 +1888,49 @@ _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of 
 
 
 def _who(r: Resource) -> dict[str, str]:
-    return {k: str(r[k]) for k in _WHO if r.get(k)}
+    """H34-06: what a Patient says of who the person is: birth date and sex; on a bulk Patient before it is
+    pseudonymised (review P-04-3) also each identifier by its system and each name by its use and representation
+    (JP Core gives kanji and kana as two official names)."""
+    out = {k: str(r[k]) for k in _WHO if r.get(k)}
+    for i in r.get("identifier") or ():
+        if isinstance(i, dict) and i.get("value"):
+            out[f"identifier:{i.get('system') or ''}"] = str(i["value"])
+    for n in r.get("name") or ():
+        if not isinstance(n, dict):
+            continue
+        said = " ".join([str(n.get("family") or ""), *map(str, n.get("given") or ())]).split()
+        how = [str(e.get("valueCode") or "") for e in n.get("extension") or () if isinstance(e, dict)]
+        if said := said or str(n.get("text") or "").split():
+            out[f"name:{n.get('use') or ''}:{'/'.join(how)}"] = " ".join(said)
+    return out
+
+
+def _bulk_who(
+    resources: Iterable[Resource], key: bytes, seen: dict[str, dict[str, str]], conflicts: set[str]
+) -> Iterator[Resource]:
+    """Review P-04-3: :func:`_two_people_seen` of each bulk Patient as it arrives, by the pid it is written under."""
+    for r in resources:
+        if r.get("resourceType") == "Patient":
+            pid = bulk_id(key, "Patient", str(r.get("id")))
+            if _two_people_seen(seen, pid, _who(r)):
+                conflicts.add(pid)
+        yield r
+
+
+def _merged(aliases: dict[str, str]) -> dict[str, list[str]]:
+    """Review P-04-1: each surviving pid with the merged chart numbers (pids) written under it."""
+    out: dict[str, list[str]] = {}
+    for old, new in aliases.items():
+        out.setdefault(new, []).append(old)
+    return out
+
+
+def _about(r: Resource, pids: set[str] | frozenset[str]) -> bool:
+    """H34-06: ``r`` is one of ``pids``' Patients or names one of them (``Patient/<pid>`` anywhere in it)."""
+    if r.get("resourceType") == "Patient" and str(r.get("id")) in pids:
+        return True
+    # ponytail: one dump per record, only on a night that holds a chart; a walk of the references if it shows
+    return any(m.decode() in pids for m in _PATIENT_REF.findall(json.dumps(r).encode()))
 
 
 def _two_people_seen(seen: dict[str, dict[str, str]], pid: str, said: dict[str, str]) -> bool:
