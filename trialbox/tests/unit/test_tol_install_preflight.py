@@ -97,7 +97,8 @@ def test_a_production_backup_route_that_cannot_alert_installs_the_schedule_on_th
     (deploy / "backup" / "trialbox-backup.cron").write_text(
         (DEPLOY / "backup" / "trialbox-backup.cron").read_text(encoding="utf-8"), encoding="utf-8"
     )
-    given = "smtp://" + "it-login:s3cret" + "@mail.hospital.example"  # put together: no credential URL as one text; a route value that must never reach the log
+    # a route value that must never reach the log; put together, so that no credential URL stands in the file as one text
+    given = "smtp://" + "it-login:s3cret" + "@mail.hospital.example"
     (deploy / ".env").write_text(f"TB_ENV=PRODUCTION\nTB_PG_ARCHIVE_MODE=off\nTB_BACKUP_ALERT_ROUTE={given}\n")
     with pytest.raises(ValueError, match=re.escape(f"TB_BACKUP_ALERT_ROUTE={given!r}")):  # install_cron alone
         backup_schedule.install_cron(backup_schedule.config(deploy, {"TB_ENV": "PRODUCTION",
