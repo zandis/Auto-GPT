@@ -697,6 +697,9 @@ def _restore_cmd(a: argparse.Namespace, installed: bool) -> int:
     if a.no_copy and not a.yes_really and (host or not a.yes):
         print(say("restore_no_copy"), file=sys.stderr)
         return 2
+    if not host and not (a.yes or a.yes_really):  # in this process (a developer's, the box image's) --yes stays
+        print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
+        return 2
     if host:
         from tools.trialbox import box_restore, update
 
