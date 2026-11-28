@@ -490,9 +490,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         crit = crit_of(rs, lang)
         fits = kept_fits(rs, lang, kept, crit)
         made = len(fits)
+        marks = store.latest_marks(rs)
+        kept_watch = store.watch_fired(rs)
         rows = st.weekly_rows(
-            cl, crit, registry_map(rs), store.latest_marks(rs), seen, job.job_id, names, today=h.today(), fits=fits
+            cl, crit, registry_map(rs), marks, seen, job.job_id, names, today=h.today(), fits=fits, fired=kept_watch
         )
+        store.fire_watch(rs, st.new_firings(rows, marks, kept_watch))  # kept until the PI replaces or withdraws it
         if len(fits) != made:
             freeze()  # the fits just made are kept with the list, so frozen with it
         others_of(sess, rs, rows)
@@ -959,8 +962,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         wk = week_bundle(sess, rid)
         today = h.today()
         counts = st.worklist_counts(wk["rows"], today) if wk else {}
+        offered = st.worklists_for(wk["rows"]) if wk else st.WORKLISTS  # no visit list where no visit is exported
         lst = request.query_params.get("list", "")
-        if lst not in st.WORKLISTS:  # open on the first list with work in it
+        if lst not in offered:  # open on the first list with work in it
             lst = next((k for k in ("clinic", "review") if counts.get(k)), "all")
         rows = st.worklist_sorted([r for r in wk["rows"] if st.in_worklist(r, lst, today)] if wk else [], lst)
         try:
@@ -1000,7 +1004,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             rs=rid,
             wk=wk,
             lst=lst,
-            lists=st.WORKLISTS,
+            lists=offered,
             counts=counts,
             rows=rows,
             page_no=page_no,
@@ -1423,7 +1427,13 @@ def register(app: FastAPI, h: Helpers) -> None:
                 raise h.problem(400, "request.refused", reason="give the re-check date as YYYY-MM-DD") from exc
             if not today < when <= today + timedelta(days=366):
                 raise h.problem(400, "request.refused", reason="the re-check date must be within the next year")
-            stored_reason = when.isoformat()
+            # lane K watch: ``reason`` may name the criterion the PI waits on; a re-screen that changes its answer
+            # brings the patient back before the date (studies.watch_state)
+            row = next(r for r in (wk["cl"] or {}).get("rows") or [] if str(r.get("pid")) == pid)
+            try:
+                stored_reason = st.not_now_reason(when, reason.strip(), row)
+            except ValueError as exc:
+                raise h.problem(400, "request.refused", reason="watch a criterion of this patient's list") from exc
         elif mark == "withdraw" and prev is None:
             raise h.problem(409, "request.refused", reason="there is no mark to withdraw")
         warned: list[str] = []

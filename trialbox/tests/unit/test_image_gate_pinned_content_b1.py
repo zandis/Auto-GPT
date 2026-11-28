@@ -108,8 +108,8 @@ def test_another_repository_with_the_pinned_digest_recorded_is_not_the_pinned_im
 
 
 def test_the_per_finding_entries_are_unchanged_by_the_digests() -> None:
-    f = vulns.Finding("trivy", "img", "openssl", "3.0.13", "CVE-2026-1", (), "CRITICAL", "3.0.14")
-    g = vulns.Finding("trivy", "img", "openssl", "3.0.13", "CVE-2026-2", (), "CRITICAL", "3.0.14")
+    f = vulns.Finding("trivy", "img", "openssl", "3.0.13", "CVE-2026-1", (), "HIGH", "3.0.14")
+    g = vulns.Finding("trivy", "img", "openssl", "3.0.13", "CVE-2026-2", (), "HIGH", "3.0.14")
     result = vulns.gate([f, g], _allow(), fails=_fails(), subject=TAG, digests=(f"{IMAGE}@{DIGEST}",))
     assert [x.id for x, _ in result.accepted] == ["CVE-2026-1"] and result.failing == [g]
     assert result.errors == []  # a new finding of another package fails as always, with no D-622 message

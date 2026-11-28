@@ -436,6 +436,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "cc5a0e95c1dc50da9a3d8c9fa782fa1f5d6138e370dd9e7bad0c484ac3904996",
         # D-779 (T-305c): site version 7 (the years a close keeps the study's files)
         "52624415f200e587c75788fec3851f6880a403abe34f504786ac76ea56c2bf93",
+        # lane K watch: site version 8 (weekly_seen.fired_mark, the time of the mark whose watch fired)
+        "7a7b3a946f595d03553c265833d3773a1742d79aa2559c6c9e4beb5460f9f854",
     ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
