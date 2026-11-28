@@ -30,6 +30,9 @@ class Reason(StrEnum):
     # the criterion asks for an active condition and the record says resolved, inactive or in remission (D-917)
     CONDITION_NOT_ACTIVE = "condition_not_active"
     ABSTAINED = "abstained"  # the model said it cannot tell from the notes
+    # an exclusion the models read the notes for and found nothing to quote: a label and a sort key, never a tier
+    # change; the answer stays unknown, which keeps the patient (BENCH-2 §2, D-18)
+    NOT_DOCUMENTED = "not_documented"
     QUOTE_NOT_FOUND = "quote_not_found"  # the model's quote is not in the notes
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
     DISAGREE = "disagree"  # the two models gave different answers
@@ -115,6 +118,7 @@ LABELS: dict[str, dict[str, str]] = {
     },
     "no_notes": {"en": "no notes in the period", "ja": "期間内に記録の文章なし", "zh-TW": "期間內無病歷文字"},
     "not_mentioned": {"en": "not mentioned in the notes", "ja": "記録の文章に記載なし", "zh-TW": "病歷文字未提及"},
+    "not_documented": {"en": "not documented in the notes", "ja": "記録に記載がない", "zh-TW": "病歷未記載"},
     "code_outside_list": {
         "en": "a code of this family that the list does not hold",
         "ja": "この分類の、一覧にないコード",

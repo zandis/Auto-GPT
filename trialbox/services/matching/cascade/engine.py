@@ -92,7 +92,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
-from matching.note_answer import keeps, note_answer_may
+from matching.note_answer import keeps, not_documented, note_answer_may
 from matching.notelang import LANGS, family, main_language, notes_language
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.recorded import NO_RECORD, Recorded
@@ -1231,6 +1231,8 @@ class _Run:
             meta["opinions"] = list(reply.opinions)
         if reply.verdict not in ("pass", "fail"):  # keep the judge's coded reason (disagree, low_confidence, ...)
             why = reply.reason if reply.reason in REASON_CODES else "abstained"
+            if not_documented(c.kind, why, reply.quote):  # BENCH-2 §2: a label, never a tier change
+                why = Reason.NOT_DOCUMENTED.value
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason=why)
         if span is None:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason="insufficient")
