@@ -17,6 +17,7 @@ import pytest
 
 from tests.unit.test_poc_stops_bench_h94 import Box
 from tests.unit.test_poc_stops_h94 import PLANTED, PROD_SITE, RUNNING
+from tools.trialbox import backup as bk
 from tools.trialbox import doctor, ops, stops
 
 pytestmark = [pytest.mark.nodb]
@@ -30,6 +31,9 @@ PLANT = {**PLANTED, "TB_STOP_ALWAYS": "0"}  # a caller's variable never changes 
 
 def _prod(tmp_path: Path) -> Box:
     box = Box(tmp_path / "prod", env=PROD_SITE + f"TB_SOURCE_DIR={tmp_path}\n")
+    # the box's backup key is there (made at an earlier install), so a clean box is clean: no "no backup key" FAIL
+    (box.deploy / "secrets").mkdir(exist_ok=True)
+    bk.keygen(box.tmp / "it.key", box.deploy / "secrets" / "backup.pub")
     curl = box.tmp / "bin" / "curl"  # the console answers at its URL (the bench has no web server)
     curl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     curl.chmod(0o755)
@@ -123,7 +127,7 @@ def test_doctor_shows_each_open_item_as_a_warn_with_its_action(tmp_path: Path) -
     box.install("--mode", "stub", "--yes", force=FOUR, env={**DEFER, **PLANT})
     lines = doctor.poc_stops(doctor.DoctorInputs(deploy=box.deploy), [])
     assert len(lines) == 4, lines
-    assert all(c.status == "WARN" and c.name == "open_item" and "Action: " in c.detail for c in lines), lines
+    assert all(c.status == "WARN" and c.name == "poc_stop" and "Action: " in c.detail for c in lines), lines
 
 
 def test_the_operations_page_status_carries_the_open_items(tmp_path: Path) -> None:

@@ -32,8 +32,9 @@ name of the point), ``what`` (the stop's own words), ``skipped`` (what was not d
 (UTC), ``by`` (the script). It lives with the site's own files, so it survives the run from the signed tree, an
 update and a second install. Only root or the installing user writes it; a link is never followed; a secret's value
 or a path under ``uploads/`` is never written. ``trialbox doctor`` shows it as WARN lines (:func:`doctor_lines`,
-the row ``open_item``), one action each, and the Operations page lists it (``tools/trialbox/ops.py`` snapshot
-``open_items``). A list made by hand, or one that cannot be read, never stops anything: it is a WARN line too.
+the row ``poc_stop``, each an open item), one action each, and the Operations page lists it
+(``tools/trialbox/ops.py`` snapshot ``open_items``). A list made by hand, or one that cannot be read, never stops
+anything: it is a WARN line too.
 
 TOL-1 (the owner's CLINICAL TOLERANCE, 2026-11-28): on the install path every box warns and lists (the shell block's
 TB_STOP_ALWAYS); :func:`stop_or_warn` here keeps the PoC rule, for its one caller is the update's backup (LOSS on a
@@ -193,6 +194,6 @@ def doctor_lines(deploy: Path) -> Iterable[tuple[str, str]]:
     entries, problems = read(deploy)
     for e in entries:
         skipped = f"; skipped: {e.skipped}" if e.skipped else ""
-        yield "open_item", f"{e.key} ({e.at}): {e.what}{skipped}. Action: {ACTION}"
+        yield "poc_stop", f"{e.key} ({e.at}): {e.what}{skipped}. Action: {ACTION}"
     for p in problems:
-        yield "open_item", f"{p}. Action: remove the file or the lines; the next install writes it again"
+        yield "poc_stop", f"{p}. Action: remove the file or the lines; the next install writes it again"
