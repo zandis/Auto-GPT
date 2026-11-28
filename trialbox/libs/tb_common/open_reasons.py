@@ -165,11 +165,12 @@ CODE_FIELD: dict[str, tuple[str, str]] = {
     "report": ("report", "exam_code"),
 }
 #: the vital signs the template reads from its vital view (LOINC -> field); any other observation is a lab result
+LOINC = "http://loinc.org"
 VITAL_FIELD = {"8302-2": "height_cm", "29463-7": "weight_kg", "8480-6": "sbp", "8462-4": "dbp"}
 #: a score's inputs that are vital signs (``tb_common.derived.COMPONENTS``); every other input is a lab result row
 DERIVED_VITAL = {"height": "height_cm", "weight": "weight_kg"}
 LAB_VALUE, LAB_UNIT = ("lab", "result_value"), ("lab", "unit")
-NOTE_TEXT, ORDER_END = ("note", "text"), ("medication", "end_date")
+NOTE_TEXT, ORDER_END, BIRTH_DATE = ("note", "text"), ("medication", "end_date"), ("patient", "birth_date")
 #: the reasons about a recorded value (none, unreadable, not usable): the value field, not the code field
 _VALUE_REASONS = {
     Reason.DATA_GAP, Reason.UNKNOWN_KEPT, Reason.UNKNOWN_VALUE, Reason.DERIVED_UNIT, Reason.DERIVED_ADULT_ONLY,
@@ -185,7 +186,7 @@ NEEDS_TEXT = {
 
 def named_sources() -> list[tuple[str, str]]:
     """Every (view, field) :func:`needs` can name."""
-    out = [*CODE_FIELD.values(), LAB_VALUE, LAB_UNIT, NOTE_TEXT, ORDER_END]
+    out = [*CODE_FIELD.values(), LAB_VALUE, LAB_UNIT, NOTE_TEXT, ORDER_END, BIRTH_DATE]
     out += [("vital", f) for f in (*VITAL_FIELD.values(), *DERIVED_VITAL.values())]
     return sorted(set(out))
 
@@ -197,9 +198,11 @@ def _atoms(node: Any) -> list[Any]:
     return [a for arg in getattr(node, "args", None) or () for a in _atoms(arg)]
 
 
-def _codes(valueset: str | None, valuesets: Mapping[str, Any] | None) -> set[str]:
+def _loinc_codes(valueset: str | None, valuesets: Mapping[str, Any] | None) -> set[str]:
+    """The value set's LOINC codes (a site's local code that reads like one is not one)."""
     vs = (valuesets or {}).get(valueset or "") or {}
-    return {str(c.get("code")) for i in (vs.get("compose") or {}).get("include") or [] for c in i.get("concept") or []}
+    includes = (vs.get("compose") or {}).get("include") or []
+    return {str(c.get("code")) for i in includes if i.get("system") == LOINC for c in i.get("concept") or []}
 
 
 def _pick(r: Reason, atoms: list[Any]) -> Any:
@@ -233,11 +236,16 @@ def needs(reason: str | None, criterion: Any, valuesets: Mapping[str, Any] | Non
         view, field = ORDER_END
     elif r is Reason.UNIT_MISMATCH:
         view, field = LAB_UNIT
+    elif r is Reason.DERIVED_ADULT_ONLY and getattr(a, "derived", None):
+        concept, (view, field) = str(a.derived), BIRTH_DATE  # an adult equation: the age decides whether it applies
     elif r.value.startswith("derived_") and getattr(a, "derived", None):
         part = str(reason or "").partition(":")[2].strip()
         concept = f"{a.derived}: {part}" if part else str(a.derived)
-        view, field = ("vital", DERIVED_VITAL[part]) if part in DERIVED_VITAL else LAB_VALUE
-    elif a.domain == "observation" and (vital := VITAL_FIELD.keys() & _codes(a.valueset, valuesets)):
+        if r is Reason.DERIVED_UNIT and part not in DERIVED_VITAL:
+            view, field = LAB_UNIT  # the input's unit is what the formula cannot use
+        else:
+            view, field = ("vital", DERIVED_VITAL[part]) if part in DERIVED_VITAL else LAB_VALUE
+    elif a.domain == "observation" and (vital := VITAL_FIELD.keys() & _loinc_codes(a.valueset, valuesets)):
         view, field = "vital", VITAL_FIELD[min(vital)]
     elif a.domain == "observation" and r in _VALUE_REASONS:
         view, field = LAB_VALUE

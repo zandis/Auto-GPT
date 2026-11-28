@@ -426,19 +426,20 @@ def verdict_of(o: Outcome, pair: bool = False, rs: Ruleset | None = None) -> Cri
     return _own(_row_of(o, pair, c, rs.valuesets if rs is not None else None))
 
 
-# H-7: what an open answer needs is the same for every patient with the same criterion and engine reason, so it is
-# worked out once per pair (the criterion is kept in the value, so its id is never reused while the entry lives)
-# ponytail: unbounded, but criteria x engine reasons is a few hundred entries per process
-_NEEDS: dict[tuple[int, str], tuple[Any, tuple[str, str, str] | None]] = {}
+# H-7: what an open answer needs is the same for every patient with the same criterion, value sets and engine reason,
+# so it is worked out once per triple (the criterion and the value sets are kept in the value, so their ids are never
+# reused while the entry lives)
+# ponytail: unbounded, but criteria x engine reasons is a few hundred entries per loaded ruleset
+_NEEDS: dict[tuple[int, int, str], tuple[Any, Any, tuple[str, str, str] | None]] = {}
 
 
 def _need_of(o: Outcome, c: Any, valuesets: Any) -> tuple[str, str, str] | None:
-    key = (id(c), str(o.reason or ""))
+    key = (id(c), id(valuesets), str(o.reason or ""))
     hit = _NEEDS.get(key)
-    if hit is None or hit[0] is not c:
+    if hit is None or hit[0] is not c or hit[1] is not valuesets:
         n = open_reasons.needs(o.reason, c, valuesets)
-        hit = _NEEDS[key] = (c, (n["view"], n["field"], n["concept"]) if n else None)
-    return hit[1]
+        hit = _NEEDS[key] = (c, valuesets, (n["view"], n["field"], n["concept"]) if n else None)
+    return hit[2]
 
 
 def _row_of(o: Outcome, pair: bool, c: Any = None, valuesets: Any = None) -> CriterionVerdict | _Shared:
