@@ -42,7 +42,7 @@ from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
-from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
+from tb_common.pair import DECIDED, Vote, combine, floor, needs_verifier, same_model, served_keys
 from tb_common.quotes import as_in
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
@@ -492,8 +492,9 @@ class NoteJudge:
         t_out = first.tokens_out + (second.tokens_out if second else 0)
         opinions = [_opinion("judge", first), _opinion("verifier", second)] if d.disagreement and second else []
         if d.verdict != first.predicate:  # the pair (or the confidence floor) did not keep the judge's answer
-            disputed = demote and d.disagreement and bool(opinions) and first.predicate in ("pass", "fail")
-            kept = replace(first, calls=calls, affirmed=False) if disputed else None
+            # the judge's answer as the pair rule would have floored it alone (review: no keep below the minimum)
+            disputed = demote and d.disagreement and bool(opinions) and floor(_vote(first)).verdict in DECIDED
+            kept = replace(first, calls=calls, tokens_in=t_in, tokens_out=t_out, affirmed=False) if disputed else None
             return replace(
                 first,
                 kept=kept,

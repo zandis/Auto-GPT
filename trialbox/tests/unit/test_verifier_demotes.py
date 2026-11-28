@@ -21,6 +21,7 @@ from console.studies import second_opinion_differs, worklist_sorted
 from orchestrator.scenarios.evaluate import NoteJudge, note_verdict, tier
 from orchestrator.scenarios.screen_cascade import OrchestratorJudge
 from tb_common.llm import LlmError, LlmResult
+from tb_common.reasons import MIN_CONFIDENCE
 from tb_common.ruleset import Ruleset
 from tb_contracts import CriterionIR
 
@@ -35,17 +36,17 @@ _n = 0
 class Model:
     """One model of the pair answering every judge call with one verdict (or down)."""
 
-    def __init__(self, verdict: str, error: bool = False) -> None:
+    def __init__(self, verdict: str, error: bool = False, conf: float = 0.9) -> None:
         global _n
         _n += 1
         self.model = f"m{_n}-{verdict}"
-        self.verdict, self.error = verdict, error
+        self.verdict, self.error, self.conf = verdict, error, conf
 
     def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> LlmResult:
         if self.error:
             raise LlmError("model down")
         cert = {"pass": "affirmed", "fail": "negated"}.get(self.verdict)
-        data = {"verdict": self.verdict, "reason": "r", "confidence": 0.9,
+        data = {"verdict": self.verdict, "reason": "r", "confidence": self.conf,
                 "quote": QUOTE if cert else None, "quote_date": "2026-01-10" if cert else None,
                 "certainty": cert, "experiencer": "patient" if cert else None, "time": "current" if cert else None}  # fmt: skip
         return LlmResult(data, prompt_id, 6, self.model, "local", "i" * 64, "o" * 64, 100, 20, 1)
@@ -96,6 +97,20 @@ def test_a_disputed_answer_that_does_not_keep_is_unknown_as_before(kind: str, fi
 def test_no_opinion_is_no_demotion() -> None:
     _, v = ask("inclusion", "pass", "pass", down=True)
     assert v.verdict == "unknown" and v.evidence.reason == "model_down"
+
+
+def test_a_keep_below_the_minimum_confidence_is_not_kept() -> None:
+    c = crit("inclusion")
+    nj = NoteJudge(lake=None, llm=Model("pass", conf=MIN_CONFIDENCE - 0.1), verifier=Model("fail"))  # type: ignore[arg-type]
+    r = nj.judge_excerpts(c.text, c.note_question or c.text, IDX, EXCERPTS, demote=True)
+    assert r.kept is None and note_verdict(c, r, pair=True).verdict == "unknown"
+
+
+def test_the_kept_answer_counts_both_calls_and_their_tokens() -> None:
+    c = crit("inclusion")
+    nj = NoteJudge(lake=None, llm=Model("pass"), verifier=Model("fail"))  # type: ignore[arg-type]
+    r = nj.judge_excerpts(c.text, c.note_question or c.text, IDX, EXCERPTS, demote=True)
+    assert r.kept is not None and (r.kept.tokens_in, r.kept.tokens_out) == (r.tokens_in, r.tokens_out) == (200, 40)
 
 
 def test_measuring_tools_keep_the_plain_rule() -> None:
