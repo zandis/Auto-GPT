@@ -616,8 +616,9 @@ NO_YES = "restore replaces the box's databases and data folders (the old folders
 def test_restart_and_yes_never_imply_each_other_and_the_refusals_stay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], env: str
 ) -> None:
-    """Twin (a PRODUCTION box and a PoC one): --restart without --yes is refused before anything stops; --yes
-    without --restart meets the running-services refusal word for word; nothing was stopped or run in either."""
+    """Twin (a PRODUCTION box and a PoC one): --restart without --yes is no longer a stop (T-U007: a notice with the
+    way back); --yes without --restart meets the running-services refusal word for word; nothing was stopped or run
+    in it."""
     from tools.trialbox import __main__ as cli
 
     deploy = _box(tmp_path, f"TB_ENV={env}\n")
@@ -625,8 +626,11 @@ def test_restart_and_yes_never_imply_each_other_and_the_refusals_stay(
     _stand_in(monkeypatch, rec)
     key = tmp_path / "usb" / "backup.key"
     f = tmp_path / "nas" / "trialbox-CGMH-20261109T194500Z.tbbak"
-    assert cli.main(["restore", str(f), "--key", str(key), "--restart", "--deploy", str(deploy)], installed=True) == 2
-    assert NO_YES in capsys.readouterr().out and rec.calls == []
+    cli.main(["restore", str(f), "--key", str(key), "--restart", "--deploy", str(deploy)], installed=True)
+    said = capsys.readouterr()  # T-U007: was `== 2` and `NO_YES in out and rec.calls == []`
+    assert NO_YES not in said.out and "trialbox restore <" in said.err
+    rec = Recorder(running=["db", "console"])
+    _stand_in(monkeypatch, rec)
     code, seen = _restore(deploy, tmp_path, monkeypatch, rec)
     assert code == 2 and not seen and REFUSED_RUNNING in capsys.readouterr().err
     assert not any("stop" in c for c in rec.calls)

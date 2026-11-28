@@ -133,16 +133,16 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     v.add_argument("--deploy", type=Path, default=None, help="where deploy/site/backup-verified.json goes (T-209a)")
     _restic_args(v)
     r = sub.add_parser("restore", help="restore databases and files from a backup (needs the private key)")
-    r.add_argument("file", type=Path, nargs="?", help="the backup file (or --last)")
+    r.add_argument("file", type=Path, nargs="?", help="the backup file, or the folder it is in (or --last)")
     r.add_argument("--last", action="store_true",
                    help="the newest backup backup-nightly recorded good, on a target of this box (H-100)")  # fmt: skip
     r.add_argument("--restart", action="store_true",
                    help="on the host: stop all but db first; start them after, wait until healthy")  # fmt: skip
-    r.add_argument("--key", type=Path, required=True)
+    r.add_argument("--key", type=Path, default=None, help="the private key file (hospital IT's envelope)")
     r.add_argument("--dir", action="append", default=[])
     r.add_argument("--expect-sha256", default=None,
                    help="refuse the file unless its sha256 is this one (what the host checked)")  # fmt: skip
-    r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
+    r.add_argument("--yes", action="store_true", help="no longer needed: the box is kept as a copy first (T-U007)")
     r.add_argument(
         "--deploy",
         type=Path,
@@ -174,8 +174,8 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     r.add_argument("--refdata", type=Path, default=None,
                    help=f"the kept reference packs (default: TB_REFDATA_DIR or {kept})")  # fmt: skip
     rd = sub.add_parser("restore-drill", help="prove a backup restores, into scratch databases (needs the key; D-892)")
-    rd.add_argument("file", type=Path)
-    rd.add_argument("--key", type=Path, required=True)
+    rd.add_argument("file", type=Path, nargs="?", help="the backup file, or the folder it is in")
+    rd.add_argument("--key", type=Path, default=None)
     rd.add_argument("--dir", action="append", default=[], help="the audit folder, as restore takes it")
     rd.add_argument("--work", type=Path, default=None, help="where the backup is unpacked (default: the temp folder)")
     rd.add_argument("--db-dir", type=Path, default=None,
@@ -527,7 +527,9 @@ def _in_mail_gateway(deploy: Path, args: list[str]) -> int:
             [*compose, "exec", "-T", "mail-gateway", "python", "-m", "tools.trialbox", *args], check=False
         ).returncode
     except FileNotFoundError as exc:
-        print(f"mail: no settings file here and no compose to reach the mail-gateway ({exc})", file=sys.stderr)
+        from tools.trialbox.cli_text import say
+
+        print(say("mail_no_gateway", why=exc), file=sys.stderr)
         return 2
 
 
@@ -580,7 +582,14 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
 def _drill_cmd(a: argparse.Namespace, installed: bool) -> int:
     """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started."""
     from tools.trialbox import restore_drill as rd
+    from tools.trialbox.cli_text import say
 
+    if a.file is None or a.key is None:  # P-15: what it needs, not a usage dump
+        print(say("drill_needs"), file=sys.stderr)
+        return 2
+    a.file = _resolve_backup(a.file, "restore-drill")
+    if a.file is None:
+        return 2
     docker_root = Path("/var/lib/docker")
     db_dir = a.db_dir or (docker_root if docker_root.is_dir() else None)
     res = None
@@ -628,36 +637,76 @@ def _restore_defaults(a: argparse.Namespace, env: Mapping[str, str], deploy: Pat
     if a.refdata is None:
         kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
         a.refdata = Path(env.get("TB_REFDATA_DIR") or kept)
+        beside = Path(a.file).parent if a.file is not None else None  # M-7: the pack kept beside the backup
+        if beside and not any(a.refdata.glob("*.tar")) and any(beside.glob("*.tar")):
+            a.refdata = beside
+
+
+def _newest_backup(folder: Path) -> Path | None:
+    from datetime import UTC, datetime
+
+    from tools.trialbox import backup_schedule as bs
+
+    def when(f: Path) -> datetime:
+        return bs.stamp_of(f) or datetime.fromtimestamp(f.stat().st_mtime, UTC)
+
+    return max((f for f in folder.glob(f"*{bs.SUFFIX}") if f.is_file()), key=when, default=None)
+
+
+def _resolve_backup(file: Path, verb: str) -> Path | None:
+    """TOL-CLI (M-7, T-U005): a folder names its newest backup (said, not asked); a file is itself."""
+    from tools.trialbox.cli_text import say
+
+    if not file.is_dir():
+        return file
+    newest = _newest_backup(file)
+    if newest is None:
+        print(say("restore_empty_folder", verb=verb, folder=file), file=sys.stderr)
+    else:
+        print(say("restore_picked", verb=verb, name=newest.name, folder=file), file=sys.stderr)
+    return newest
 
 
 def _restore_cmd(a: argparse.Namespace, installed: bool) -> int:
     """``restore``: on the host (the installed ``trialbox``, or a host python without the libraries) it runs in the
     backup image with the box's own settings (H-100, ``box_restore.py``); elsewhere (that container, a developer's
-    interpreter) in this process, as before."""
-    if a.last == (a.file is not None):
-        print("restore: name the backup file, or --last (not both)", file=sys.stderr)
-        return 2
-    if not a.yes:
-        print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
-        return 2
-    from tools.trialbox import launch
+    interpreter) in this process, as before.
 
-    if installed or not launch.has_libs((*launch.CRYPTO, "psycopg")):
+    TOL-CLI (TOL-1 §2.4): the one command is ``restore <backup folder> --key <key>``; a refusal for a usage slip is
+    said at second 0 with the fix. ``--yes`` is no longer needed: a box that holds data is kept as an encrypted copy
+    first (the refusal without one stays, T-U008), and the way back is printed (T-U007)."""
+    from tools.trialbox import launch
+    from tools.trialbox.cli_text import say
+
+    if a.last and a.file is not None:
+        print(say("restore_both"), file=sys.stderr)
+        return 2
+    if not a.last and a.file is None:
+        print(say("restore_no_source"), file=sys.stderr)
+        return 2
+    if a.key is None:
+        print(say("restore_no_key"), file=sys.stderr)
+        return 2
+    if a.file is not None:
+        a.file = _resolve_backup(a.file, "restore")
+        if a.file is None:
+            return 2
+    host = installed or not launch.has_libs((*launch.CRYPTO, "psycopg"))
+    if host:
         from tools.trialbox import box_restore, update
 
         if a.no_copy and not a.yes_really:  # review R3: the kept copy is the way back if the put-back fails
-            print("restore: --no-copy keeps no copy of the box before the restore: if the restore and then its "
-                  "putting back both fail, nothing is left to go back to. Add --yes-really to go on without it; "
-                  "nothing was changed", file=sys.stderr)  # fmt: skip
+            print(say("restore_no_copy"), file=sys.stderr)
             return 2
-        box = update._env_file(a.deploy / ".env")
-        _restore_defaults(a, box, a.deploy)
-        return box_restore.main(a)
-    if a.last or a.restart:
-        print("restore: --last and --restart are the host's (the installed trialbox restore)", file=sys.stderr)
-        return 2
-    _restore_defaults(a, os.environ, Path("deploy"))
-    return _backup_cmd(a)
+        _restore_defaults(a, update._env_file(a.deploy / ".env"), a.deploy)
+    else:
+        if a.last or a.restart:
+            print("restore: --last and --restart are the host's (the installed trialbox restore)", file=sys.stderr)
+            return 2
+        _restore_defaults(a, os.environ, Path("deploy"))
+    if not a.yes:
+        print(say("restore_way_back", name=a.file.name if a.file else "--last", keep=a.keep_to), file=sys.stderr)
+    return box_restore.main(a) if host else _backup_cmd(a)
 
 
 def _restic_args(p: argparse.ArgumentParser) -> None:
@@ -733,9 +782,6 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                 a.deploy or Path(__file__).resolve().parents[2] / "deploy", {**res, "file": a.file.name}
             )
             return 0
-        if not a.yes:
-            print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
-            return 2
         from tools.trialbox.update import ComposeBox
 
         def running() -> list[str] | None:  # D-724 (DATA-011): only the database may run while a box is restored
