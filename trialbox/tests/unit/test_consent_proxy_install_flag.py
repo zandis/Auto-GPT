@@ -42,7 +42,8 @@ def _function(name: str) -> str:
 def _parse(tmp: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """install.sh up to the end of its argument loop, run as deploy/install.sh of ``tmp``, with ``args``."""
     (tmp / "deploy" / "site").mkdir(parents=True, exist_ok=True)
-    (tmp / "deploy" / "site" / "poc-stops.jsonl").write_text("{}\n", encoding="utf-8")
+    if not (tmp / "deploy" / "site" / "poc-stops.jsonl").exists():
+        (tmp / "deploy" / "site" / "poc-stops.jsonl").write_text("{}\n", encoding="utf-8")
     head = INSTALL[: INSTALL.index("\nsay() {")] + '\necho "parsed CONSENT_PROXY=$CONSENT_PROXY"\n'
     (tmp / "deploy" / "install.sh").write_text(head, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
@@ -145,6 +146,23 @@ def test_envset_writes_the_whole_file_beside_it_and_renames_it(tmp_path: Path) -
     assert 'sed -i "/^$1=/d" deploy/.env' not in _function("envset")  # not deleted in place before the append
 
 
+def test_envset_that_fails_before_the_rename_leaves_env_untouched(tmp_path: Path) -> None:
+    """A failing first step (awk cannot read .env) must not let the printf make a partial copy that replaces it."""
+    f = tmp_path / "deploy" / ".env"
+    f.parent.mkdir()
+    f.write_text("TB_A=1\nTB_B=2\n", encoding="utf-8")
+    before = f.read_bytes()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "awk").write_text("#!/bin/sh\nexit 2\n", encoding="utf-8")
+    (bindir / "awk").chmod(0o755)
+    script = f'cd "{tmp_path}"\nPATH="{bindir}:$PATH"\n{_function("envset")}envset TB_A 3\n'
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert r.returncode != 0
+    assert f.read_bytes() == before
+    assert sorted(p.name for p in f.parent.iterdir()) == [".env"]  # the temporary file is removed
+
+
 def test_the_option_is_parsed_and_the_refusal_names_it() -> None:
     from console.refusals import UNTRANSLATED, localize_reason
 
@@ -170,6 +188,19 @@ def test_a_bad_or_missing_value_does_not_stop_the_install(tmp_path: Path, args: 
     res = _parse(tmp_path, "--yes", *args)
     assert res.returncode == 0, (res.returncode, res.stdout, res.stderr)
     assert f"parsed CONSENT_PROXY={got}\n" in res.stdout
+
+
+def test_an_odd_value_with_check_keeps_the_poc_warning_record(tmp_path: Path) -> None:
+    """The PoC warning record of an earlier run survives a --check run whose --consent-proxy value is odd (it warns and
+    goes on): the arguments are parsed and the record's content is unchanged."""
+    record = tmp_path / "deploy" / "site" / "poc-stops.jsonl"
+    record.parent.mkdir(parents=True)
+    known = '{"step": "earlier-run", "n": 1}\n'
+    record.write_text(known, encoding="utf-8")
+    res = _parse(tmp_path, "--check", "--consent-proxy", "yes")
+    assert res.returncode == 0, (res.returncode, res.stdout, res.stderr)
+    assert "parsed CONSENT_PROXY=yes\n" in res.stdout
+    assert record.read_text(encoding="utf-8") == known
 
 
 def test_a_missing_value_does_not_eat_the_next_option(tmp_path: Path) -> None:

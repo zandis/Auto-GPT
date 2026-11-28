@@ -1081,7 +1081,7 @@ envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
 envset() {
   local t
   t="$(mktemp deploy/.env.XXXXXX)" || return 1
-  if { awk -v k="$1=" 'index($0, k) != 1' deploy/.env; printf '%s=%s\n' "$1" "$2"; } > "$t" \
+  if { awk -v k="$1=" 'index($0, k) != 1' deploy/.env && printf '%s=%s\n' "$1" "$2"; } > "$t" \
       && chmod --reference=deploy/.env "$t" && chown --reference=deploy/.env "$t" && mv -f "$t" deploy/.env; then
     return 0
   fi
