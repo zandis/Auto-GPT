@@ -263,6 +263,8 @@ def feas_report(
         }
         for s in result.get("sensitivity") or []
     ]
+    for r in funnel_rows:  # lane K: each attrition row opens its own threshold variants (the what-if toggle)
+        r["variants"] = [s for s in sens if s["criterion"] == r["id"]]
     potential = next(
         (s.get("remaining") for s in result.get("sensitivity") or [] if s.get("variant") == "unknown_as_pass"), None
     )
