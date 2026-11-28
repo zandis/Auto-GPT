@@ -44,6 +44,17 @@ def test_the_dry_run_refuses_a_bad_answer_and_writes_nothing(
     assert sorted(p.name for p in tmp_path.iterdir()) == ["answers.yaml"]
 
 
+def test_a_malformed_answers_file_is_refused_without_its_text(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review I1: a YAML error says where, never the line it quotes (a planted secret stays out of the log)."""
+    bad = tmp_path / "answers.yaml"
+    bad.write_text("site_name: Site A\nadmin_password: synthetic-s3cret: [\n", encoding="utf-8")
+    assert settings_wizard.main(["--answers", str(bad), "--dry-run", "--environment", "PRODUCTION"]) == 1
+    err = capsys.readouterr().err
+    assert "answers.yaml is not valid YAML at line" in err and "s3cret" not in err and "admin_password" not in err
+
+
 def test_a_production_install_refuses_a_bad_answer_within_a_minute_before_the_load(tmp_path: Path) -> None:
     """Done-when (d): the refusal is in the install's log within 60 s of the start, and nothing was loaded."""
     box = Box(tmp_path / "prod", env=PROD_SITE + f"TB_SOURCE_DIR={tmp_path}\n")
