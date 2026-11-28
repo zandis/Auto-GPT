@@ -290,8 +290,15 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         return decommission.main(a.deploy, a.json)
     if a.cmd == "mail":
         from mail_gateway import admin as mail_admin
+        from tb_common.config import ConfigError
 
-        return mail_admin.main(a.action, a.key, a.decision, a.by, a.json)
+        try:
+            return mail_admin.main(a.action, a.key, a.decision, a.by, a.json)
+        except ConfigError as exc:  # E2E P-15: on the host (no settings file) the outbox is read in the mail-gateway
+            if os.environ.get("TB_SERVICE_NAME") == "mail-gateway":  # already in it (compose sets this): no second hop
+                print(f"mail: {exc}", file=sys.stderr)
+                return 2
+            return _in_mail_gateway(deploy, [*args, *([] if a.by else ["--by", mail_admin.actor(None)])])
     if a.cmd == "exports":
         return _exports_cmd(a)
     if a.cmd == "secrets":
@@ -352,9 +359,14 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
             print("update REFUSED: --no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); "
                   "nothing was changed", file=sys.stderr)  # fmt: skip
             return 2
-        return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
-                                    no_backup_reason=reason or None,
-                                    **({"bundle": a.bundle} if a.bundle else {}))  # fmt: skip
+        rc = tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
+                                  no_backup_reason=reason or None,
+                                  **({"bundle": a.bundle} if a.bundle else {}))  # fmt: skip
+        if a.target == "compose":  # E2E P-33: the Operations page knows the update without waiting for the timer
+            from tools.trialbox import ops as tb_ops
+
+            tb_ops.refresh_status(a.deploy)
+        return rc
     if a.cmd in ("backup-nightly", "backup-status", "backup-install"):
         from tools.trialbox import backup_schedule as bsch
 
@@ -377,8 +389,12 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         print("doctor: --lang and --out go with --preflight", file=sys.stderr)
         return 2
     if a.cmd == "doctor":
-        from tools.trialbox import doctor
+        from tools.trialbox import doctor, launch
 
+        if a.env_file is None and (launch.DEPLOY / ".env").is_file():
+            # E2E P-18: the box's own file, which the launcher already reads as its settings; without it the
+            # installed doctor judged some checks without the box's values (false FAILs the runbook form had not)
+            a.env_file = launch.DEPLOY / ".env"
         which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
         if a.weights:
             which = (doctor.LIVE if a.serving else ()) + doctor.WEIGHTS
@@ -489,6 +505,23 @@ def _platform_cmd(a: argparse.Namespace) -> int:
         print(f"platform-images: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _in_mail_gateway(deploy: Path, args: list[str]) -> int:
+    """The same ``trialbox mail`` command in the mail-gateway container (``TB_COMPOSE`` overrides the compose call)."""
+    import shlex
+    import subprocess
+
+    compose = shlex.split(
+        os.environ.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(deploy))}"
+    )
+    try:
+        return subprocess.run(
+            [*compose, "exec", "-T", "mail-gateway", "python", "-m", "tools.trialbox", *args], check=False
+        ).returncode
+    except FileNotFoundError as exc:
+        print(f"mail: no settings file here and no compose to reach the mail-gateway ({exc})", file=sys.stderr)
+        return 2
 
 
 def _exports_cmd(a: argparse.Namespace) -> int:

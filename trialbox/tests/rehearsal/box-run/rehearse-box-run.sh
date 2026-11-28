@@ -30,6 +30,18 @@
 #                      verified with the public key, uploaded with its sha256
 #   build-gate-fails   a release gate fails: the build stops at b04 and the key is never read
 #   build-refused      the bundle comes out a rehearsal bundle (--rehearsal): b06 refuses it (D-726), nothing uploaded
+#   build-again-fails  HYG2-R2: a signing that fails leaves the last good release in the build folder as it was
+#   build-cut-fails    HYG2-R2 (N4): an earlier signing was cut between its two renames (the last release in
+#                      out.old), then the signing fails: the last release is back in out
+#   build-pub-private  HYG2-R7: the vendor public-key object carries a private key after the public one: refused at
+#                      b05, nothing of it in the build folder, nothing uploaded
+#   build-recover-fails  HYG2-R2: the last release in out.old (a cut) and its way back into out blocked: b05 stops
+#                      before signing and out.old is kept, never deleted
+#   build-stray-out    HYG2-R2: the last release in out.old and a folder in out that is not a release: the signing
+#                      stops before replacing anything and out.old is kept
+#   build-validation-again-fails  HYG2-R10: a validation signing that fails keeps the public key of the bundle kept
+#   build-sign-cut     HYG2-R10: a cut signing left its attempt folder and make_bundle.sh's staging: the next one
+#                      removes them (one bundle of disk per cut otherwise)
 #   build-preempt      a pre-emption in the middle of b03: the next boot keeps b01 and b02, runs b03 again, finishes
 #   happy              start (G-2) + g6 + g9 + g10 from the signed bundle; the power cycle; results through the bucket
 #                      (and the door)
@@ -140,7 +152,8 @@ REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
      resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
-     acc-cut-resume
+     acc-cut-resume build-again-fails build-cut-fails build-pub-private build-recover-fails build-validation-again-fails
+     build-sign-cut build-stray-out
      session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
      session-ssh session-then-acc session-close-fails session-update-fails session-cut-56 session-unit session-unit-race
      session-unit-fails session-unit-dbus session-ops session-quiet-fails session-ss-fails session-ended-again)
@@ -304,15 +317,18 @@ build_setup() {  # build: a small git repository as the release commit, its git 
 # real one does, then signs with the REAL signer over the real host tree (standins/mkbundle.py).
 set -eu
 while [ $# -gt 0 ]; do case "$1" in --key) K=$2; shift ;; --id) I=$2; shift ;; --release-seq) Q=$2; shift ;;
-  --out) O=$2; shift ;; --gates) G=$2; shift ;; --sbom-dir) shift ;; --models) M=$2; shift ;;
+  --out) O=$2; shift ;; --pub) P=$2; shift ;; --gates) G=$2; shift ;; --sbom-dir) shift ;; --models) M=$2; shift ;;
   *) echo "make_bundle: unknown option $1" >&2; exit 2 ;; esac; shift; done
 [ -f "$K" ] && [ -f "$G" ] || { echo "make_bundle: no key or no gates" >&2; exit 2; }
+[ -n "${P:-}" ] && [ -f "$P" ] || { echo "make_bundle: --pub must name the vendor public key (as the real one, F1)" >&2; exit 2; }
 # H-43: the weights the site bundle carries, as the real one reads them (find -L: through the links)
 [ -n "${M:-}" ] && [ -n "$(find -L "$M/embedder" -type f 2>/dev/null)" ] || { echo "make_bundle: no embedder/ in --models" >&2; exit 2; }
 echo "make-bundle models $(ls "$M" | tr '\n' ' ')" >> "$BR_S/calls.log"
 [ "$(stat -c %a "$K")" = 600 ] || { echo "make_bundle: the key is not 0600" >&2; exit 2; }
+[ ! -f "$BR_S/knobs/sign-fails" ] || { echo "make_bundle: the stand-in refuses this build (knob sign-fails)" >&2; exit 1; }
 echo "make-bundle key-ok" >> "$BR_S/calls.log"
 x=(); [ -f "$BR_S/knobs/build-rehearsal" ] && x=(--rehearsal)
+mkdir -p "$(dirname "$O")"   # the real one publishes --out's folder itself
 "$TB_BOX_PY" "$BR_HERE/standins/mkbundle.py" --key "$K" --id "$I" --seq "$Q" --host "$BR_S/host-for-build.tar" \
   --commit "$(git rev-parse HEAD)" --out "$O" ${x[@]+"${x[@]}"}
 EOS
@@ -413,9 +429,48 @@ vendor
 for CASE in "${CASES[@]}"; do
   log "case $CASE"
   case "$CASE" in
-    build) setup "$CASE" build; build_setup; boot; to_the_end ;;
+    build)  # HYG2-R2: the release an earlier run left is retired once the new one is built
+      setup "$CASE" build; build_setup; mkdir -p "$S/vm/build/out" "$S/vm/build/out.next.another-run"
+      echo old > "$S/vm/build/out/earlier-release.tar"
+      boot; to_the_end ;;
     build-gate-fails) setup "$CASE" build gate-fails; build_setup; boot; to_the_end ;;
     build-refused) setup "$CASE" build build-rehearsal; build_setup; boot; to_the_end ;;
+    build-again-fails)
+      setup "$CASE" build sign-fails; build_setup
+      mkdir -p "$S/vm/build/out"; echo "the last good release" > "$S/vm/build/out/trialbox-2026.11-r.tar"
+      boot; to_the_end ;;
+    build-cut-fails)
+      setup "$CASE" build sign-fails; build_setup
+      mkdir -p "$S/vm/build/out.old"; echo "the last good release" > "$S/vm/build/out.old/trialbox-2026.11-r.tar"
+      boot; to_the_end ;;
+    build-pub-private)
+      setup "$CASE" build; build_setup; cat "$V/keys/vendor_ed25519.key" >> "$BKT/r2/keys/vendor_ed25519.pub"
+      boot; to_the_end ;;
+    build-recover-fails)  # a link to nowhere: out is not there, and out.old cannot be renamed onto it
+      setup "$CASE" build; build_setup
+      mkdir -p "$S/vm/build/out.old"; echo "the last good release" > "$S/vm/build/out.old/trialbox-2026.11-r.tar"
+      ln -s "$S/vm/build/nowhere" "$S/vm/build/out"
+      boot; to_the_end ;;
+    build-validation-again-fails)
+      setup "$CASE" build sign-fails; build_setup; m tb-mode validation
+      rm -f "$S/metadata/tb-vendor-key-secret" "$S/metadata/tb-vendor-key-version"
+      mkdir -p "$S/vm/build/out"; echo "the last good release" > "$S/vm/build/out/trialbox-2026.11-r.tar"
+      echo "the last throwaway key" > "$S/vm/build/out/throwaway-signing-key.pub"
+      echo "the last throwaway key" > "$S/vm/build/throwaway-signing-key.pub"   # where b06 read it before
+      boot; to_the_end ;;
+    build-stray-out)
+      setup "$CASE" build; build_setup
+      mkdir -p "$S/vm/build/out.old" "$S/vm/build/out"; echo "the last good release" > "$S/vm/build/out.old/trialbox-2026.11-r.tar"
+      echo "not a release" > "$S/vm/build/out/stray.txt"
+      boot; to_the_end ;;
+    build-sign-cut)
+      setup "$CASE" build; build_setup
+      mkdir -p "$S/vm/build/out" "$S/vm/build/out.next.another-run" "$S/vm/build/out.next.sign/.make_bundle-pending.x" \
+        "$S/vm/build/tmp/tb-bundle.x"
+      echo old > "$S/vm/build/out/earlier-release.tar"
+      echo partial > "$S/vm/build/out.next.sign/.make_bundle-pending.x/trialbox-2026.11-r.tar"
+      echo partial > "$S/vm/build/tmp/tb-bundle.x/image.tar"
+      boot; to_the_end ;;
     build-preempt)
       setup "$CASE" build; echo 4 > "$S/knobs/images-seconds"; build_setup; boot
       wait_for "b03-images to be running" grep -q '^images$' "$S/calls.log"

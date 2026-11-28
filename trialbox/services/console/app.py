@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import errno
 import hashlib
 import io
 import ipaddress
@@ -43,7 +44,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common import egress_edge, trusted_proxy
-from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
+from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditFull, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
@@ -1023,6 +1024,17 @@ def create_app(
         detail = str(exc)[:300] if lang_of(request, sess) not in ("ja", "zh-TW") else ""
         return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": detail})
 
+    @app.exception_handler(OSError)
+    async def _disk_full(request: Request, exc: OSError) -> Response:
+        """E2E P-34: a write the full disk refused (the audit's own refusal, or the system's ENOSPC) answers a plain
+        page that says so, not 500 Internal Server Error; any other OSError stays the server error it was."""
+        if not (isinstance(exc, AuditFull) or exc.errno == errno.ENOSPC):
+            raise exc
+        logging.getLogger(__name__).error("a write was refused: the disk is full (%s)", type(exc).__name__)
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON
+            return JSONResponse({"error": "diskfull", "detail": {}}, status_code=507)
+        return page(request, "problem.html", session_of(request), status=507, key="diskfull", values={})
+
     def actor(sess: Session) -> str:
         return f"console:{sess.user.username}"
 
@@ -1344,6 +1356,7 @@ def create_app(
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
         made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
+        pw, _, pw_code = pw.partition("\ncode:")  # E2E P-17: with the password, the code for the authenticator
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
@@ -1364,6 +1377,7 @@ def create_app(
             made=made,
             pw=pw,
             pw_groups=pw.split("-") if pw else [],
+            pw_code=pw_code,
             sso=settings.sso,
         )
 
@@ -1427,7 +1441,11 @@ def create_app(
                         "expires": made_user.expires or "",
                     },
                 )
-                keep_once(sess, name, password)
+                code = ""
+                if ident.needs_code(made_user):  # E2E P-17: without a code the new account could never enrol (D-192)
+                    code = us.issue_enrol_code(name)
+                    au.append("console.enrol_code", actor=actor(sess), detail={"user": name})
+                keep_once(sess, name, password + (f"\ncode:{code}" if code else ""))  # shown once, as the password
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "reset":
                 if us.is_sso(name):

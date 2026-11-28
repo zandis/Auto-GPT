@@ -675,6 +675,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"    value {q['code']} {q['raw']!r}: {q['read']} ×{q['rows']}")
         for c in rep["unit_default_conflicts"]:
             print(f"UNIT DEFAULT {c}")
+        if not rep["tables"]:  # E2E P-09: a FAILED with every count 0 must say why
+            print(
+                "NO TABLES: the mapping declares no table, so nothing was read (declare the tables the source exports)"
+            )
         print(
             f"{'PASSED' if rep['passed'] else 'FAILED'}: {rep['missing_columns']} missing columns, "
             f"{rep['invalid']} invalid resources, {rep['rejected']} rows refused"

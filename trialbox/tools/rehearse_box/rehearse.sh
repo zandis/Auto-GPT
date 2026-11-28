@@ -210,12 +210,13 @@ media() (  # a subshell: set -e stops the step, not the run
   # H-22 (D-996): the vendor builds in its own folder and hands the files over; that folder is gone before the site
   # installs, so a sidecar or a check that names the vendor's path fails here as it fails on a site's stick
   # HS-1: with the stick's launcher (install, the key's fingerprint pinned in it) and the vendor's public key
-  mv "$W/vendor/dist/$BUNDLE_NAME" "$W/vendor/dist/$BUNDLE_NAME.sha256" "$W/vendor/dist/trialbox-bootstrap.sh" \
-    "$W/vendor/dist/trialbox-bootstrap.sh.sig" "$W/vendor/dist/install" "$W/vendor/dist/vendor_ed25519.pub" \
-    "$MEDIA/linux/" && rmdir "$W/vendor/dist" \
-    || { echo "the bundle's files are not all in the vendor's folder (bundle, .sha256, bootstrap, .sig, install, key)"; return 1; }
+  mv "$W/vendor/dist/$BUNDLE_NAME" "$W/vendor/dist/$BUNDLE_NAME.sha256" "$W/vendor/dist/$BUNDLE_NAME.sha256.sig" \
+    "$W/vendor/dist/trialbox-bootstrap.sh" "$W/vendor/dist/trialbox-bootstrap.sh.sig" "$W/vendor/dist/install" \
+    "$W/vendor/dist/vendor_ed25519.pub" "$MEDIA/linux/" && rmdir "$W/vendor/dist" \
+    || { echo "the bundle's files are not all in the vendor's folder (bundle, .sha256 and its .sig, bootstrap, .sig, install, key)"; return 1; }
   [ -s "$MEDIA/linux/$BUNDLE_NAME" ] || { echo "no bundle at $MEDIA/linux/$BUNDLE_NAME"; return 1; }
-  cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"
+  cmp -s "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/vendor_ed25519.pub" \
+    || { echo "the public key the builder handed over is not the vendor's key of this rehearsal"; return 1; }
   cp deploy/measured/serving_config.*.json "$MEDIA/measured/"
   cp deploy/windows/preflight.ps1 "$MEDIA/windows/"
   # the release tree the site copies to /opt/trialbox: the tracked files and the new ones of this checkout

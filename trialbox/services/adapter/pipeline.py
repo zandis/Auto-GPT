@@ -26,8 +26,8 @@ from tb_common.generation import Generation, site_today
 from tb_common.site_profile import Profile as SiteProfile
 from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
-from tb_contracts import ConnectorReport, IngestReport, RebuildResult, ValidationSummary, dump
-from tb_contracts.landing import Severity
+from tb_contracts import ConnectorReport, IngestReport, RebuildResult, StageTimes, ValidationSummary, dump
+from tb_contracts.landing import ControlTotals, Equation, Severity
 
 from adapter import governance
 from adapter.instants import to_site_offset
@@ -45,6 +45,7 @@ from adapter.ndjson import (
 )
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
+from adapter.stage_times import Stages
 from adapter.validate.validator import (
     Hl7Validator,
     Sampler,
@@ -514,7 +515,7 @@ def run_ingest(
     """One night's ingest. Any exception on the way (an unreadable source, a mapping error, a full disk) writes one
     ``ingest.failed`` audit event with the error's type, the step and the table, then propagates (T-615b, DATA-003).
     The event holds no message text: a parser's message can quote a cell."""
-    at: dict[str, str | None] = {"step": "start", "table": None}
+    at = Stages("start")  # OPT-1 §6: the stage dict, which also times each stage
     try:
         with contextlib.ExitStack() as cleanup:  # T-692: the night's spool goes, whatever happens
             return _run_ingest(
@@ -564,7 +565,7 @@ def _run_ingest(
     cfg: AdapterConfig,
     source_kind: str,
     source_path: str,
-    at: dict[str, str | None],
+    at: Stages,
     *,
     since: str | None,
     snapshot: str | None,
@@ -630,6 +631,13 @@ def _run_ingest(
                 detail={"source": source_kind, "refused": "site_key", "reason": str(exc)},
             )
         raise
+    from adapter.publish import recover_all, refuse_split
+
+    # P-03 (review R5): a FHIR put-back that is owed is done, or refuses the night by its name
+    # (FhirRestoreOutstanding), before this night reads its source or touches any store; so is a night that would
+    # move the FHIR store or the lake alone (review F1: NightRefused)
+    recover_all(cfg)
+    refuse_split(cfg, load_fhir=load_fhir, rebuild_lake=rebuild_lake)
     errors: list[str] = []
     # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
     # is scratch on the lake volume (``lake:tmp``), removed when the night ends
@@ -663,11 +671,10 @@ def _run_ingest(
     contracts = (
         governance.load_contracts(cfg.contracts_dir) if cfg.contracts_dir and source_kind != "fhir_bulk" else None
     )
-    control_totals = (
-        governance.read_control_totals(Path(source_path))
-        if contracts is not None and source_kind == "csv" and not since
-        else None
+    control_totals = (  # E2E P-25: read whenever the export ships the file, with or without data contracts
+        governance.read_control_totals(Path(source_path)) if source_kind == "csv" and not since else None
     )
+    recon: list[Equation] = []  # without contracts: the totals counted as the rows stream past
     checks: list[governance.TableCheck] = []
     inputs: list[Path] = []
     gate_facts = governance.NightFacts(night=snap, current_before=current_before)
@@ -786,6 +793,9 @@ def _run_ingest(
             got = read_times.timed(table, src.rows(table, src_name, delta, since_t))
             if contracts is not None:
                 got = _kept(got, raw)
+            elif control_totals and (ct := control_totals.get(src_name)) is not None:
+                read_back: list[ControlTotals] = []
+                got = governance.counted(got, ct.patient_column, ct.delta_column, read_back)
             others = [0]  # CGRD-A2 (D-813, lane E's hunk): rows of a shared source that are another table's
 
             def own(rows_in: Any, t: str = table, n: list[int] = others) -> Iterator[Row]:
@@ -801,6 +811,8 @@ def _run_ingest(
             if (pv := tspec.get("pivot")) is not None:
                 stream = pivot_rows(stream, pv, str(tspec.get("key") or ""), spool.root / f".pivot-{table}", pivoted)
             rows = _TableRows.write(spool.root / f".rows-{table}", stream)
+            if contracts is None and control_totals and (ct := control_totals.get(src_name)) is not None:
+                recon += governance.reconcile(table, ct, read_back[0])  # E2E P-25
             if isinstance(where_dir := getattr(src, "directory", None), Path):
                 inputs.append(where_dir / f"{src_name}.csv")
             why = quarantine_reason(src, src_name)
@@ -941,6 +953,12 @@ def _run_ingest(
         ]
         if bad:
             errors.append(f"data contracts: {'; '.join(bad)}")
+    elif recon:  # E2E P-25: the export's control totals hold the night as they do with contracts
+        gate_facts.reconciliation = recon
+        bad = [f"{e.table}: {e.reason.value if e.reason else ''} ({e.name}: export {e.lhs}, read {e.rhs})"
+               for e in recon if e.verdict == "fail"]  # fmt: skip
+        if bad:
+            errors.append(f"control totals: {'; '.join(bad)}")
     aliases: dict[str, str] = {}
     from adapter.publish import finish_served
 
@@ -1233,6 +1251,9 @@ def _run_ingest(
     at["step"] = "report"
     passed = not errors
     ended = datetime.now(zone)
+    # OPT-1 §6: seconds and peak memory per stage. The report carries its own stages, so the report stage ends here:
+    # it excludes serialising and writing the report, the gate, the pruning and the ledger event
+    stages = at.summary()
     # NEW-B-20 (D-661): how long the night took, for the host's doctor (the Windows update window is placed outside
     # it). ``finished``: it ended published, the whole of a night; a held or failed night measures only its part
     from adapter import night_runs
@@ -1264,6 +1285,7 @@ def _run_ingest(
         omop=omop_load,
         fhir_unread=night.unread.result(),  # T-616: the inbound contract, what each resource carries unread
         connector=ConnectorReport.model_validate(read_times.summary(source_kind)),  # 10E-9: per message, per table
+        stages={k: StageTimes.model_validate(v) for k, v in stages.items()},  # OPT-1 §6
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
@@ -1325,6 +1347,7 @@ def _run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
+                "stages": stages,  # OPT-1 §6: seconds and peak memory per stage, as in the report
                 "publish": publish_steps,  # T-723: each publish step's state (None: the night was held at the gate)
                 "unit_defaults_applied": defaulted,
                 "site_profile": profile_said,  # 10B-6 (D-1233): id, version, digest and the coverage counts

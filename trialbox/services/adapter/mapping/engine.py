@@ -579,7 +579,10 @@ class Mapping:
             base = cls._read(base_path)
             if base.get("extends"):
                 raise MappingError(f"{base_path}: a base mapping cannot extend another one")
-            site_tables = doc.get("tables") or {}
+            # a site mapping with no tables key at all is the shipped mapping with the site zone (the installer writes
+            # one until the source has its own mapping step, T-731): it maps the shipped tables (E2E P-09). A site that
+            # declares tables, even none, gets those only.
+            site_tables = (doc.get("tables") or {}) if "tables" in doc else (base.get("tables") or {})
             merged = {**base, **{k: v for k, v in doc.items() if k != "extends"}}
             merged["systems"] = {**(base.get("systems") or {}), **(doc.get("systems") or {})}
             merged["params"] = {**(base.get("params") or {}), **(doc.get("params") or {})}

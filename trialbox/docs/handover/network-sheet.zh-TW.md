@@ -10,16 +10,16 @@
 
 | 服務 | 連接埠 | 主機端 | 網路 | 可連線者 | 啟動條件 |
 | --- | --- | --- | --- | --- | --- |
-| adapter | 8016 | 未對外 | trialbox-net | 僅限持有自身權杖者: console, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
+| adapter | 8016 | 未對外 | fhir-net, trialbox-net | 僅限持有自身權杖者: console, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | audit-writer | 無（不監聽） | 未對外 | trialbox-net | - | 常駐 |
 | authelia | 9091 | 未對外 | egress-net, trialbox-net | 僅主控台與 Caddy（以醫院帳號登入） | oidc (identity) |
 | caddy | 443 | 0.0.0.0:443:443 | edge-net, trialbox-net | 院內網路的診間電腦，僅 443（https://TB_TLS_HOSTNAME） | 常駐 |
 | console | 8090 | 未對外 | console-net, trialbox-net | 院內人員瀏覽器: 預設僅 127.0.0.1；院內網路僅經由院方 TLS 代理 | 常駐 |
-| criteria-compiler | 8012 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
-| db | 5432 | 未對外 | trialbox-net | TrialBox 各服務與 fhir-store（需密碼） | 常駐 |
+| criteria-compiler | 8012 | 未對外 | egress-net, fhir-net, trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
+| db | 5432 | 未對外 | fhir-net, trialbox-net | TrialBox 各服務與 fhir-store（需密碼） | 常駐 |
 | doc-parser | 8011 | 未對外 | trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | embed-service | 8014 | 未對外 | trialbox-net | 僅限持有自身權杖者: lake, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
-| fhir-store | 8080 | 未對外 | trialbox-net | adapter、orchestrator、criteria-compiler（僅網路隔離，尚無權杖） | 常駐 |
+| fhir-store | 8080 | 未對外 | fhir-net | adapter、orchestrator、criteria-compiler、db（僅網路隔離，尚無權杖） | 常駐 |
 | gateway | 8020 | 未對外 | egress-net, model-net, trialbox-net | 僅限持有自身權杖者: console, criteria-compiler, doc-parser, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | judge-sleep-init | 無（不監聽） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
 | judge-wake-init | 無（不監聽） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
@@ -30,7 +30,7 @@
 | mail-gateway | 8015 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: console, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | model-guard | 8000 | 未對外 | model-backend-net, model-net | 僅 gateway（model-net） | GPU 設定 |
 | model-swap-init | 無（不監聽） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
-| orchestrator | 8010 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: console, mail-gateway; 主機上的管理者（operator 權杖） | 常駐 |
+| orchestrator | 8010 | 未對外 | egress-net, fhir-net, trialbox-net | 僅限持有自身權杖者: console, mail-gateway; 主機上的管理者（operator 權杖） | 常駐 |
 
 ## 網路
 
@@ -39,6 +39,7 @@
 | trialbox-console | 僅供主控台的公開埠: 不做對外 NAT、不解析外部名稱，其餘由 nftables 阻擋（deploy/network.sh） |
 | trialbox-edge | 對外僅限下表目的地（nftables，deploy/network.sh） |
 | trialbox-egress | 對外僅限下表目的地（nftables，deploy/network.sh） |
+| trialbox-fhir | 內部專用: 無對外路由 |
 | trialbox-model-backend | 內部專用: 無對外路由 |
 | trialbox-model-net | 內部專用: 無對外路由 |
 | trialbox-net | 內部專用: 無對外路由 |

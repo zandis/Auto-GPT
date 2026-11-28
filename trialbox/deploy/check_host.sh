@@ -542,7 +542,12 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   SITE_ID="$(sed -n 's/^TB_SITE_ID=//p' "$ENV_FILE" | tail -1)"
   PIDMAP_ROW=""
   if [ -n "$RUNNING_IDS" ] && [ -n "$SITE_ID" ]; then
-    if PIDMAP_OUT="$(printf '%s\n' "SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site'" \
+    # P-30: guarded as the doctor's own read (to_regclass): before the first night there is no table, and an
+    # unguarded SELECT logs an ERROR in the database at every boot
+    if PIDMAP_OUT="$(printf '%s\n' "SELECT to_regclass('pidmap.site_key') IS NOT NULL AS tb_has_pidmap \\gset" \
+        "\\if :tb_has_pidmap" \
+        "SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site';" \
+        "\\endif" \
         | docker compose --project-directory "$ROOT_DIR/deploy" exec -T db psql -X -q -tA -v ON_ERROR_STOP=1 \
             -v site="$SITE_ID" -U trialbox -d trialbox_wf 2>/dev/null)"; then
       PIDMAP_ROW="${PIDMAP_OUT:-none}"

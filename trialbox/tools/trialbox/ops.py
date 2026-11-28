@@ -40,6 +40,7 @@ import secrets
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -910,6 +911,20 @@ def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
             os.chmod(d, mode)
             if sub == "requests" and uid is not None:
                 os.chown(d, uid, uid)
+
+
+def refresh_status(deploy: Path) -> None:
+    """E2E P-33: the Operations page's status (``status.json``) written once, as the runner writes it each round.
+    ``trialbox update`` calls it at its end, applied or rolled back, so the page names the bundle at once and also on
+    a box whose ops timer does not run (the poc profile has no units; a timer left off). Never fails the caller: a
+    status that cannot be written is said, and the timer's next round writes it."""
+    try:
+        box = Box.compose(deploy)
+        ops = OpsDir(Path(box.env.get("TB_OPS_DIR") or deploy / "ops"))
+        prepare(ops)
+        OpsRunner(box, ops).write_status()
+    except Exception as exc:  # the update's own outcome stands; the page catches up at the runner's next round
+        print(f"note: the Operations page's status was not refreshed ({type(exc).__name__}: {exc})", file=sys.stderr)
 
 
 def metrics_token(deploy: Path) -> Path:

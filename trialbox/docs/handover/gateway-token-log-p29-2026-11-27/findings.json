@@ -1,0 +1,18 @@
+{
+ "card": "P29",
+ "title": "the gateway logs the token counts of each call (R1+1 P-29)",
+ "date": "2026-11-27",
+ "source": "docs/handover/gateway-token-log-p29-2026-11-27.md",
+ "findings": [
+  {
+   "id": "P29-01",
+   "date": "2026-11-27",
+   "source": "docs/handover/gateway-token-log-p29-2026-11-27.md",
+   "severity": "Low",
+   "claim": "tools/run_metrics.py sums tokens_in and tokens_out over every llm.gateway.call record; a call whose server gave no usage counts as 0 tokens, so tokens per second is low by those calls; the ledger now says which calls had counts (tokens_reported)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
