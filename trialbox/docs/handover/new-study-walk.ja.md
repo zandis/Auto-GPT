@@ -130,8 +130,8 @@ Exclusion Criteria
 | --- | --- | --- | --- |
 | 上部のバーでクリック | This week's patients | 本週病人 | 今週の患者 |
 | クリック | Criteria waiting for your approval: MYSTUDY v1.0.0 | 等待您核准的條件：MYSTUDY v1.0.0 | 承認待ちの基準：MYSTUDY v1.0.0 |
-| 中国語と日本語の画面のみ：各基準に短い表示名を付け、次をクリック | Save label | 儲存標籤 | 表示名を保存 |
-| 各行でクリック | Open | 開啟 | 開く |
+| 中国語と日本語の画面のみ：各基準に短い表示名を付け、次をクリック | Save labels and ticks | 儲存標籤與確認 | 表示名と確認を保存 |
+| 黄色の各行でコードを開いてチェック | I have read this row | 我已看過這一列 | この行を確認しました |
 | クリック | Approve all | 全部核准 | すべて承認 |
 | クリック | Yes, do it | 是，執行 | はい、実行します |
 

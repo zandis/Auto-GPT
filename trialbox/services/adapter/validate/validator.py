@@ -179,10 +179,41 @@ class ValidationResult:
     # sampled resources per type, so a class is measured against its own type (adapter.validation_baseline)
     classes: dict[int, list[str]] = field(default_factory=dict)
     types: dict[str, int] = field(default_factory=dict)
+    # U4: the sampled Patients and those of them with no birthDate (its own class, not in ``errors``)
+    patients: int = 0
+    no_birthdate: int = 0
 
     @property
     def error_pct(self) -> float:
         return 100.0 * self.errors / self.sampled if self.sampled else 0.0
+
+
+#: U4 (REAL100K §3, REAL2 Q2): a Patient with no birthDate is its own class, not a validation error. The twin carries
+#: it on 7.1 % of persons, which decided every night's hold against the 0.5 % gate by sampling chance; an age criterion
+#: reads such a patient as unknown, never as met. The class is counted against the sampled Patients (the Patient table
+#: is re-read whole on a delta night) and holds above its own limit: a broken feed empties the field for most.
+NO_BIRTHDATE_MAX_PCT = 25.0
+_BIRTHDATE_STAND_IN = "1900-01-01"  # only what the validator is shown: it still judges every other element
+
+
+def validate_sample(validator: Any, resources: list[Resource]) -> ValidationResult:
+    """``validator.validate`` with the absent-birthDate class counted apart (U4): a Patient without one is shown to the
+    validator with a stand-in date, so another error of that Patient still counts."""
+    patients = [r for r in resources if r.get("resourceType") == "Patient"]
+    absent = {id(r) for r in patients if not _has(r, "birthDate")}
+    res: ValidationResult = validator.validate(
+        [{**r, "birthDate": _BIRTHDATE_STAND_IN} if id(r) in absent else r for r in resources]
+    )
+    res.patients, res.no_birthdate = len(patients), len(absent)
+    return res
+
+
+def no_birthdate_hold(res: ValidationResult, max_pct: float = NO_BIRTHDATE_MAX_PCT) -> str | None:
+    """The hold of the absent-birthDate class, or None under its limit."""
+    pct = 100.0 * res.no_birthdate / res.patients if res.patients else 0.0
+    if pct <= max_pct:
+        return None
+    return f"Patient.birthDate absent on {pct:.2f}% of sampled patients exceeds {max_pct}%"
 
 
 # files per ``java`` run: far under the kernel's argument limit (about 65,000 names of 32 bytes in 2 MiB), and a size

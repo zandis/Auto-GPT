@@ -74,6 +74,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/audit/patients/{pid}` | - | - | - | - | - | - | - | Y | Y |
 | GET | `/audit/patients/{pid}/report.csv` | - | - | - | - | - | - | - | Y | Y |
 | GET | `/audit/provenance` | Y | - | - | - | - | - | - | Y | Y |
+| GET | `/audit/published` | Y | - | - | - | - | - | - | Y | Y |
 | GET | `/auth/oidc/callback` | n | n | n | n | n | n | n | n | n |
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n | n | n |
 | GET | `/breakglass` | Y | - | Y | Y | - | - | - | Y | - |
@@ -193,6 +194,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/data/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |
+| POST | `/api/v1/jobs/{job_id}/approval/save` | Y | Y | Y | Y | Y | - | - | - | - |
 | POST | `/api/v1/site/charts` | - | Y | - | - | n | - | - | - | - |
 | POST | `/api/v1/site/checks/{cid}` | Y | Y | - | - | n | - | - | - | - |
 | POST | `/api/v1/site/codes` | Y | Y | - | - | n | - | - | - | - |
@@ -246,6 +248,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/pilot/case` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/consent` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/approval/label` | Y | Y | Y | Y | Y | - | - | - | - |
+| POST | `/pilot/jobs/{job_id}/approval/save` | Y | Y | Y | Y | Y | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/approval/tick` | - | - | Y | Y | - | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/approve` | - | - | Y | Y | - | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/release` | Y | Y | - | - | Y | - | - | - | - |

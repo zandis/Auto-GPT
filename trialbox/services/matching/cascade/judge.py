@@ -110,6 +110,8 @@ class JudgeReply:
     # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
+    # BENCH-2 §2: on a disagreement, the judge's own answer (never affirmed); the engine takes it only where it keeps
+    kept: JudgeReply | None = None
 
     @property
     def all_calls(self) -> tuple[str, ...]:
