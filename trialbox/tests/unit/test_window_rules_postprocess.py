@@ -13,6 +13,7 @@ Public protocol text; no patient rows."""
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from criteria_compiler.semantics import CompileError, lower, window
 from criteria_compiler.terminology.mapper import Terminology
 from tb_contracts import Atom, LlmExtractOutput
 from tb_contracts.criterion_ir import STUDY_ANCHORS, CriterionIRv3, NotV1Expressible, downgrade_to_v1, upgrade_v1
+from tb_llm.client import GatewayClient
 
 pytestmark = pytest.mark.nodb
 
@@ -39,7 +41,7 @@ def _one(text: str, win: dict[str, Any] | None, cls: str = "structured", extra: 
 
 
 def test_a_window_the_model_got_wrong_is_the_rules() -> None:
-    c, warns = _one("Chemotherapy within 30 days before screening", {"from_days": -14, "to_days": 0})
+    c, warns = _one("Chemotherapy in the past 30 days", {"from_days": -14, "to_days": 0})
     assert c.class_ == "structured"
     assert (c.logic.window.from_days, c.logic.window.to_days) == (-30, 0)
     assert {"window_rules_override", "needs_review"} <= set(c.flags)
@@ -96,6 +98,89 @@ def test_a_window_with_no_word_about_time_is_refused_when_the_rules_abstain(monk
     assert c.class_ == "human"
     assert "window_invented" in c.flags
     assert any("Chemotherapy before the biopsy" in w for w in warns)
+
+
+# ------------------------------------------------------------------------------------ the second review's defects
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Chemotherapy within 7 days before randomization",  # W02: a named study date is not the run's date
+        "Chemotherapy -7 days before screening",  # W05 (D-914): a negative amount
+        "Chemotherapy \u22127 days before screening",
+        "Chemotherapy within 7 days before screening or first dose",  # W06: alternative anchors
+    ],
+)
+def test_a_window_the_rules_cannot_write_goes_to_a_person(text: str) -> None:
+    c, warns = _one(text, {"from_days": -30, "to_days": 0})
+    assert c.class_ == "human"
+    assert c.human_question
+    assert "needs_review" in (c.flags or [])
+    assert any("kept for a person" in w for w in warns)
+
+
+def test_a_compound_line_with_an_unbounded_first_dose_clause_goes_to_a_person() -> None:
+    """W07: the month of the chemotherapy clause does not let the surgery atom's window past the first-dose hold."""
+    logic = {
+        "op": "and",
+        "args": [
+            {**DRUG, "window": {"from_days": -30, "to_days": 0}},
+            {
+                "domain": "procedure",
+                "concept": "Surgery",
+                "quantifier": "any",
+                "window": {"from_days": -90, "to_days": 0},
+            },
+        ],
+    }
+    crit = {
+        "kind": "exclusion",
+        "class": "structured",
+        "text": "Chemotherapy in the past month and surgery prior to the first dose",
+        "logic": logic,
+        "concept_candidates": [*CONCEPTS, {"name": "Surgery", "domain": "procedure"}],
+    }
+    out = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0")
+    (c,) = out.criteria
+    assert c.class_ == "human"
+    assert "window_anchor_unsupported" in (c.flags or [])
+
+
+#: the whole output of an extraction the window rules leave as it is (an agreeing window), byte for byte
+UNCHANGED = (
+    '{"criteria": [{"class": "structured", "flags": ["concept_unmapped", "needs_review"], "id": "T-EXC-01", '
+    '"kind": "exclusion", "logic": {"domain": "medication", "quantifier": "any", "valueset": "VS_CHEMOTHERAPY", '
+    '"window": {"anchor": "index", "from_days": -30, "to_days": 0}}, "review": {"status": "draft"}, "ruleset": "T", '
+    '"text": "Chemotherapy within 30 days before screening", "time_sensitive": false}], "valuesets": '
+    '{"VS_CHEMOTHERAPY": {"compose": {"include": []}, "id": "T-VS-CHEMOTHERAPY", "meta": {"tag": [{"code": '
+    '"needs_review", "system": "https://trialbox.local/fhir/CodeSystem/review-flag"}]}, "name": "VS_CHEMOTHERAPY", '
+    '"resourceType": "ValueSet", "status": "draft", "title": "Chemotherapy", "url": '
+    '"http://trialbox.local/fhir/ValueSet/T-VS-CHEMOTHERAPY", "version": "1.0.0-v1ca752e1"}}, "warnings": '
+    "[\"concept 'Chemotherapy' (medication) could not be mapped\"]}"
+)
+
+
+def _serialized() -> str:
+    crit = {
+        "kind": "exclusion",
+        "class": "structured",
+        "text": "Chemotherapy within 30 days before screening",
+        "logic": {**DRUG, "window": {"from_days": -30, "to_days": 0}},
+        "concept_candidates": CONCEPTS,
+    }
+    out = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0")
+    criteria = [c.model_dump(mode="json", by_alias=True, exclude_none=True) for c in out.criteria]
+    return json.dumps({"criteria": criteria, "valuesets": out.valuesets, "warnings": out.warnings}, sort_keys=True)
+
+
+def test_an_extraction_the_rules_leave_alone_is_unchanged_byte_for_byte(monkeypatch: pytest.MonkeyPatch) -> None:
+    """W13: the whole serialized output, not chosen fields; twice from fresh input; no model is ever called."""
+
+    def no_model(*_: Any, **__: Any) -> Any:
+        raise AssertionError("the window step called a model")
+
+    monkeypatch.setattr(GatewayClient, "complete", no_model)
+    assert _serialized() == UNCHANGED
+    assert _serialized() == UNCHANGED
 
 
 # ----------------------------------------------------------------------------------------------------- the enum

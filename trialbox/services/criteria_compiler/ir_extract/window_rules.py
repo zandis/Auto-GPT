@@ -7,8 +7,11 @@ value and unit as written (a range is ``(low, high)``), its anchor and its kind 
 nothing in it is acted on. ``reconcile`` compares the confident reading with the windows the model put on the atoms:
 
 * the line has one window the model's atoms lack or give differently: the rule's window wins when it has a form in
-  days from the index date (``window_rules_override``), else the atom is left as it is and flagged
-  (``window_disagrees``, ``window_unattached``);
+  days from the run's date (``window_rules_override``); one counted from a named study date ("before randomization")
+  has no such form, and the criterion is held for a person (``window_anchor_unsupported``); else the atom is left as
+  it is and flagged (``window_disagrees``, ``window_unattached``);
+* a negative amount ("-7 days", D-914) or two study dates in one window ("before screening or first dose") is held
+  for a person (``window_negative``, ``window_anchor_alternatives``);
 * the line has no window (no time expression, or only durations such as "stable dose for 3 months"): the model's
   windows are left alone unless ``DROP_UNSTATED_WINDOWS`` is on, which drops them (``window_not_in_text``);
 * the window is anchored on the study's own dosing or end (``first_dose``, ``last_dose``, ``end_of_study``): a date
@@ -44,7 +47,10 @@ class Result:
     evidence: str = ""
     high_confidence: bool = True
     reason: str = ""
-    bound: str = ""  # "within" or "at_least" (a minimum distance); empty for a duration or no number
+    #: "within", "less_than" (strict), "at_least" or "more_than" (strict: a minimum distance), "exact", or "course"
+    #: (a state lasting N up to the anchor: "no drugs for at least 12 weeks prior to consent"); empty for a duration
+    bound: str = ""
+    implicit: bool = False  # no event is named ("in the past 3 months", "2 years ago"): counted from the run's date
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -110,11 +116,26 @@ _STATE = re.compile(
     r"total of)[^;,.]*$"
 )
 _ACTIVITY = re.compile(r"\b(?:complete|completed|chronic use)\b[^;,.]*$")
-_AT_LEAST = re.compile(
-    r"(?:at least|no (?:less|fewer|sooner) than|not (?:less|fewer|sooner) than|more than|greater than"
-    r"|minimum of|minimum|>=|>)[ (]*(?:a |an )?$"
-)
+#: the comparator before the number, read whole: "no more than" is a "within", never a "more than" (the negated
+#: forms are tried first, so the suffix of one is not read as the other)
+_BOUNDS = [
+    (re.compile(rf"(?:{words}|{signs})[ (]*(?:a |an )?$"), bound)
+    for words, signs, bound in [
+        (r"\b(?:no|not) (?:more|greater|longer) than|\bup to|\bat most|\bmaximum of", "<=", "within"),
+        (r"\bat least|\b(?:no|not) (?:less|fewer|sooner|shorter) than|\bminimum(?: of)?", ">=", "at_least"),
+        (r"\b(?:less|fewer|shorter) than", "<", "less_than"),
+        (r"\b(?:more|greater|longer) than", ">", "more_than"),
+    ]
+]
+_OR_MORE = re.compile(r"\s*(?:\([^)]*\)\s*)?or (?:more|longer)\b")
 _EXACT = re.compile(r"(?:exactly|precisely)\s*$")
+#: "for (at least) N" before a named date: how long a state lasted up to it, not a distance from it
+_COURSE = re.compile(r"\bfor\s+(?:(?:at least|a minimum of|minimum of|(?:no|not) less than|more than|over)\s+)?$")
+#: a signed negative amount ("-7 days", "−7 days"): no sure reading, a person reads it (D-914)
+_NEGATIVE = re.compile(r"(?:^|[\s(\[:=,;])-\s?$")
+_UNBOUNDED_FIRST_DOSE = r"\b(?:prior to|before|after|since)\s+(?:the )?first dose\b"
+NEGATIVE = "A negative amount has no sure reading (D-914)"
+ALTERNATIVE = "Alternative anchors in one window"
 #: an event text that is no event name: a verb phrase cut short ("having received a single ...")
 _NOT_EVENT = re.compile(r"^(?:having|being|been|receiving|received|taking|taken|undergoing|undergone|least|most)\b|^\d")
 #: a window counted from the index disease or a prior event the line names elsewhere, not from screening
@@ -173,6 +194,16 @@ def event_anchor(event: str) -> str:
     return event or "event"
 
 
+def _alternatives(event: str) -> bool:
+    """Whether the event phrase names a second study date beside the first ("screening or first dose"), which
+    ``event_anchor`` would cut off."""
+    head = re.split(r"[;,.()]", event)[0]
+    return any(
+        event_anchor(part) in (_KNOWN_ANCHORS - {""}) | {"study_day_1", "visit_1", "baseline"}
+        for part in re.split(r"\b(?:and/or|or|and)\b", head)[1:]
+    )
+
+
 def parse_windows(text: str) -> list[Result]:
     s = text.lower().replace("\\", "").replace("−", "-").replace("≥", ">=").replace("≤", "<=")
     if re.search(rf"half[ -]li(?:fe|ves)|\b(?:{_MONTHS})\s+\d", s):
@@ -226,8 +257,19 @@ def parse_windows(text: str) -> list[Result]:
         elif rel:
             kind, anchor, relation = "window", event_anchor(rel["event"]), rel["r"]
         elif lookback or re.match(r"\s+ago\b", after):
+            # the side is the word's: "next" ahead, "last", "past", "ago" ... back; a bare "within N" says neither,
+            # and the rules do not pick one (a person does)
+            cue = re.search(r"\b(within|last|past|previous|prior|preceding|next|recent)\s*(?:the\s+)?[ (<>=]*$", before)
+            word = evidence.split()[0] if evidence.split()[0] in ("last", "past", "previous", "prior", "next") else ""
+            word = word or (cue[1] if cue else "")
             kind, anchor = "window", "screening"
-            relation = "after" if re.search(r"\bnext\b", before + evidence) else "before"
+            relation = (
+                "after"
+                if word == "next"
+                else "before"
+                if word not in ("", "within") or re.match(r"\s+(?:ago|before|prior|earlier)\b", after)
+                else ""
+            )
         elif re.match(r"\s+thereafter\b", after) and re.search(r"\bdelivery\b[^.;]*$", before):
             kind, anchor, relation = "window", "birth", "after"
         elif re.search(r"\bfor\b[^;,.]*$", before) or re.match(r"\s+postmenopausal\b", after):
@@ -253,9 +295,20 @@ def parse_windows(text: str) -> list[Result]:
             )
         if kind == "window" and anchor == "screening" and not rel and _INDEX_DISEASE.search(before + after[:40]):
             uncertain = True
+        reason = "Unresolved expression or study-event definition" if uncertain else ""
+        if kind == "window" and rel and _alternatives(rel["event"]):
+            uncertain, reason = True, ALTERNATIVE
+        if _NEGATIVE.search(s[max(0, start - 3) : start]):
+            uncertain, reason = True, NEGATIVE
         bound = ""
         if kind == "window":
-            bound = "exact" if _EXACT.search(before) else "at_least" if _AT_LEAST.search(before) else "within"
+            bound = next((b for pattern, b in _BOUNDS if pattern.search(before)), "within")
+            if _EXACT.search(before):
+                bound = "exact"
+            elif rel and _COURSE.search(before):
+                bound = "course"
+            elif _OR_MORE.match(after):
+                bound = "at_least"
         out.append(
             Result(
                 (val, upper) if upper is not None else val,
@@ -265,8 +318,9 @@ def parse_windows(text: str) -> list[Result]:
                 relation,
                 evidence,
                 not uncertain,
-                "Unresolved expression or study-event definition" if uncertain else "",
+                reason,
                 bound,
+                kind == "window" and not rel and anchor == "screening" and relation != "range_lower",
             )
         )
         spans.append((start, end))
@@ -279,6 +333,11 @@ def parse_windows(text: str) -> list[Result]:
             gap = s[spans[i][1] : spans[max(j for j in named if j > i)][0]]
             if re.search(r"[,;]|\b(?:and|or)\b", gap) and not re.search(r"\bscreening\b", s[spans[i][1] :]):
                 out[i] = replace(w, high_confidence=False, reason="Shared anchor of coordinated clauses")
+    # an unbounded "prior to the first dose" in a clause of its own is read beside the numbers ("chemotherapy in the
+    # past month and surgery prior to the first dose"), not only on a line that has none
+    for fd in re.finditer(_UNBOUNDED_FIRST_DOSE, s):
+        if not any(re.fullmatch(r"[\s)]*(?:\([^)]*\)\s*)?(?:or more\s+)?", s[e : fd.start()]) for _, e in spans):
+            out.append(Result(None, "", "first_dose", "window", "unbounded", fd.group()))
     if out:
         # A single temporal tuple cannot encode alternative anchors/arm scope.
         if re.search(r"\bfor arm\b|\bwhichever\b|\b(?:through|until|to the) (?:week|day)\s*\d", s):
@@ -301,7 +360,7 @@ def parse_windows(text: str) -> list[Result]:
     ]:
         if m := re.search(pattern, s):
             return [Result(None, "", anchor, "window", "at" if anchor == "screening" else "during", m.group())]
-    if re.search(r"\b(?:prior to|before|after|since)\s+(?:the )?first dose\b", s):
+    if re.search(_UNBOUNDED_FIRST_DOSE, s):
         return [Result(None, "", "first_dose", "window", "unbounded", text)]
     if re.search(r"\b(?:within|since|until|baseline|visit \d|day\s*\+?\d|recently|postmenopausal|after|before)\b", s):
         return [
@@ -346,23 +405,43 @@ def _days(r: Result) -> tuple[int, ...] | None:
     return tuple(out)
 
 
+def _signed(r: Result, vals: tuple[Any, ...]) -> tuple[Any, Any] | None:
+    """The rule's window on its side of the anchor, in the unit of ``vals``; None when the line gives no side or the
+    window has an open future end (no form in the IR window). A strict bound is one unit inside the inclusive one."""
+    side = -1 if r.relation in ("before", "prior to", "prior", "preceding") else 0
+    side = side or (1 if r.relation in ("after", "following", "since") else 0)
+    if not side:
+        return None
+    if len(vals) == 2:
+        lo, hi = sorted(vals)
+        return (-hi, -lo) if side < 0 else (lo, hi)
+    n = vals[0]
+    if r.bound == "exact":
+        return (side * n, side * n)
+    if r.bound in ("at_least", "more_than"):
+        n += r.bound == "more_than"
+        return (None, -n) if side < 0 else None
+    n -= r.bound == "less_than"
+    return (-n, 0) if side < 0 else (0, n)  # within, or a course lasting up to the anchor
+
+
 def interval(r: Result) -> tuple[int | None, int | None] | None:
     """``(from_days, to_days)`` of the rule's window relative to its anchor, or None when the line does not say which
-    side of the anchor ("within 28 days of ..."), or the unit has no whole-day form."""
+    side of the anchor ("within 28 days of ...", a bare "within 1 month"), the unit has no whole-day form, or the
+    window is an exact offset or a course ("for at least 12 weeks prior to ..."), which a window does not encode."""
     days = _days(r)
-    if days is None or r.bound == "exact":
+    if days is None or r.bound in ("exact", "course"):
         return None
-    before = r.relation in ("before", "prior to", "prior", "preceding")
-    after = r.relation in ("after", "following", "since")
-    if not before and not after:
-        return None
-    if len(days) == 2:
-        lo, hi = sorted(days)
-        return (-hi, -lo) if before else (lo, hi)
-    n = days[0]
-    if r.bound == "at_least":
-        return (None, -n) if before else None  # an open future end has no form in the IR window
-    return (-n, 0) if before else (0, n)
+    return _signed(r, days)
+
+
+def _scaled(r: Result) -> tuple[tuple[Any, ...], int] | None:
+    """The rule's number(s) in the unit it is compared in (days; hours or minutes when the line counts in them) and
+    the factor that turns an atom's days into that unit; None for no number."""
+    vals = r.win_val if isinstance(r.win_val, tuple) else (r.win_val,)
+    if r.win_unit in DAYS:
+        return tuple(v * DAYS[r.win_unit] for v in vals), 1
+    return (vals, {"hour": 24, "minute": 1440}[r.win_unit]) if r.win_unit in ("hour", "minute") else None
 
 
 def _near(a: int | None, b: int | None) -> bool:
@@ -411,14 +490,21 @@ class Reconciled:
 DROP_UNSTATED_WINDOWS = False
 
 
-def _fits(
-    pair: tuple[int | None, int | None], iv: tuple[int | None, int | None] | None, days: tuple[int, ...] | None
-) -> bool | None:
-    """Whether the atom's window is the rule's (the signed interval when the line gives a side, else the lengths);
-    None when the rule has no day form to compare."""
-    if iv is not None:
-        return _same(pair, iv)
-    return None if days is None else _same_lengths(pair, days)
+def _fits(pair: tuple[int | None, int | None], r: Result) -> bool | None:
+    """Whether the atom's window is the rule's, compared in the line's own unit (96 hours is not two days): both
+    signed ends when the line gives a side of an entry anchor, one day at the stated distance for an exact offset,
+    else the lengths. None when the rule has no number to compare."""
+    scaled = _scaled(r)
+    if scaled is None:
+        return None
+    vals, factor = scaled
+    got = (None if pair[0] is None else pair[0] * factor, None if pair[1] is None else pair[1] * factor)
+    signed = _signed(r, vals) if r.anchor in INDEX_LIKE else None  # a named event's side is not the index date's
+    if signed is not None:
+        return _same(got, signed)
+    if r.bound == "exact":
+        return None not in got and _near(got[0], got[1]) and _near(abs(got[0] or 0), vals[0])
+    return _same_lengths(got, vals)
 
 
 def _stems(text: str) -> set[str]:
@@ -445,11 +531,23 @@ def reconcile(text: str, logic: dict[str, Any], *, drop_unstated: bool = False) 
     if not text or not reads_text(text):
         return Reconciled(logic, [])
     res = parse_windows(text)
+    if any(r.reason == NEGATIVE for r in res):
+        return Reconciled(
+            logic, ["window_negative"], "its line gives a negative amount of time, which has no sure reading"
+        )
+    if any(r.reason == ALTERNATIVE for r in res):
+        return Reconciled(
+            logic,
+            ["window_anchor_alternatives"],
+            "its window counts from one of two study dates, which one is not said",
+        )
     if not all(r.high_confidence and r.kind != "unparsed" for r in res):
         return Reconciled(logic, [])  # the rules abstain; the model's windows stand
     # an age or sex has no time limit; an atom with a duration reads "for at least 3 months" as a course inside its
-    # window, which the rules do not (a duration in a window is the medication construct of ``semantics``)
-    atoms = [a for a in _atoms(logic) if a.get("domain") != "demographic" and not a.get("duration")]
+    # window, which the rules do not (a duration in a window is the medication construct of ``semantics``): it is
+    # never written, but it is still one of the atoms the line's window may belong to
+    owners = [a for a in _atoms(logic) if a.get("domain") != "demographic"]
+    atoms = [a for a in owners if not a.get("duration")]
     windowed = [a for a in atoms if a.get("window")]
     if not any(r.kind == "window" for r in res):
         if not drop_unstated or (has_time_word(text) and not any(r.kind == "duration" for r in res)):
@@ -475,30 +573,43 @@ def reconcile(text: str, logic: dict[str, Any], *, drop_unstated: bool = False) 
     if len(wins) == 1 and not flags:
         r = wins[0]
         iv = interval(r) if r.anchor in INDEX_LIKE else None  # a named event's side is not the index date's
-        days = _days(r)
+        # the rule writes only on the one atom of a criterion that has one (with several, or a course atom beside
+        # it, the line does not say which carries it), and only a window counted from the run's date: the IR
+        # window of an extraction has no other anchor, so one counted from a named study date goes to a person
+        sole = len(owners) == 1 and len(atoms) == 1
+        named = (
+            f"its window counts from the {r.anchor.replace('_', ' ')}, a date the extraction's window (counted from "
+            "the run's date) cannot carry"
+        )
         if not windowed:
-            if len(atoms) == 1 and iv is not None:
+            if sole and iv is not None and not r.implicit:
+                return Reconciled(logic, ["window_anchor_unsupported"], named)
+            if sole and iv is not None:
                 atoms[0]["window"] = _window(iv)
                 flags.append("window_rules_override")
-            elif days and atoms:
+            elif _scaled(r) and atoms:
                 flags.append("window_unattached")
             return Reconciled(logic, flags)
         for a in windowed:
-            pair = (a["window"].get("from_days"), a["window"].get("to_days"))
-            if not days or (_same(pair, iv) if iv is not None else _same_lengths(pair, days)):
+            if _fits((a["window"].get("from_days"), a["window"].get("to_days")), r) is not False:
                 continue
-            if iv is not None and len(atoms) == 1:  # with several atoms the line does not say which carries it
+            if sole and iv is not None and not r.implicit:
+                return Reconciled(logic, ["window_anchor_unsupported"], named)
+            if sole and iv is not None:
                 a["window"] = _window(iv)
                 flags.append("window_rules_override")
             else:
                 flags.append("window_disagrees")
         return Reconciled(logic, sorted(set(flags)))
-    known = [(interval(r) if r.anchor in INDEX_LIKE else None, _days(r)) for r in wins]
-    for a in windowed:
-        pair = (a["window"].get("from_days"), a["window"].get("to_days"))
-        fits = [_fits(pair, iv, d) for iv, d in known]
+    # several windows: each atom's is compared with them, and each distinct one the line states must be on some atom
+    stated = list({(r.anchor in INDEX_LIKE, r.relation, r.bound, r.win_val, r.win_unit): r for r in wins}.values())
+    pairs = [(a["window"].get("from_days"), a["window"].get("to_days")) for a in windowed]
+    for pair in pairs:
+        fits = [_fits(pair, r) for r in stated]
         if any(f is not None for f in fits) and not any(fits):
             flags.append("window_disagrees")
+    if not flags and atoms and any(_scaled(r) and not any(_fits(p, r) for p in pairs) for r in stated):
+        flags.append("window_unattached")
     return Reconciled(logic, sorted(set(flags)))
 
 

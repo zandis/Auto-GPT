@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from criteria_compiler.ir_extract.window_rules import (
+    Reconciled,
     interval,
     lint,
     parse_window,
@@ -104,6 +105,12 @@ def test_adjudicated_pair(row: dict[str, Any]) -> None:
         assert sorted(_shown(row["text"])) == sorted(row["rules"])
         if row["gid"] not in SHARED_ANCHOR:
             assert all(r.high_confidence for r in results)
+        else:  # W12 of review 2: the abstention is asserted, and the model's windows stand
+            assert not all(r.high_confidence for r in results)
+            logic = {"op": "and", "args": [_atom(from_days=-180, to_days=0), _atom(from_days=-60, to_days=0)]}
+            assert reconcile(row["text"], logic) == Reconciled(
+                {"op": "and", "args": [_atom(from_days=-180, to_days=0), _atom(from_days=-60, to_days=0)]}, []
+            )
     else:  # read wrongly by an earlier version of the rules (an anchor cut short, a shared or index-disease anchor)
         assert not all(r.high_confidence for r in results)
 
@@ -185,7 +192,7 @@ def test_agreeing_windows_are_left_alone() -> None:
 
 
 def test_the_rule_wins_over_a_different_model_window() -> None:
-    out = reconcile("Chemotherapy within 30 days before screening", _atom(from_days=-14, to_days=0))
+    out = reconcile("Chemotherapy in the past 30 days", _atom(from_days=-14, to_days=0))
     assert out.flags == ["window_rules_override"]
     assert out.logic["window"] == {"from_days": -30, "to_days": 0, "anchor": "index"}
 
@@ -194,7 +201,7 @@ def test_twelve_months_and_a_year_are_one_window() -> None:
     out = reconcile("Chemotherapy within the 12 months before screening", _atom(from_days=-365, to_days=0))
     assert out.flags == []
     assert out.logic["window"] == {"from_days": -365, "to_days": 0}
-    out = reconcile("Chemotherapy within the 12 months before screening", _atom(from_days=-300, to_days=0))
+    out = reconcile("Chemotherapy in the past 12 months", _atom(from_days=-300, to_days=0))
     assert out.flags == ["window_rules_override"]
     assert out.logic["window"] == {"anchor": "index", "from_days": -360, "to_days": 0}
 
@@ -210,7 +217,7 @@ def test_an_age_or_a_course_in_a_window_is_not_the_rules_to_change() -> None:
 
 
 def test_a_window_the_model_missed_is_added_on_a_single_atom() -> None:
-    out = reconcile("Chemotherapy within 30 days before screening", _atom())
+    out = reconcile("Chemotherapy in the past 30 days", _atom())
     assert out.flags == ["window_rules_override"]
     assert out.logic["window"] == {"from_days": -30, "to_days": 0, "anchor": "index"}
 
@@ -230,7 +237,9 @@ def test_a_direction_the_line_does_not_give_is_flagged_not_overridden() -> None:
 
 def test_registration_is_the_entry_into_the_study_as_randomization_is() -> None:
     out = reconcile("Chemotherapy within 30 days before registration", _atom(from_days=-14, to_days=0))
-    assert out.flags == ["window_rules_override"]
+    assert out.flags == ["window_anchor_unsupported"]  # W02 of review 2: never written as the index date
+    assert out.hold is not None and "enrollment" in out.hold
+    assert out.logic["window"] == {"from_days": -14, "to_days": 0}
 
 
 def test_a_window_from_the_study_dosing_is_held_for_a_person() -> None:
@@ -325,7 +334,7 @@ def test_an_open_future_window_is_flagged_not_written() -> None:
 
 def test_hours_have_no_whole_day_form() -> None:
     out = reconcile("Chemotherapy within 96 hours before screening", _atom(from_days=-2, to_days=0))
-    assert out.flags == []
+    assert out.flags == ["window_disagrees"]  # W11 of review 2: compared in hours, 96 is not 48; never written
     assert out.logic["window"] == {"from_days": -2, "to_days": 0}
 
 
@@ -334,3 +343,133 @@ def test_a_comparison_such_as_at_least_is_no_event() -> None:
         x for x in parse_windows("Most recent serum urate in the last year at least 7.0 mg/dL.") if x.kind == "window"
     )
     assert (r.anchor, r.high_confidence) == ("screening", True)
+
+
+# ------------------------------------------------------------------------------------ the second review's defects
+MOVE_OUT = "Do not agree to join the experiment, plan to move out or go out within 1 month."
+
+
+def test_a_bare_within_has_no_side_of_the_anchor() -> None:
+    """W01: "within 1 month" with no before, after, last, past or next says no side; the rules never pick one."""
+    (r,) = (x for x in parse_windows(MOVE_OUT) if x.kind == "window")
+    assert (r.relation, interval(r)) == ("", None)
+    out = reconcile(MOVE_OUT, _atom(from_days=0, to_days=30))
+    assert out.flags == [] and out.logic["window"] == {"from_days": 0, "to_days": 30}
+    out = reconcile(MOVE_OUT, _atom())
+    assert out.flags == ["window_unattached"] and "window" not in out.logic
+    (nxt,) = (x for x in parse_windows("Planned surgery within the next 6 months") if x.kind == "window")
+    (last,) = (x for x in parse_windows("Surgery within the last 6 months") if x.kind == "window")
+    (ago,) = (x for x in parse_windows("Surgery within 6 months ago") if x.kind == "window")
+    assert (interval(nxt), interval(last), interval(ago)) == ((0, 180), (-180, 0), (-180, 0))
+
+
+@pytest.mark.parametrize("event", ["screening", "randomization", "enrollment", "informed consent"])
+def test_a_window_from_a_named_study_date_is_never_written_as_the_index_date(event: str) -> None:
+    """W02: "before randomization" counts from a date that is not the run's; the IR window of an extraction counts
+    from the run's date only, so a window the rules would write goes to a person instead (the model's agreeing
+    window is left as it is)."""
+    text = f"Chemotherapy within 7 days before {event}"
+    for logic in (_atom(), _atom(from_days=-30, to_days=0)):
+        given = json.loads(json.dumps(logic))
+        out = reconcile(text, logic)
+        assert out.flags == ["window_anchor_unsupported"]
+        assert out.hold is not None and event.rsplit(maxsplit=1)[-1] in out.hold
+        assert out.logic == given
+    assert reconcile(text, _atom(from_days=-7, to_days=0)).flags == []
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("no more than 30 days before screening", (-30, 0)),
+        ("not more than 30 days before screening", (-30, 0)),
+        ("up to 30 days before screening", (-30, 0)),
+        ("less than 30 days before screening", (-29, 0)),
+        ("more than 30 days before screening", (None, -31)),
+        ("30 days or more before screening", (None, -30)),
+        ("no less than 30 days before screening", (None, -30)),
+        ("at least 30 days before screening", (None, -30)),
+    ],
+)
+def test_a_comparator_is_read_whole_and_its_bound_kept(text: str, want: tuple[int | None, int | None]) -> None:
+    """W03: "no more than" is not "more than"; a strict bound is one day inside the inclusive one."""
+    (r,) = (x for x in parse_windows(text) if x.kind == "window")
+    assert interval(r) == want
+
+
+def test_a_course_up_to_a_named_date_is_not_a_minimum_distance() -> None:
+    """W04 (fixture 248): "no antidiabetic drugs for at least 12 weeks prior to informed consent" is 12 drug-free
+    weeks up to consent, not a drug 12 weeks before it; the rules write nothing and compare the side."""
+    (text,) = (r["text"] for r in GOLD if r["gid"] == 248)
+    (r,) = (x for x in parse_windows(text) if x.kind == "window")
+    assert (r.win_val, r.win_unit, r.anchor, r.relation, r.bound) == (12, "week", "consent", "prior to", "course")
+    assert interval(r) is None
+    out = reconcile(text, _atom())
+    assert out.flags == ["window_unattached"] and "window" not in out.logic
+    out = reconcile(text, _atom(to_days=-84))
+    assert out.flags == ["window_disagrees"] and out.logic["window"] == {"to_days": -84}
+    assert reconcile(text, _atom(from_days=-84, to_days=0)).flags == []
+
+
+@pytest.mark.parametrize("text", ["Treatment -7 days before screening", "Treatment −7 days before screening"])
+def test_a_negative_amount_goes_to_a_person(text: str) -> None:
+    """W05 (D-914): a signed negative amount has no sure reading; it is never read as the positive one."""
+    assert not all(r.high_confidence for r in parse_windows(text))
+    for logic in (_atom(), _atom(from_days=-7, to_days=0)):
+        given = json.loads(json.dumps(logic))
+        out = reconcile(text, logic)
+        assert out.flags == ["window_negative"] and out.hold is not None
+        assert out.logic == given
+
+
+def test_alternative_anchors_are_not_cut_to_the_first() -> None:
+    """W06: "before screening or first dose" names two dates; one window cannot say which, so a person reads it."""
+    text = "Chemotherapy within 7 days before screening or first dose"
+    assert not all(r.high_confidence for r in parse_windows(text))
+    out = reconcile(text, _atom(from_days=-7, to_days=0))
+    assert out.flags == ["window_anchor_alternatives"] and out.hold is not None
+
+
+def test_an_unbounded_first_dose_clause_is_read_beside_a_numeric_one() -> None:
+    """W07: the month does not hide "surgery prior to the first dose"."""
+    text = "Chemotherapy in the past month and surgery prior to the first dose"
+    assert any(r.anchor == "first_dose" and r.relation == "unbounded" for r in parse_windows(text))
+    both = {"op": "and", "args": [_atom(from_days=-30, to_days=0), _atom(from_days=-90, to_days=0)]}
+    out = reconcile(text, both)
+    assert out.flags == ["window_anchor_unsupported"] and out.hold is not None
+
+
+def test_an_atom_with_a_duration_still_counts_as_an_owner() -> None:
+    """W08: with a course atom beside it, the stroke atom is not the window's only possible owner."""
+    course = {**_atom(), "duration": {"min_days": 7}}
+    logic = {"op": "and", "args": [course, _atom()]}
+    out = reconcile("Chemotherapy for 7 days within the past month and history of stroke", logic)
+    assert out.flags == ["window_unattached"]
+    assert all("window" not in a for a in out.logic["args"])
+
+
+@pytest.mark.parametrize("pair", [(-30, 0), (0, 30)])
+def test_an_exact_offset_is_compared_on_both_signed_ends(pair: tuple[int, int]) -> None:
+    """W09: "exactly 30 days before" is day -30, not the month up to now nor the month ahead."""
+    out = reconcile("Chemotherapy exactly 30 days before screening", _atom(from_days=pair[0], to_days=pair[1]))
+    assert out.flags == ["window_disagrees"]
+    assert out.logic["window"] == {"from_days": pair[0], "to_days": pair[1]}
+
+
+def test_every_distinct_stated_window_is_carried_by_some_atom() -> None:
+    """W10: two 30-day windows do not cover a line that states 30 and 90 days; nor do no windows at all."""
+    text = "Surgery within 30 days before screening and chemotherapy within 90 days before screening"
+    thirty = {"op": "and", "args": [_atom(from_days=-30, to_days=0), _atom(from_days=-30, to_days=0)]}
+    assert reconcile(text, thirty).flags == ["window_unattached"]
+    assert reconcile(text, {"op": "and", "args": [_atom(), _atom()]}).flags == ["window_unattached"]
+    fine = {"op": "and", "args": [_atom(from_days=-30, to_days=0), _atom(from_days=-90, to_days=0)]}
+    assert reconcile(text, fine).flags == []
+    twice = "Surgery within 30 days before screening or chemotherapy within 30 days before screening"
+    assert reconcile(twice, {"op": "or", "args": [_atom(from_days=-30, to_days=0), _atom()]}).flags == []
+
+
+def test_an_hour_window_is_compared_in_hours() -> None:
+    """W11: 96 hours is four days; an hour window on an atom without one is flagged, never written."""
+    assert reconcile("Chemotherapy within 96 hours before screening", _atom(from_days=-4, to_days=0)).flags == []
+    out = reconcile("Chemotherapy within 96 hours before screening", _atom())
+    assert out.flags == ["window_unattached"] and "window" not in out.logic
