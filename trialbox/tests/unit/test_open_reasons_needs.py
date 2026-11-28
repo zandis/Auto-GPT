@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -135,3 +136,32 @@ def test_a_vital_sign_is_told_by_its_loinc_code_and_system_together() -> None:
                                                                       "concept": [{"code": "8480-6"}]}]}}}  # fmt: skip
     assert open_reasons.needs("unknown kept", c, local) == {
         "view": "lab", "field": "result_value", "concept": "VS_SYSTOLIC_BLOOD_PRESSURE"}  # fmt: skip
+
+
+def test_an_age_or_sex_names_its_own_field_and_concept() -> None:
+    gz = Ruleset.load(ROOT / "rulesets" / "GZQO")
+    age = gz.by_id()["GZQO-INC-01"]  # 18 or older: no value set
+    assert open_reasons.needs("no value", age, gz.valuesets) == {
+        "view": "patient",
+        "field": "birth_date",
+        "concept": "age",
+    }
+    sex = SimpleNamespace(id="X-1", class_="structured", logic=SimpleNamespace(domain="demographic", valueset="NONE",
+                                                                              sex="female", age=None, value=None))  # fmt: skip
+    assert open_reasons.needs("no value", sex, None) == {"view": "patient", "field": "sex", "concept": "sex"}
+
+
+@pytest.mark.parametrize(
+    ("rs", "cid", "field", "concept"),
+    [
+        ("GOUT-COH", "GOUT-COH-INC-06", ("vital", "weight_kg, height_cm"), "bmi: weight, height"),
+        ("RA-COH", "RA-COH-INC-03", ("lab", "result_value"), "das28: tjc28, sjc28, ptga, esr, crp"),
+        ("AD-MAB", "AD-MAB-EXC-04", ("lab", "result_value"), "egfr_jsn: creatinine"),
+    ],
+)
+def test_a_score_whose_reason_names_no_input_lists_every_input(
+    rs: str, cid: str, field: tuple[str, str], concept: str
+) -> None:
+    r = Ruleset.load(ROOT / "rulesets" / rs)
+    n = open_reasons.needs("derived_missing_input", r.by_id()[cid], r.valuesets)
+    assert n == {"view": field[0], "field": field[1], "concept": concept}
