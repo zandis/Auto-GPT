@@ -637,7 +637,10 @@ def test_restart_and_yes_never_imply_each_other_and_the_refusals_stay(
     said = capsys.readouterr()  # T-U007: was `== 2` and `NO_YES in out and rec.calls == []`
     assert NO_YES not in said.out and "trialbox restore <" in said.err
     assert code == 0  # not a refusal any more: the restore went through
-    names = [c[0] if c[0] == "restore-container" else next(w for w in ("stop", "up", "ps") if w in c) for c in rec.calls]
+    names = [
+        c[0] if c[0] == "restore-container" else next((w for w in ("stop", "up") if w in c), "other")
+        for c in rec.calls
+    ]
     at = names.index("restore-container")
     assert "--keep-to" in rec.calls[at] and "--no-copy" not in rec.calls[at]  # the encrypted copy is asked for
     assert names.index("stop") < at < names.index("up")  # taken in the container: after the stop, before the swap
