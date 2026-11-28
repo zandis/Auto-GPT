@@ -78,6 +78,10 @@ def test_default_install_passes() -> None:
         "registry_pins",
         "site_tz",
         "backup",
+        "backup_key",  # TRIAGE-1 RC3 (E2E P-01)
+        "site_mapping",  # TRIAGE-1 RC3 (E2E P-09)
+        "mail_relay",  # TRIAGE-1 RC3 (E2E P-10)
+        "selftest",  # TRIAGE-1 G2 (E2E P-08)
         "flags",
         "restore_hold",
         "site_key",
