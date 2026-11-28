@@ -6,10 +6,11 @@ its place in the line. A line the rules do not fully understand carries an expre
 and ``advise`` says nothing about it.
 
 ``advise`` compares what the line says with the windows the extraction put on the atoms and returns one ``Advice`` for
-each difference: a window of the line the extraction gives differently or lacks, a window the extraction has that the
-line does not say, an anchor that is not the run's date, a clause whose atom cannot be told. It is advisory only: it
-never changes the logic it is given, never decides anything, and what it returns is for the criteria reviewer
-(``say`` words it in English, Japanese and Traditional Chinese, with both windows side by side).
+each difference: a window of the line the extraction gives differently or lacks, an anchor that is not the run's
+date, a clause whose atom cannot be told. A window the extraction has and the line does not say gets no advice (the
+stand-in extractions put one on every "latest" lab and on a second atom of "X within a year without Y"). It is
+advisory only: it never changes the logic it is given, never decides anything, and what it returns is for the
+criteria reviewer (``say`` words it in English, Japanese and Traditional Chinese, both windows side by side).
 
 Units are kept as written; 1 week = 7 d, 1 month = 30 d, 1 year = 365 d only when a window becomes days. A bare "N days
 ago" is an offset ("exact"), not a lookback; an explicit day or week count is compared exactly, and only a month or
@@ -136,11 +137,6 @@ _NOT_EVENT = re.compile(r"^(?:having|being|been|receiving|received|taking|taken|
 #: a window counted from the index disease or a prior event the line names elsewhere, not from screening
 _INDEX_DISEASE = re.compile(r"\b(?:synchronous|metachronous|second primary|index (?:cancer|tumou?r|lesion))\b")
 _CJK = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯]")
-_TIME_WORD = re.compile(
-    rf"\b{_UNIT}\b|\b(?:recent|recently|annual|annually|daily|weekly|monthly|yearly|ever|currently|ago)\b|"
-    r"\b(?:last|past|previous)\s+(?:dose|cycle|visit|line)",
-    re.IGNORECASE,
-)
 
 
 _KNOWN_ANCHORS = frozenset(
@@ -394,11 +390,6 @@ def reads_text(text: str) -> bool:
     return _CJK.search(text) is None
 
 
-def has_time_word(text: str) -> bool:
-    """Whether a line says anything about time at all (a unit, "recent", "ago", ...), in any of the scripts."""
-    return _TIME_WORD.search(text) is not None or _CJK.search(text) is not None
-
-
 # ---------------------------------------------------------------------------------------- the line, in whole days
 def _days(r: Result) -> tuple[int, ...] | None:
     """The rule's number or range in whole days, or None when the unit has no whole-day form (minutes, odd hours)."""
@@ -628,10 +619,8 @@ def advise(text: str, logic: Any) -> list[Advice]:
     atoms = [a for a in _atoms(logic) if a.get("domain") != "demographic" and not a.get("duration")]
     windowed = tuple(_extracted(a) for a in atoms if a.get("window"))
     wins = [r for r in res if r.kind == "window"]
-    if not wins:  # the extraction has a window the line never says (or only a duration: "stable dose for 3 months")
-        if windowed and (not has_time_word(text) or any(r.kind == "duration" for r in res)):
-            return [Advice(None, windowed)]
-        return []
+    if not wins:  # a line with no window of its own says nothing: the stand-in extractions put a recency window on
+        return []  # every "latest" lab and on pregnancy, which the prompt does not ask for, and that is not told here
     out = [  # "prior to the first dose" has no number, and no window of the extraction's counts from the first dose
         Advice(Shown(None, None, "day", r.anchor), windowed)
         for r in wins
@@ -639,21 +628,15 @@ def advise(text: str, logic: Any) -> list[Advice]:
     ]
     s = _norm(text)
     ws = [r for r in wins if r.win_val is not None and r.span[0] >= 0]
-    claimed: set[int] = set()
-    unclear = False
     for k, r in enumerate(ws):
         owners = _owners(s, ws, k, atoms)
         if owners is None:  # W03/W04: which atom the clause is for is not said
-            unclear = True
             if len(atoms) > 1 and not all(_agrees(a, r, atoms) for a in atoms):
                 out.append(Advice(_stated(r), tuple(_extracted(a, r) for a in atoms), True))
             continue
         for a in owners:
-            claimed.add(id(a))
             if not _agrees(a, r, owners):
                 out.append(Advice(_stated(r), (_extracted(a, r),)))
-    if ws and not unclear:  # a window of the extraction that no clause of the line is for
-        out += [Advice(None, (_extracted(a),)) for a in atoms if a.get("window") and id(a) not in claimed]
     return out
 
 

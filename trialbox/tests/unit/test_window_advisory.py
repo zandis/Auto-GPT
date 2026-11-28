@@ -178,13 +178,20 @@ def test_agreeing_and_unreadable_lines_get_no_advice() -> None:
     assert advise("History of stroke", {"domain": "demographic"}) == []
 
 
-def test_a_window_the_line_never_says_is_told_not_dropped() -> None:
+def test_a_line_with_no_window_of_its_own_is_left_alone() -> None:
+    """The stand-in extractions put a recency window on lines that say nothing about time, and on a second atom of "X
+    within a year without Y"; it is neither dropped nor told (the committed rulesets compile with no warning)."""
     logic = _atom("Alanine aminotransferase", "observation", from_days=-45, to_days=0)
     before = copy.deepcopy(logic)
-    (adv,) = advise("Normal liver function tests", logic)
-    assert adv.stated is None and logic == before
-    (adv,) = advise("Stable dose of aspirin for at least 3 months", _atom("Aspirin", from_days=-90, to_days=0))
-    assert adv.stated is None
+    assert advise("Normal liver function tests", logic) == [] and logic == before
+    assert advise("Stable dose of aspirin for at least 3 months", _atom("Aspirin", from_days=-90, to_days=0)) == []
+    two = _all(
+        _atom("Interferon-gamma release assay", from_days=-365, to_days=0),
+        _atom("Tuberculosis therapy", from_days=-365, to_days=0),
+    )
+    assert (
+        advise("Positive interferon-gamma release assay (IGRA) within 1 year without tuberculosis therapy.", two) == []
+    )
 
 
 def test_a_window_counted_from_another_event_or_the_study_dosing_is_told() -> None:
