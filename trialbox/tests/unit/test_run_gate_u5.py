@@ -99,7 +99,8 @@ def test_production_runs_with_everything_still_needed_and_audits_each_item(
 def test_production_runs_when_every_item_is_given(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _box(tmp_path, monkeypatch, "PRODUCTION")
     pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")
-    assert _refusals(tmp_path) == [] and _warnings(tmp_path) == []
+    assert _refusals(tmp_path) == []
+    assert _warnings(tmp_path) == []
 
 
 def test_a_backup_key_the_host_does_not_have_is_audited_not_refused(
@@ -107,20 +108,23 @@ def test_a_backup_key_the_host_does_not_have_is_audited_not_refused(
 ) -> None:
     _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
     pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")  # SAFE-1 A3: was refused
-    assert _warnings(tmp_path)[0]["detail"]["needs"] == {"backup_key": "missing"}
+    (event,) = _warnings(tmp_path)
+    assert event["detail"]["needs"] == {"backup_key": "missing"}
 
 
 def test_a_stand_in_is_audited_not_refused_on_production(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _box(tmp_path, monkeypatch, "PRODUCTION", stand_ins=("chart_number", "site_name"))
     pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")  # SAFE-1 A3: was refused
-    assert _warnings(tmp_path)[0]["detail"]["needs"] == {"chart_number": "stand_in", "site_name": "stand_in"}
+    (event,) = _warnings(tmp_path)
+    assert event["detail"]["needs"] == {"chart_number": "stand_in", "site_name": "stand_in"}
 
 
 @pytest.mark.parametrize("env", ["DEV", "TEST", "VALIDATION"])
 def test_a_poc_box_runs_with_the_stand_ins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: str) -> None:
     _box(tmp_path, monkeypatch, env, given={}, key_on_host=False, stand_ins=("site_name",))
     pipeline.refuse_site_needs(_cfg(tmp_path, {}), "2026-11-20", "csv")
-    assert _refusals(tmp_path) == [] and _warnings(tmp_path) == []
+    assert _refusals(tmp_path) == []
+    assert _warnings(tmp_path) == []
 
 
 def test_a_night_with_the_backup_key_still_needed_is_published_and_audits_it_once(
