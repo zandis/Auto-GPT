@@ -32,8 +32,9 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from tb_contracts import PrefilterRecord
+from tb_contracts import NightOpen, OpenReason, PrefilterRecord
 
+from tb_common import open_reasons
 from tb_common.reasons import Reason
 from tb_common.smallcell import funnel_drops_publishable
 
@@ -41,6 +42,8 @@ from tb_common.smallcell import funnel_drops_publishable
 STAGES = ("opted_out", "not_due", "carried", "coded_excluded", "no_model", "model_not_listed", "listed")
 #: stages a patient reaches by being evaluated (the others are reached without an evaluation)
 EVALUATED = ("opted_out", "coded_excluded", "no_model", "model_not_listed", "listed")
+#: the evaluated stages whose patients passed the coded filter: the ones the open reasons and coded-complete count
+SURVIVORS = ("no_model", "model_not_listed", "listed")
 #: an evaluation that found the patient not at the index date (D-118, D-142)
 NOT_AT_INDEX = (Reason.NOT_IN_SNAPSHOT.value, Reason.CHECK_DATES.value)
 LISTED = ("high", "review")
@@ -75,6 +78,7 @@ class Tally:
     def __init__(self) -> None:
         self._stage: dict[str, str] = {}
         self._done: set[str] = set()
+        self._facts: dict[str, open_reasons.Facts] = {}
 
     def passed(self, pids: Iterable[str], stage: str) -> None:
         if stage in EVALUATED and stage != "opted_out":
@@ -83,11 +87,17 @@ class Tally:
             if p not in self._done:
                 self._stage[p] = stage
 
-    def evaluated(self, pid: str, stage: str) -> None:
+    def evaluated(self, pid: str, stage: str, facts: open_reasons.Facts | None = None) -> None:
+        """``facts``: the evaluation's open criteria and coded-complete flag (F17 5a, 5b); the last evaluation's
+        stand, like its stage."""
         if stage not in EVALUATED:
             raise ValueError(f"{stage} is not reached by an evaluation")
         self._stage[pid] = stage
         self._done.add(pid)
+        if facts is None:
+            self._facts.pop(pid, None)
+        else:
+            self._facts[pid] = facts
 
     def counts(self) -> dict[str, int]:
         out = dict.fromkeys(STAGES, 0)
@@ -101,6 +111,11 @@ class Tally:
         if not adds_up(rec):  # by construction it does; a record that does not is never written
             raise ValueError("the pre-filter record does not add up")
         return rec
+
+    def night_open(self) -> NightOpen:
+        """The open criteria and the coded-complete count of the patients past the coded filter (counts only)."""
+        done, rows = open_reasons.tally(f for p, f in self._facts.items() if self._stage.get(p) in SURVIVORS)
+        return NightOpen(coded_complete=done, open_reasons=[OpenReason(**r) for r in rows])
 
 
 def adds_up(rec: Any) -> bool:
@@ -121,6 +136,8 @@ class NightFunnel:
     drops: dict[str, int]
     remaining: list[int]
     faults: int = 0
+    coded_complete: int | None = None  # None: no job of the night wrote night_open
+    open_reasons: tuple[tuple[str, str, str, int], ...] = ()  # (criterion, reason, where, patients), summed
 
     @property
     def in_scope(self) -> int:
@@ -149,6 +166,8 @@ def night_funnel(jobs: Iterable[Any], ruleset: str, run_date: date) -> NightFunn
     rid = (ruleset or "").strip().upper()
     drops = dict.fromkeys(STAGES, 0)
     n = faults = 0
+    done: int | None = None
+    opens: dict[tuple[str, str, str], int] = {}
     for j in jobs:
         if getattr(j, "type", None) != "MICROBATCH" or getattr(j, "state", None) != "done":
             continue
@@ -163,9 +182,16 @@ def night_funnel(jobs: Iterable[Any], ruleset: str, run_date: date) -> NightFunn
         n += 1
         for s in STAGES:
             drops[s] += int(getattr(rec, s))
+        no = getattr(getattr(j, "metrics", None), "night_open", None)
+        if no is not None:
+            done = (done or 0) + int(no.coded_complete)
+            for o in no.open_reasons:
+                k = (o.criterion, o.reason, o.where)
+                opens[k] = opens.get(k, 0) + int(o.count)
     if not n and not faults:
         return None
-    return NightFunnel(rid, run_date, n, drops, remaining_of(drops), faults)
+    rows = tuple((*k, v) for k, v in sorted(opens.items()))
+    return NightFunnel(rid, run_date, n, drops, remaining_of(drops), faults, done, rows)
 
 
 def publishable(f: NightFunnel, threshold: int = 5) -> list[bool]:

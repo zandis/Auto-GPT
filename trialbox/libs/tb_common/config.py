@@ -513,6 +513,17 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_DIR": Declared("path", "/data/console", "console: data folder"),
     "TB_CONSOLE_FORWARDED_ALLOW_IPS": Declared("str", "127.0.0.1", "console: proxies trusted for forwarded headers"),
     "TB_CONSOLE_HOST": Declared("str", "127.0.0.1", "console: listen address"),
+    "TB_CONSOLE_HELD_DIR": Declared(
+        "path",
+        "",
+        "console: tmpfs for one-time passwords and proposals; set by compose, unset keeps none (P2-11)",
+    ),
+    "TB_CONSOLE_USERS": Declared(
+        "int", "25", "install: the people using the console at the same time; sizes TB_CONSOLE_WORKERS (P2-11)"
+    ),
+    "TB_CONSOLE_WORKERS": Declared(
+        "int", "1", "console: worker processes, sized from TB_CONSOLE_USERS at install (P2-11)"
+    ),
     "TB_CONSOLE_ENROL_CODE_HOURS": Declared("int", "24", "console: hours an enrolment code is good for (1-72, D-719)"),
     "TB_CONSOLE_IDLE_MINUTES": Declared("int", "", "console: idle minutes before sign-out"),
     "TB_CONSOLE_MFA": Declared("str", "totp", "console: second factor (totp or off in DEV)"),
@@ -1006,6 +1017,9 @@ DECLARED: dict[str, Declared] = {
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
+    "TB_PUBLIC_NAMES_FILE": Declared(
+        "path", "", "public-names check (tools): the pattern list, a file kept outside the repository"
+    ),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
     "TB_RELEASE_REGISTRY": Declared(
@@ -1167,6 +1181,8 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_TLS_ROOT_CONFIRMED_BY": Declared("str", "", "internal CA: who in IT confirmed its root is on the PCs (D-1365)"),
     "TB_TLS_ROOT_CONFIRMED_ON": Declared("str", "", "internal CA: the day IT confirmed it, YYYY-MM-DD (D-1365)"),
+    "TB_NO_MAIL_ACCEPTED_BY": Declared("str", "", "no mail relay: who at the site accepted having none (RC3)"),
+    "TB_NO_MAIL_ACCEPTED_ON": Declared("str", "", "no mail relay: the day it was accepted, YYYY-MM-DD (RC3)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
     "TB_TO_PID_MAX_PER_HOUR": Declared(

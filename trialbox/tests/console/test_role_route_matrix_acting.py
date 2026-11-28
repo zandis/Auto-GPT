@@ -87,6 +87,7 @@ def walked_box(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dict[str
     return box
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_no_acting_role_opens_a_route_its_own_column_does_not(walked_box: dict[str, Any]) -> None:
     design = parse(TABLE.read_text(encoding="utf-8"))
     walks = _acting_walks(walked_box, "mei", "viewer", list(COLUMN))

@@ -62,7 +62,8 @@ def render(
         cell.font = bold
         cell.fill = head_fill
     first_crit_col = 7
-    for r in rows:
+    # MVP-B: the row number is counted here; openpyxl's ``max_row`` walks every cell written (n^2 over a list)
+    for rown, r in enumerate(rows, start=2):
         by_id = {v.id: v for v in r.criteria}
         values: list[object] = [
             mrns.get(r.pid, ""),
@@ -79,7 +80,6 @@ def render(
             r.last_evaluated.strftime("%Y-%m-%d %H:%M") if r.last_evaluated else "",
         ]
         ws.append(values)
-        rown = ws.max_row
         for j, c in enumerate(crit):
             v = by_id.get(c.id)
             cell = ws.cell(row=rown, column=first_crit_col + j)

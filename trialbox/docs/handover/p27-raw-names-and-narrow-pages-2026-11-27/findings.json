@@ -1,0 +1,36 @@
+{
+ "card": "P27",
+ "title": "raw event names on /audit, and pages cut off between 310 and 640 px",
+ "date": "2026-11-27",
+ "source": "docs/handover/p27-raw-names-and-narrow-pages-2026-11-27.md",
+ "note": "basis 'shown' means shown by the card's tests or by a local browser walk of the test box's pages; no real box",
+ "findings": [
+  {
+   "id": "P27-01",
+   "severity": "Medium",
+   "claim": "twelve audit events whose writers name them through a module constant (flow.export, egress.leave, role.acting, dataops.decide and others) had no label, so /audit and its event filter showed their raw names; the label walk read literal names only",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "this card: the twelve labels in three languages; a walk that resolves the constants"
+  },
+  {
+   "id": "P27-02",
+   "severity": "Medium",
+   "claim": "below 640 px html and body clip sideways, so a table with no scroll box, a wide field, a Japanese button label, the save bar and the file field were cut off on 31 of 345 test-box pages between 310 and 619 px, with scrollWidth reading clean",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "this card: one phone block at the end of console.css; a stylesheet test"
+  },
+  {
+   "id": "P27-03",
+   "severity": "Low",
+   "claim": "no browser runs in CI's unit jobs, so the console's layout tests that open a page skip there; a cut-off page can return without a red test, only the visual job (not required) may show it",
+   "lane": "H",
+   "basis": "read",
+   "state": "open",
+   "fix": "for the integrator: a browser in one required job, or the narrow walk in the visual job"
+  }
+ ]
+}

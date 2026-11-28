@@ -54,6 +54,7 @@ def test_default_install_passes() -> None:
         "trusted_proxy",  # H-137: the owner's decision, #639 7156806411 item 7
         "mail_tls",  # H-137: the owner's decision, #639 7156806411 item 6; ruling 7165038321 (4), 7161211237
         "phi_tripwire",  # 9g-11, D-1348
+        "console_held",  # P2-11 (D7): the held folder on the console tmpfs
         "egress.log",  # M3, D-1093
         "egress.support.bundle",  # M3, D-1093
         "egress.mail.staff",  # M3, D-1093
@@ -78,6 +79,10 @@ def test_default_install_passes() -> None:
         "registry_pins",
         "site_tz",
         "backup",
+        "backup_key",  # TRIAGE-1 RC3 (E2E P-01)
+        "site_mapping",  # TRIAGE-1 RC3 (E2E P-09)
+        "mail_relay",  # TRIAGE-1 RC3 (E2E P-10)
+        "selftest",  # TRIAGE-1 G2 (E2E P-08)
         "flags",
         "restore_hold",
         "site_key",
@@ -401,3 +406,43 @@ def test_registry_pins_and_models_come_from_the_env_file_deploy_folder(
     # without --env-file: the repository's deploy folder, as before
     bare = doctor.inputs_from(env_file=None, settings=None, routing=None, lake=None)
     assert doctor._override(bare) == ROOT / "deploy" / "site" / "registry.site.yaml"
+
+
+@pytest.mark.req("S1-16")
+def test_the_console_held_dir_is_set_on_a_tmpfs(tmp_path: Path) -> None:
+    # P2-11 (TB-06 ruling): this tree's compose sets it on the console's tmpfs
+    assert status(doctor.run(inputs()), "console_held").status == "PASS"
+    console = {"tmpfs": ["/tmp"], "environment": {"TB_CONSOLE_DIR": "/data/console"}}
+    for env, why in (({}, "unset"), ({"TB_CONSOLE_HELD_DIR": "/data/console"}, "on a disk")):
+        got = status(doctor.run(inputs(compose_config={"services": {"console": {**console, "environment": env}}})),
+                     "console_held")  # fmt: skip
+        assert (got.status, got.detail.startswith("held dir unset or not tmpfs")) == ("FAIL", True), why
+    (tmp_path / "docker-compose.yml").write_text("services: {console: {tmpfs: [/tmp]}}\n", encoding="utf-8")
+    assert status(doctor.run(inputs(deploy=tmp_path)), "console_held").status == "FAIL"
+    assert status(doctor.run(inputs(deploy=tmp_path / "gone")), "console_held").status == "FAIL"
+
+
+def test_the_console_held_dir_is_judged_by_its_own_mount(tmp_path: Path) -> None:
+    # TB-07: /tmp is a tmpfs, but a disk volume is mounted at the held folder itself (or a path leaves the tmpfs)
+    env = {"TB_CONSOLE_HELD_DIR": "/tmp/held"}
+    for volumes in (["held:/tmp/held"], ["./site/held:/tmp/held:rw"], [{"type": "volume", "target": "/tmp/held"}],
+                    ["/tmp/held"]):  # fmt: skip
+        console: dict[str, Any] = {"tmpfs": ["/tmp"], "volumes": volumes, "environment": env}
+        got = status(doctor.run(inputs(compose_config={"services": {"console": console}})), "console_held")
+        assert got.status == "FAIL" and "/tmp/held" in got.detail, volumes
+    console = {"tmpfs": ["/tmp"], "volumes": ["data:/data", {"type": "tmpfs", "target": "/tmp/held"}]}
+    for held, want in (("/tmp/held", "PASS"), ("/tmp/../data", "FAIL")):
+        got = status(doctor.run(inputs(compose_config={"services": {"console": {**console,
+                     "environment": {"TB_CONSOLE_HELD_DIR": held}}}})), "console_held")  # fmt: skip
+        assert got.status == want, held
+
+
+def test_the_console_held_check_never_echoes_a_compose_line(tmp_path: Path) -> None:
+    # TB-10: a malformed override with a secret on the bad line: the file, line and column, never the line itself
+    (tmp_path / "docker-compose.yml").write_text("services: {console: {tmpfs: [/tmp]}}\n", encoding="utf-8")
+    (tmp_path / "bad.yml").write_text("services:\n  console:\n    environment: {PGPASSWORD: hunter2-token\n",
+                                      encoding="utf-8")  # fmt: skip
+    env = {"TB_ENV": "DEV", "COMPOSE_FILE": "docker-compose.yml:bad.yml"}
+    got = status(doctor.run(inputs(deploy=tmp_path, env=env)), "console_held")
+    assert got.status == "FAIL" and "bad.yml" in got.detail and "line " in got.detail, got.detail
+    assert "hunter2" not in got.detail and "PGPASSWORD" not in got.detail

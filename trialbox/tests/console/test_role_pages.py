@@ -346,6 +346,7 @@ def test_expired_sso_account_is_refused(tmp_path: Path) -> None:
     assert fresh.get("/home", follow_redirects=False).status_code == 303  # to the sign-in page
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_admin_scope_is_checked_before_the_account_exists_and_can_be_edited(box: dict[str, Any]) -> None:
     admin, _ = login(box["app"], "admin", ADMIN_PW)
     tok = _csrf(admin.get("/ops/users").text)

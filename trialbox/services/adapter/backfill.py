@@ -73,7 +73,13 @@ from adapter.pipeline import (
     refuse_site_needs,
 )
 from adapter.sources.base import has_table
-from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required
+from adapter.validate.validator import (
+    Hl7Validator,
+    StructuralValidator,
+    missing_required,
+    no_birthdate_hold,
+    validate_sample,
+)
 
 log = logging.getLogger("adapter")
 BASE = "base"
@@ -644,9 +650,11 @@ def _publish(
                 "sample_cap": cap,
                 "capped": capped_types(counts, cfg.sample_fraction, cap=cap),
             }
-            v = chosen.validate(_sample(stage, counts, cfg.sample_fraction, cap=cap))
+            v = validate_sample(chosen, _sample(stage, counts, cfg.sample_fraction, cap=cap))
             if v.error_pct > cfg.validation_max_pct:
                 errors.append(f"validation error rate {v.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
+            if hold := no_birthdate_hold(v):
+                errors.append(hold)
         except Exception as exc:
             from adapter import failure
 

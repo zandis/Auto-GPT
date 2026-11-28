@@ -241,6 +241,7 @@ def _problem_text(r: Any) -> str:
     return m.group(1) if m else ""
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_v4_2_2_every_changing_page_route_refuses_a_post_without_the_csrf_token(
     box: dict[str, Any],  # noqa: F811
 ) -> None:
