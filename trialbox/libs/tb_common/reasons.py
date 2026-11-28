@@ -33,6 +33,8 @@ class Reason(StrEnum):
     QUOTE_NOT_FOUND = "quote_not_found"  # the model's quote is not in the notes
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
     DISAGREE = "disagree"  # the two models gave different answers
+    # the judge's answer keeps the patient and the second model did not confirm it: it stands, flagged (BENCH-2 §2)
+    SECOND_OPINION_DIFFERS = "second_opinion_differs"
     LOW_CONFIDENCE = "low_confidence"  # the answer was below the minimum confidence
     SINGLE_MODEL = "single_model"  # one model's "not met" with no second model that agreed: a person looks (D-478)
     NOT_FINAL = "not_final"  # a "not met" given while a note answer was not allowed to exclude (D-476, D-478)
@@ -163,6 +165,11 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the two checks differ: please look",
         "ja": "2回の確認が一致しない：確認してください",
         "zh-TW": "兩次確認結果不同：請查看",
+    },
+    "second_opinion_differs": {
+        "en": "second opinion differs: please look",
+        "ja": "二次確認の結果が異なる：確認してください",
+        "zh-TW": "第二次確認結果不同：請查看",
     },
     "low_confidence": {
         "en": "not certain enough: please look",
