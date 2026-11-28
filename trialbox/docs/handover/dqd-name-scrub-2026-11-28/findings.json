@@ -1,0 +1,25 @@
+{
+ "card": "FUDQDNAMES",
+ "title": "the data quality rows: a name or chart number in a check text reached the page, the API, the row and the audit event",
+ "date": "2026-11-28",
+ "source": "docs/handover/dqd-name-scrub-2026-11-28.md",
+ "note": "basis 'shown' means shown by the card's tests planting a synthetic chart number and a Japanese name; the scrub finds labelled forms only (the log scrubber's stated limit), a bare name in running text is not found.",
+ "findings": [
+  {
+   "id": "FUDQDNAMES-01",
+   "severity": "High",
+   "claim": "the text fields of a data quality row (check name, table, field, status, notes) were copied unscrubbed from the night report into the audit event, the batch row, the night page and the batch API answer",
+   "lane": "N",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "FUDQDNAMES-02",
+   "severity": "Medium",
+   "claim": "omop_kept copied a non-list failed as it was, and a row's field of the wrong type (a list, a mapping, a text for a count) as it was; both are now dropped with a counted warning",
+   "lane": "N",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

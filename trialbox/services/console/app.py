@@ -823,6 +823,7 @@ def create_app(
                 "/help",
                 "/ask",
                 "/help/guide",
+                "/help/first-day",
             )  # T-317 (D-774): the account's own role guide
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
             or _MONITOR_ROUTE.fullmatch(path)  # D-380: refused there unless a monitor grant holds

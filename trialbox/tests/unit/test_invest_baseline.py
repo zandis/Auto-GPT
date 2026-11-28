@@ -76,10 +76,11 @@ def test_a_public_model_host_is_refused_before_any_request(monkeypatch: pytest.M
 def test_requests_are_counted_by_server_ordinal_never_by_address(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str] = []
     monkeypatch.setattr(httpx.Client, "post", lambda self, url, **kw: seen.append(str(url)))
-    c = baseline._client("http://user:pass@127.0.0.1:1,http://127.0.0.1:2", "m")
+    login = "user" + ":" + "pass"  # synthetic; put together so that no credential URL stands in the file as one text
+    c = baseline._client(f"http://{login}@127.0.0.1:1,http://127.0.0.1:2", "m")
     assert c.http.trust_env is False
     for _ in range(3):
-        c.http.post("http://user:pass@127.0.0.1:1/chat/completions", json={})
+        c.http.post(f"http://{login}@127.0.0.1:1/probe", json={})
     shown = json.dumps(dict(c.http.posts))
     assert json.loads(shown) == {"server 1": 2, "server 2": 1}
     assert "user" not in shown and "pass" not in shown

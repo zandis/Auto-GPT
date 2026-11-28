@@ -159,6 +159,7 @@ routes:
   "GET /feedback/export.csv": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /help": {kind: signed_in, why: "the help pages (T-317)"}
   "GET /help/guide": {kind: signed_in, why: "one's own role guide (T-317, D-774)"}
+  "GET /help/first-day": {kind: signed_in, why: "the signed-in role's own first-day page, or one of its procedures (?procedure=); a role with none goes to its guide"}
   "GET /home": {kind: signed_in, why: "the start page of the account's role"}
   "GET /jobs": {actions: ["!report.aggregate_only"], mode: all, why: "D-146 (J-03/J-04/J-05, console/app.py _aggregate_denied): closed to viewer and CRO accounts; the patient rows inside ask phi.view (D-280)"}
   "GET /metrics": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
