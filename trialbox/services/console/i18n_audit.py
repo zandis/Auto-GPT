@@ -349,6 +349,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "terminology.remove": ("Site code list removed", "施設コード表の削除", "移除院內代碼表"),
     "ingest.backfill": ("Past records loaded", "過去記録の取込", "匯入過往紀錄"),
     "ingest.failed": ("Nightly load failed", "夜間取込の失敗", "夜間匯入失敗"),
+    "ingest.site_needs": (
+        "Nightly load ran with site information still needed",
+        "まだ必要な施設情報がある状態で夜間取込を実行",
+        "在仍缺少院方資料的情況下執行夜間匯入",
+    ),
     "lake.rebuild.source": ("Data store rebuilt from a source", "ソースからのデータ再構築", "自來源重建資料"),
     "retention.deleted": (
         "Kept files deleted at the end of retention",
