@@ -101,6 +101,7 @@ PUB_DIR = DEPLOY / "secrets"  # fixed (owner's condition 4): no option names ano
 SYS = Path("/sys")
 MOUNTINFO = Path("/proc/self/mountinfo")
 FDINFO = Path("/proc/self/fdinfo")
+PROC_STAT = Path("/proc/self/stat")  # P01 (#1602 fix round): the controlling terminal (its 7th field)
 SWAPS = Path("/proc/swaps")
 DOCKER_SOCK = "/var/run/docker.sock"  # the local daemon only (H-1 of the integrator's review of 36c97bd1)
 JOURNAL_WAIT_S = 120  # one `docker compose exec`: a hung daemon stops the step instead of the run hanging
@@ -112,6 +113,10 @@ RESTORE_DIR = "restore"  # P01-DESIGN (ii): the only folder an unsealed key file
 RESTORE_KEY = "trialbox-backup.key"
 #: gone at a reboot, or not storage: never the off-box target
 DENY_FSTYPES = frozenset({"tmpfs", "ramfs", "devtmpfs", "overlay", "proc", "sysfs", "squashfs"})
+# P05 (#1602 fix round): the installer's own declaration (deploy/install.sh, --operator install) takes only a
+# network share of these types or a removable disk; anything else is declared by an operator
+NETWORK_FSTYPES = frozenset({"nfs", "nfs4", "cifs", "smb3"})
+AUTO_OPERATOR = "install"
 
 # ------------------------------------------------------------------------------------------------ texts (en, ja, zh-TW)
 NOT_ROOT = {
@@ -469,6 +474,19 @@ TARGET_DECLARED = {
     "移していません。backup-key-<fp>.sealed は手で写してください",
     "zh-TW": "已宣告主機外備份目標 {path}（{identity}），日誌編號 {seq}。未移動任何密封檔案：請手動將 "
     "backup-key-<fp>.sealed 複製過去",
+}
+NOT_LOCAL_CONSOLE = {
+    "en": "refused: this terminal is not the box's own console (an SSH session, tmux, screen or a desktop terminal is "
+    "a pseudo-terminal), so a backup key shown here could leave the box. Nothing was shown or made: run it as root on "
+    "the box's console (a text console, tty1 and on, at its own keyboard and screen), or run the install with no "
+    "terminal and --kek-passphrase-file, which seals the key (RUNBOOK §5)",
+    "ja": "拒否：この端末はボックス自身のコンソールではありません（SSH セッション、tmux、screen、デスクトップの端末は"
+    "疑似端末です）。ここに表示したバックアップ鍵はボックスの外に出るおそれがあります。何も表示も作成もしていません。"
+    "ボックスのコンソール（ボックス自身のキーボードと画面のテキストコンソール、tty1 以降）で root として実行するか、"
+    "端末なしで --kek-passphrase-file を付けてインストールを実行してください（鍵は封印されます。RUNBOOK §5）",
+    "zh-TW": "已拒絕：此終端機不是主機本身的主控台（SSH 工作階段、tmux、screen 或桌面終端機皆為虛擬終端機），在此顯示"
+    "的備份金鑰可能離開主機。未顯示也未建立任何內容：請在主機的主控台（主機本身鍵盤與螢幕的文字主控台，tty1 起）以 "
+    "root 執行，或在沒有終端機的情況下以 --kek-passphrase-file 執行安裝，金鑰將被封存（RUNBOOK §5）",
 }
 TERMINAL_UNSAFE = {
     "en": "refused: this terminal's echo cannot be turned off, so what is typed here would be shown. Nothing typed was "
@@ -1469,6 +1487,16 @@ def _box_devs(pfd: int) -> set[int]:
     return {os.fstat(pfd).st_dev, os.stat("/").st_dev}
 
 
+def _off_box_for_sure(ident: Mapping[str, Any], dev: int) -> bool:
+    """P05 (#1602 fix round): what the installer may declare by itself: a network share, or a filesystem whose every
+    whole disk the kernel calls removable or finds on USB. A second internal disk or partition cannot be told from
+    the box's own storage here: an operator declares it."""
+    if not ident["source"].startswith("/dev/"):
+        return ident["fstype"] in NETWORK_FSTYPES
+    disks = whole_disks(dev)
+    return bool(disks) and all(_removable(d) for d in disks)
+
+
 def _read_target(pfd: int) -> dict[str, Any] | None:
     """The declaration, read through the public key's folder: None when there is none; refused when it is not one."""
     try:
@@ -1531,6 +1559,8 @@ def declare_target(path: str, operator: str | None, replace: bool, env: Mapping[
             why = "a filesystem of the box itself"
         elif ident["source"].startswith("/dev/") and not ident["fsuuid"]:
             why = f"{ident['source']} has no {BY_UUID} name"
+        elif who == AUTO_OPERATOR and not _off_box_for_sure(ident, dev):
+            why = "not a network share or a removable disk, so only an operator declares it (--operator <name>)"
         if why:
             raise Stop(TARGET_UNDECLARABLE, path=path, why=why)
         at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1843,6 +1873,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 TTY = "/dev/tty"
 
 
+def _local_console() -> bool:
+    """P01 (#1602 fix round): this process's controlling terminal is a virtual console of the box (tty1 to tty63:
+    character major 4, minor 1 to 63). A pseudo-terminal (an SSH session, tmux, screen, a desktop terminal) or a
+    serial line could carry what is shown off the box: not the console."""
+    try:
+        nr = int(PROC_STAT.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[4])
+    except (OSError, IndexError, ValueError):
+        return False
+    return os.major(nr) == 4 and 1 <= os.minor(nr) <= 63
+
+
 # N-02: not generic (PEP 695 syntax would not parse on the python3 of a host before 3.12)
 def _guarded(lang: str, call: Callable[[], Any]) -> Any:
     """``call()``, or None once its refusal or stop is said on stderr (an unexpected error by its type only: a
@@ -1884,6 +1925,9 @@ def _install_main(lang: str, sealed: bool = False) -> int:
         return 0
     try:
         with open(TTY, encoding="utf-8") as ask, open(TTY, "w", encoding="utf-8") as show:
+            if not _local_console():  # P01: refused before a key is made
+                print(NOT_LOCAL_CONSOLE[lang], file=sys.stderr)
+                return 1
             got = _guarded(lang, lambda: install(_env(), ask, show, lang))
     except OSError:  # no terminal to open: nothing was made
         print(NO_TERMINAL[lang], file=sys.stderr)
