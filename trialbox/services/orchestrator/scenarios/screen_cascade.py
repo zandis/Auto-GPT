@@ -463,7 +463,7 @@ def _row_of(o: Outcome, pair: bool) -> CriterionVerdict | _Shared:
             confidence=confidence,
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
             opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
-            qualification=qualification,  # SAFE-1 A1
+            qualification="unqualified" if qualification else None,  # SAFE-1 A1
         ),
         final=_final(o, status),
         basis=basis_of(o, status, pair),

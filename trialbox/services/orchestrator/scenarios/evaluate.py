@@ -667,7 +667,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
             confidence=r.confidence,
             reason=why,
             opinions=[Opinion(**o) for o in r.opinions] or None,
-            qualification=r.qualification or None,  # SAFE-1 A1
+            qualification="unqualified" if r.qualification else None,  # SAFE-1 A1
         ),
         basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
         prov=note_calls(r),

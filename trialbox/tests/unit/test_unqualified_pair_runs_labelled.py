@@ -301,10 +301,11 @@ def test_the_screen_and_evaluate_paths_carry_the_label_to_the_list_row() -> None
     from dataclasses import replace
     from datetime import date
 
+    from matching.cascade.judge import verify_span
     from orchestrator.scenarios.evaluate import NoteJudge, note_verdict
     from orchestrator.scenarios.screen_cascade import OrchestratorJudge
 
-    from tests.unit.test_d985_every_path import IDX, PairModel, _excerpts, _exclusion, verify_span
+    from tests.unit.test_d985_every_path import IDX, PairModel, _excerpts, _exclusion
     from tests.unit.test_safety_properties import _run_for_map
 
     class Unqualified(PairModel):
