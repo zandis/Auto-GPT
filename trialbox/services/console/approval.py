@@ -262,9 +262,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             raise h.problem(400, "csrf")
         opened, tick = [str(x) for x in form.getlist("opened")], [str(x) for x in form.getlist("tick")]
         label_id, label_text = [str(x) for x in form.getlist("label_id")], [str(x) for x in form.getlist("label_text")]
-        if ((opened or tick) and not sess.user.can_approve) or (
-            label_id and not (sess.user.can_request or sess.user.can_approve)
-        ):
+        if not (sess.user.can_request or sess.user.can_approve) or ((opened or tick) and not sess.user.can_approve):
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         if label_id and sess.lang == "en":

@@ -388,6 +388,12 @@ POST /pilot/jobs/{job_id}/approval/label inv
 POST /pilot/jobs/{job_id}/approval/label pi
 POST /pilot/jobs/{job_id}/approval/label smo_in
 POST /pilot/jobs/{job_id}/approval/label sub
+POST /pilot/jobs/{job_id}/approval/save admin
+POST /pilot/jobs/{job_id}/approval/save crc
+POST /pilot/jobs/{job_id}/approval/save inv
+POST /pilot/jobs/{job_id}/approval/save pi
+POST /pilot/jobs/{job_id}/approval/save smo_in
+POST /pilot/jobs/{job_id}/approval/save sub
 POST /pilot/jobs/{job_id}/approval/tick inv
 POST /pilot/jobs/{job_id}/approval/tick pi
 POST /pilot/jobs/{job_id}/approval/tick sub
