@@ -52,6 +52,17 @@ def _word(sess: Any, key: str, other: str) -> str:
     return CATALOGUES[lang].get(key, other)
 
 
+def _checks(sess: Any) -> list[tuple[str, str, str]]:
+    """The rule rows of the page (``egress_edge.doctor_facts``) in the reader's language: the state and the sentence."""
+    lang = sess.lang if sess is not None and sess.lang in CATALOGUES else "en"
+    cat = CATALOGUES[lang]
+    words = {k: cat[f"egress.rule.{k}"] for k in egress_edge.DOCTOR_WORDS}
+    return [
+        (key, cat[f"egress.state.{state}"], egress_edge.doctor_text(kind, args, words))
+        for key, state, kind, args in egress_edge.doctor_facts()
+    ]
+
+
 class Door:
     """What the layer needs of the console: the session, the job and the audit log."""
 
@@ -176,7 +187,7 @@ def events(h: Helpers, days: int = DAYS) -> Iterator[dict[str, Any]]:
     """The egress lines of the last ``days`` days, from the audit chain."""
     since = (h.today() - timedelta(days=days - 1)).isoformat()
     f = audit_page.Filter(event=egress_record.EVENT, since=since)
-    for r in audit_page.iter_events(h.au.directory, f):
+    for r in audit_page.iter_events(h.au.directory, f, shown=False):  # route, result and reason: not in SHOWN
         yield {"ts": r.ts, "event": r.event, "detail": r.detail}
 
 
@@ -194,7 +205,7 @@ def register(app: FastAPI, h: Helpers, _env: Mapping[str, str] | None = None) ->
             got = "refusal" if r["result"] == "refused" else str(r["result"])
             r["result_text"] = _word(sess, f"egress.{got}", got)
             r["reason_text"] = _word(sess, f"egress.reason.{r['reason']}", str(r["reason"]))
-        return h.page(request, "egress.html", sess, rows=rows, days=DAYS, checks=egress_edge.doctor_checks())
+        return h.page(request, "egress.html", sess, rows=rows, days=DAYS, checks=_checks(sess))
 
     @app.get("/audit/published")
     def published(request: Request) -> Response:

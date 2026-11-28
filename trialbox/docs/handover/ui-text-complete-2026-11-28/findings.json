@@ -1,0 +1,33 @@
+{
+ "card": "UITEXT",
+ "title": "Japanese and Chinese UI text: the rule rows of the egress page and the menu's name were English; its rows read None",
+ "date": "2026-11-28",
+ "source": "docs/handover/ui-text-complete-2026-11-28.md",
+ "note": "basis 'shown' means shown by rendering the page in ja and zh-TW in the card's test; the scan reads the pages the wording walk reaches and every template, not every state of every page.",
+ "findings": [
+  {
+   "id": "UITEXT-01",
+   "severity": "Medium",
+   "claim": "the rule table of /admin/egress (the state and the sentence of each route and of the tripwire) was written in English by tb_common.egress_edge.doctor_checks on a ja or zh-TW page; no catalogue held it, so text_keys could not see it",
+   "lane": "M",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "UITEXT-02",
+   "severity": "Medium",
+   "claim": "the departure rows of /admin/egress and /audit/published read the audit detail through the shown filter, which keeps neither route, result nor reason, so every row said None for its route and result",
+   "lane": "M",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "UITEXT-03",
+   "severity": "Low",
+   "claim": "the menu's aria-label is the English word main on every page in every language; not changed: tests match it on ja and zh-TW pages",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

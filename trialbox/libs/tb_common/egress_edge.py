@@ -1331,25 +1331,44 @@ def wired(route: str, root: Path = ROOT) -> bool | None:
     return any(call.replace('"', "'") in _code(t) for t in texts) if texts else None
 
 
-def doctor_checks(env: Mapping[str, str] | None = None, root: Path = ROOT) -> list[tuple[str, str, str]]:
-    """One row per route, then the tripwire: what its rule is and whether its door goes through the edge."""
-    rows: list[tuple[str, str, str]] = []
+#: the words of a doctor row, English; the console says the same rows in its own catalogue (``console.egress_page``)
+DOCTOR_WORDS = {
+    "mask": "identifiers masked; what cannot be masked is refused",
+    "refuse": "identifiers refused",
+    "exception": "exception: {role}, audited",
+    "unread": "not looked at: {door} is not here to read (rule: {rule})",
+    "unwired": "no masking: {door} does not go through the egress edge",
+    "tripwire_on": "the tripwire is on",
+    "tripwire_off": "the tripwire is off (TB_GATEWAY_PHI_TRIPWIRE): calls to a model off the box are not checked; "
+    "turn it on and restart the gateway",
+}
+
+
+def doctor_text(kind: str, args: Mapping[str, str], words: Mapping[str, str]) -> str:
+    """The sentence of a doctor row of ``kind`` with its ``args``, in ``words`` (``DOCTOR_WORDS`` or a catalogue's)."""
+    rule = words[args["rule"]].format(role=args.get("role", "")) if "rule" in args else ""
+    return words[kind].format(door=args.get("door", ""), rule=rule, role=args.get("role", ""))
+
+
+def doctor_facts(env: Mapping[str, str] | None = None, root: Path = ROOT) -> list[tuple[str, str, str, dict[str, str]]]:
+    """One row per route, then the tripwire, as ``(key, state, kind, args)``: what its rule is and whether its door
+    goes through the edge, before any words are put to it."""
+    rows: list[tuple[str, str, str, dict[str, str]]] = []
     for key, r in ROUTES.items():
-        says = {
-            "mask": "identifiers masked; what cannot be masked is refused",
-            "refuse": "identifiers refused",
-            "exception": f"exception: {r.role}, audited",
-        }[r.mode]
         on = wired(key, root)
         if on is None:
-            rows.append((f"egress.{key}", "WARN", f"not looked at: {r.door[0]} is not here to read (rule: {says})"))
+            rows.append((f"egress.{key}", "WARN", "unread", {"door": r.door[0], "rule": r.mode, "role": r.role}))
         elif on:
-            rows.append((f"egress.{key}", "PASS", says))
+            rows.append((f"egress.{key}", "PASS", r.mode, {"role": r.role}))
         else:
-            rows.append((f"egress.{key}", "FAIL", f"no masking: {r.door[0]} does not go through the egress edge"))
+            rows.append((f"egress.{key}", "FAIL", "unwired", {"door": r.door[0]}))
     if tripwire_on(env):
-        rows.append(("egress.tripwire", "PASS", "the tripwire is on"))
+        rows.append(("egress.tripwire", "PASS", "tripwire_on", {}))
     else:
-        why = "the tripwire is off (TB_GATEWAY_PHI_TRIPWIRE): calls to a model off the box are not checked; turn it on"
-        rows.append(("egress.tripwire", "FAIL" if production(env) else "WARN", f"{why} and restart the gateway"))
+        rows.append(("egress.tripwire", "FAIL" if production(env) else "WARN", "tripwire_off", {}))
     return rows
+
+
+def doctor_checks(env: Mapping[str, str] | None = None, root: Path = ROOT) -> list[tuple[str, str, str]]:
+    """One row per route, then the tripwire: what its rule is and whether its door goes through the edge."""
+    return [(k, st, doctor_text(kind, args, DOCTOR_WORDS)) for k, st, kind, args in doctor_facts(env, root)]

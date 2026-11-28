@@ -237,7 +237,7 @@ JA: dict[str, str] = {
     "fd.proc.install-check.title": "設置の確認",
     "fd.proc.install-check.use": "端末で初めて TrialBox を開くとき。",
     "fd.proc.install-check.step.1": "{install}",
-    "fd.proc.install-check.step.2": "ブラウザーでコンソールを開き、管理者から渡されたアカウントでサインインします。",
+    "fd.proc.install-check.step.2": "ブラウザーでコンソールを開き、管理者から渡されたアカウントでログインします。",
     "fd.proc.install-check.step.3": "「{home}」を開きます。証明書の警告なしに開くはずです。",
     "fd.proc.install-check.step.4": (
         "ブラウザーが証明書について警告したら、そこで止めて病院のIT担当に連絡してください。端末が病院の認証局"
@@ -395,8 +395,8 @@ JA: dict[str, str] = {
 
 ZH: dict[str, str] = {
     "fd.title": "第一天上手",
-    "fd.link": "第一天上手：最初幾項工作的簡短步驟",
-    "fd.intro": "最初幾項工作的簡短步驟。按鈕與頁面名稱都與畫面上的相同。做到該項工作時，再開啟對應的程序。",
+    "fd.link": "第一天上手：最初幾項任務的簡短步驟",
+    "fd.intro": "最初幾項任務的簡短步驟。按鈕與頁面名稱都與畫面上的相同。做到該項任務時，再開啟對應的程序。",
     "fd.procs": "您的程序",
     "fd.rules": "請先知道的四件事",
     "fd.steps": "步驟",
