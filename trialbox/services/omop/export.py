@@ -328,7 +328,8 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
 
     # -- patient: the merged sources, an item in open conflict unknown
     for r in tx.iterdicts(
-        "SELECT p.person_id, p.birth_datetime, p.year_of_birth, p.month_of_birth, p.gender_source_value, d.death_date, d.death_type_concept_id, "
+        "SELECT p.person_id, p.birth_datetime, p.year_of_birth, p.month_of_birth, p.gender_source_value, "
+        "d.death_date, d.death_type_concept_id, "
         "o.extra FROM person p "
         "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row, "
         "r.extra FROM tb_record r WHERE r.cdm_table = 'person' AND r.record_id = p.person_id "
@@ -457,13 +458,12 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
         "m.person_id, "
         "m.measurement_source_value AS code, m.measurement_source_concept_id AS src, m.measurement_datetime AS ts, "
         "m.value_as_number, m.unit_source_value, m.value_as_concept_id, m.operator_concept_id, "
-        "m.value_source_value, false AS demographic, false AS finding FROM tb_record r JOIN measurement m "
+        "m.value_source_value, false AS demographic FROM tb_record r JOIN measurement m "
         f"ON m.measurement_id = r.record_id WHERE r.cdm_table = 'measurement' AND {LIVE} AND r.status <> 'rejected' "
         "UNION ALL SELECT r.source_record_id, r.part, r.extra, r.status, r.basis, r.source_kind, r.source_row, "
         "o.person_id, o.observation_source_value, o.observation_source_concept_id, o.observation_datetime, "
         "o.value_as_number, o.unit_source_value, o.value_as_concept_id, NULL, o.value_source_value, "
-        "coalesce((r.extra->>'demographic')::boolean, false), "
-        "NOT coalesce((r.extra->>'demographic')::boolean, false) FROM tb_record r JOIN observation o "
+        "coalesce((r.extra->>'demographic')::boolean, false) FROM tb_record r JOIN observation o "
         "ON o.observation_id = r.record_id WHERE r.cdm_table = 'observation' AND r.resource_type = 'Observation' "
         # the hospital's rows, then the site's (D-135), by file position and part: in SQL, so the rows stream
         f"AND {LIVE} AND r.status <> 'rejected') u ORDER BY (u.source_kind = 'site'), u.source_row, u.part"
@@ -486,8 +486,7 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
                 "value_cmp": vocab.OPERATOR_CODE.get(r["operator_concept_id"] or 0),
                 "category": None,
                 "local_code": None,
-                # a finding written as text (OMOP OBSERVATION of a non-demographic Observation)
-                "value_text": r["extra"].get("value_text", r["value_source_value"]) if r["finding"] else None,
+                "value_text": None,  # a finding's text comes back from ``extra`` (the loader keeps it there)
             },
             r["extra"],
         )

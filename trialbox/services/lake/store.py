@@ -98,9 +98,9 @@ _CACHE_LOCK = threading.Lock()
 
 # 1: tables + document_chunk with its own embedding column (before D-149); 2: no embedding in the snapshot, chunk sha,
 # lake_meta.schema_version / schema_sha / embed_store; 3 (T-106b): the encounter's end and status, and the four
-# provenance columns on every table (``lake.flatten.PROVENANCE``); 4 (T-616): ``patient.deceased``; 5: ``patient.birth_ym``
-# and ``observation.value_text``. A reader serves every version from MIN to CURRENT (an older snapshot reads
-# ``patient.deceased``, ``birth_ym`` and ``value_text`` as unknown: :func:`_compat_views`).
+# provenance columns on every table (``lake.flatten.PROVENANCE``); 4 (T-616): ``patient.deceased``; 5:
+# ``patient.birth_ym`` and ``observation.value_text``. A reader serves every version from MIN to CURRENT (an older
+# snapshot reads ``patient.deceased``, ``birth_ym`` and ``value_text`` as unknown: :func:`_compat_views`).
 LAKE_SCHEMA_VERSION = 5
 MIN_READABLE_SCHEMA = 1
 CHUNK_COLUMNS: list[tuple[str, str]] = [

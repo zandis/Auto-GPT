@@ -523,8 +523,8 @@ class _Builder:
             return [out]
         rows = self.fl.observations(r)
         if rows[0]["value_text"] is not None and not r.get("component"):
-            # a finding written as text: OMOP OBSERVATION (value_as_string, the text as value_source_value, the finding's
-            # code as the source value), never a measurement. A number and a coded answer stay measurements
+            # a finding written as text: OMOP OBSERVATION (value_as_string, the text as value_source_value, the
+            # finding's code as the source value), never a measurement; a number and a coded answer stay measurements
             o = rows[0]
             out = rec("observation", o["pid"])
             out.row = {
@@ -537,6 +537,7 @@ class _Builder:
             display = next((c.get("display") for c in codes if c.get("code") == o["code"]), None)
             self._code(out, "observation_source_value", o["system"], o["code"], display, "Observation")
             self._text(out, "value_source_value", o["value_text"], "value_text")
+            out.extra["value_text"] = o["value_text"]  # the lake reads the finding back from here, whole
             if o["category"] is not None:
                 out.extra["category"] = o["category"]
             return [out]
