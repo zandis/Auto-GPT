@@ -1,4 +1,5 @@
 {
+ "caveat": "working estimate: NOT for FACTS or any external figure until FU-1652. Known measurement limits N1-N3: N1 Japanese and English findings are paired by order of certainty, which can mis-pair; N2 a second positive with the same English wording in one report is dropped; N3 a report with one unmatched tag leaves the denominator.",
  "ja": {
   "findings": 1690,
   "hit": 190,

@@ -14,3 +14,20 @@ and is judged against the Japanese original and the English translation; the tag
 - `results/s2_miss.json`: the S2 miss rate (`python -m tools.medtxt_s2`, no model). Per positive finding, does a key of
   S2's own lexicon (the shipped terms, no site table) hit the finding's sentence, ja and en; `no_key` = no key in that
   script. `fix_list_ja` lists the missed Japanese findings (the tagged words, their English wording and counts)
+
+## Caveat on `results/s2_miss.json`: working estimate
+
+working estimate: NOT for FACTS or any external figure until FU-1652.
+
+The tool has three known measurement limits (review of PR 1652, N1 to N3). The counts in the file are unchanged and
+are not corrected for them:
+
+- N1: a Japanese finding and its English finding are paired by order of certainty. If the translation lists findings
+  of the same certainty in another order, the pair is wrong and the Japanese finding is scored against another
+  finding's English wording (the fix list swaps the English labels of colorectal carcinoma and psoriasis).
+- N2: if one report has a second positive tag with the same English wording, that second one is dropped, even when its
+  Japanese sentence would have been a hit or a miss of its own. The counts depend on mention order.
+- N3: a report where one tag has no match in the other language is left out whole, so its other positives are not in
+  the denominator. The miss rate is therefore a rate over the scored positives, not over all 1,690.
+
+FU-1652 fixes N1 to N3 and replaces the file; until then do not quote the rates.
