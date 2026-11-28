@@ -193,15 +193,18 @@ def diff_runs(a: Any, b: Any) -> list[dict[str, Any]]:
 
     con = duckdb.connect(":memory:")
     for name, src in (("a", a), ("b", b)):
+        # the n-th identical repeat of a (patient, criterion, stage, attempt) is paired with the n-th of the other run
         tbl = src.execute(
-            "SELECT pid, protocol_id, criterion_id, verdict, basis FROM match_stage "
-            "WHERE criterion_id <> '' AND stage NOT IN ('S0', 'tier')"
+            "SELECT pid, protocol_id, criterion_id, verdict, basis, coalesce(stage, '') AS stage, "
+            "coalesce(attempt, 0) AS attempt, row_number() OVER (PARTITION BY pid, protocol_id, criterion_id, "
+            "coalesce(stage, ''), coalesce(attempt, 0) ORDER BY verdict NULLS FIRST, basis NULLS FIRST) AS rep "
+            "FROM match_stage WHERE criterion_id <> '' AND stage NOT IN ('S0', 'tier')"
         ).to_arrow_table()
         con.register(name, tbl)
     rows = con.execute(
         "SELECT a.protocol_id, a.criterion_id, coalesce(a.basis, b.basis, 'none') AS basis, count(*) AS n, "
         "count(*) FILTER (WHERE a.verdict IS DISTINCT FROM b.verdict) AS changed "
-        "FROM a JOIN b USING (pid, protocol_id, criterion_id) GROUP BY ALL ORDER BY ALL"
+        "FROM a JOIN b USING (pid, protocol_id, criterion_id, stage, attempt, rep) GROUP BY ALL ORDER BY ALL"
     ).fetchall()
     return [
         {"protocol_id": p, "criterion_id": c, "basis": basis, "n": int(n), "changed": int(ch),
@@ -287,7 +290,8 @@ def run_battery(
     return {
         "set": name,
         "criterion_rows": int(total),
-        "failure_rows": sum(f["n"] for f in fails),
+        "failure_rows": sum(f["n"] for f in fails if f["side"] == "patient"),  # same side as criterion_rows
+        "trial_failure_rows": sum(f["n"] for f in fails if f["side"] == "trial"),
         "by_code": by_code(fails),
         "clusters": group(fails),
         "data_gap": data_gap_map(fails),
@@ -302,7 +306,8 @@ def run_battery(
 
 _COUNT_KEYS = frozenset(
     {"n", "preventable_n", "undetermined_n", "changed", "calls", "timed", "criterion_rows", "failure_rows",
-     "correct", "wrong_decided", "decided_on_unknown", "missed", "at1", "at3", "at5", "criteria", "size"}
+     "correct", "wrong_decided", "decided_on_unknown", "missed", "at1", "at3", "at5", "criteria", "size",
+     "protocols", "trial_failure_rows"}
 )  # fmt: skip
 _SHARE_KEYS = frozenset({"preventable_share", "rate"})
 _MS_KEYS = frozenset({"p50_ms", "p99_ms"})
@@ -312,6 +317,15 @@ _CLOSED = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/+\-]{0,95}")
 _NAME = re.compile(r"[A-Za-z][A-Za-z ,/()+\-]{0,79}")
 
 
+#: maps of id -> count: the criteria and protocols of a cluster, the codes and stages of a residual cluster
+_COUNT_MAPS = ("protocols", "criteria", "codes", "stages")
+
+
+def _below(v: Any) -> bool:
+    """True for a count that must be blanked: below the minimum cell, or already blanked (``None``)."""
+    return v is None or (isinstance(v, int) and not isinstance(v, bool) and v < export.MIN_CELL)
+
+
 def suppress(b: Any) -> Any:
     """Every count below ``export.MIN_CELL`` blanked, and every share or quantile computed from such a count."""
     if isinstance(b, list):
@@ -319,14 +333,15 @@ def suppress(b: Any) -> Any:
     if not isinstance(b, dict):
         return b
     out = {k: suppress(v) for k, v in b.items()}
-    small = isinstance(b.get("n"), int) and b["n"] < export.MIN_CELL
+    small = "n" in b and _below(b["n"])
+    timed_small = _below(b["timed"] if "timed" in b else b.get("n"))  # a quantile rests on the timed observations
     for k, v in list(out.items()):
         if k in _COUNT_KEYS and isinstance(v, int) and not isinstance(v, bool) and v < export.MIN_CELL:
             out[k] = None
-        if (k in _SHARE_KEYS or k in _MS_KEYS) and small:
+        if (k in _SHARE_KEYS and small) or (k in _MS_KEYS and (small or timed_small)):
             out[k] = None
-        if k in ("protocols", "criteria") and isinstance(v, dict):
-            out[k] = {kk: (vv if vv >= export.MIN_CELL else None) for kk, vv in v.items()}
+        if k in _COUNT_MAPS and isinstance(v, dict):
+            out[k] = {kk: (None if _below(vv) else vv) for kk, vv in v.items()}
     for share, num in (("preventable_share", "preventable_n"), ("rate", "changed")):
         if share in out and out.get(num) is None and b.get(num):  # share x n would give the blanked numerator back
             out[share] = None
@@ -353,7 +368,7 @@ def _walk(v: Any, where: str, pids: set[str], known: set[str]) -> None:
             if not isinstance(k, str) or not _CLOSED.fullmatch(k):
                 raise Refused(f"{where}: a key that is not a closed identifier")
             export._check_free(where, k, pids)
-            if k in ("protocols", "criteria") and isinstance(x, dict):  # id -> count
+            if k in _COUNT_MAPS and isinstance(x, dict):  # id -> count
                 for kk, vv in x.items():
                     _walk(kk, f"{where}.{k}", pids, known)
                     if k == "protocols" and kk not in known:
@@ -400,10 +415,34 @@ def _count(where: str, x: Any) -> None:
         raise Refused(f"{where}: count {x} below {export.MIN_CELL} not suppressed")
 
 
+def protect(b: Mapping[str, Any], pids: Collection[str], known_ids: Collection[str]) -> dict[str, Any]:
+    """Suppress, then refuse: the payload that may leave the machine (file or screen)."""
+    out: dict[str, Any] = suppress(dict(b))
+    refuse(out, pids, known_ids)
+    return out
+
+
+#: a run whose ``sets_json`` names only these (and a ``tag``) is synthetic or public data; any other is real
+OPEN_SETS = frozenset({"synthetic", "public"})
+
+
+def is_open(con: Any) -> bool:
+    """True only when the ledger holds runs and every run says it is synthetic or public."""
+    rows = con.execute("SELECT sets_json FROM run").fetchall()
+    return bool(rows) and all(_open_set(r[0]) for r in rows)
+
+
+def _open_set(raw: Any) -> bool:
+    try:
+        d = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(d, dict) and bool(set(d) & OPEN_SETS) and set(d) <= OPEN_SETS | {"tag"}
+
+
 def write_real(path: Path, b: Mapping[str, Any], pids: Collection[str], known_ids: Collection[str]) -> Path:
     """Suppress, refuse, then write: nothing is written when a check fails."""
-    out = suppress(dict(b))
-    refuse(out, pids, known_ids)
+    out = protect(b, pids, known_ids)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")

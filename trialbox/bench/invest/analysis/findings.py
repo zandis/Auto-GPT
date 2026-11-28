@@ -1,11 +1,12 @@
 """The battery's command line and the ``FINDINGS`` renderer (INVEST-1 §2, §3 step 1). Prints counts, never rows.
 
-    # the battery over one set's runs (a repeat for the unstable table); --real: suppressed, refused, then written
+    # the battery over one set's runs (a repeat for the unstable table); --real, or any run not marked synthetic or
+    # public: suppressed, refused, then written (residual clusters are made in memory, no records file)
     python -m bench.invest.analysis.findings battery --runs <dir>[,<dir>] [--repeat <dir>[,<dir>]] --name syn50k \\
-        --out battery.json --records residual.json [--real]
+        --out battery.json [--records residual.json] [--real]
     # the residual clusters (labels from ``cluster``) named and folded into the battery file
     python -m bench.invest.analysis.findings residual --battery battery.json --records residual.json \\
-        --labels labels.json [--real]
+        --labels labels.json [--real --runs <dir>[,<dir>]]
     # FINDINGS-R<N>.md from the battery files, the metamorphic result and the real-data aggregate
     python -m bench.invest.analysis.findings render --battery a.json[,b.json] [--real twin.json] \\
         [--metamorphic m.json] --round R1 --out FINDINGS-R1.md
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -48,22 +50,43 @@ def known_ids(meta: Mapping[tuple[str, str], Any], extra: Collection[str] = ()) 
     return {p for p, _ in meta} | {c for _, c in meta} | set(extra)
 
 
+def _warn(msg: str) -> None:
+    print(f"WARN: {msg}", file=sys.stderr)
+
+
 def cmd_battery(a: argparse.Namespace) -> int:
     con = battery.open_runs(_dirs(a.runs))
     protos = [r[0] for r in con.execute("SELECT DISTINCT protocol_id FROM match_stage").fetchall()]
     meta = battery.criteria_meta(protos)
     rep = battery.open_runs(_dirs(a.repeat)) if a.repeat else None
     b = battery.run_battery(con, meta, rep, a.name)
-    if a.records:
-        recs = residual_records(con, b, meta)
+    # protected unless every input run says it is synthetic or public: the flag can only add protection
+    protected = bool(a.real) or not (battery.is_open(con) and (rep is None or battery.is_open(rep)))
+    if protected and not a.real:
+        _warn("a run is not marked synthetic or public: exporting the protected (suppressed, checked) form")
+    recs = residual_records(con, b, meta) if a.records else []
+    if recs and not protected:
         Path(a.records).write_text(json.dumps(recs, ensure_ascii=False) + "\n", encoding="utf-8")
-    if a.real:
-        battery.write_real(a.out, b, export.pids_of(con), known_ids(meta, protos))
+    elif recs:  # real: the records hold exact small counts, so they are clustered here and never written
+        x, embedder = cluster.embed([cluster.record_text(r) for r in recs], a.embedder_path)
+        labels, method = cluster.cluster(x)
+        b["residual"] = cluster.residual_clusters(recs, labels)
+        b["residual_method"] = {"clustering": method, "embedder": embedder, "namer": "rule"}
+    if protected:
+        pids = export.pids_of(con) | (export.pids_of(rep) if rep is not None else set())
+        out = battery.protect(b, pids, known_ids(meta, protos))
+        battery.write_real(a.out, b, pids, known_ids(meta, protos))
     else:
+        out = b
         Path(a.out).write_text(json.dumps(b, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(json.dumps({"set": a.name, "criterion_rows": b["criterion_rows"], "failure_rows": b["failure_rows"],
-                      "clusters": len(b["clusters"]), "real": bool(a.real)}))  # fmt: skip
+    print(json.dumps({"set": out["set"], "criterion_rows": out["criterion_rows"],
+                      "failure_rows": out["failure_rows"], "trial_failure_rows": out["trial_failure_rows"],
+                      "clusters": _cell(len(b["clusters"]), protected), "real": protected}))  # fmt: skip
     return 0
+
+
+def _cell(n: int, protected: bool) -> int | None:
+    return None if protected and n < export.MIN_CELL else n
 
 
 def cmd_residual(a: argparse.Namespace) -> int:
@@ -73,13 +96,17 @@ def cmd_residual(a: argparse.Namespace) -> int:
     b["residual"] = cluster.residual_clusters(recs, lab["labels"])
     b["residual_method"] = {"clustering": lab["method"], "embedder": lab["embedder"],
                             "namer": "rule"}  # fmt: skip
-    if a.real:  # the battery file passed its patient-id check when it was written; names carry no patient text
+    n = len(b["residual"])
+    if a.real:  # the final payload is suppressed and checked against the source ledger's patient ids
+        if not a.runs:
+            _warn("--real without --runs: no patient id of the source ledger is checked")
+        pids = export.pids_of(battery.open_runs(_dirs(a.runs))) if a.runs else set()
         protos = sorted({r["protocol_id"] for r in recs} | {p for c in b["clusters"] for p in c["protocols"]})
         meta = battery.criteria_meta(protos)
-        battery.write_real(Path(a.battery), b, (), known_ids(meta, protos))
+        battery.write_real(Path(a.battery), b, pids, known_ids(meta, protos))
     else:
         Path(a.battery).write_text(json.dumps(b, indent=1, sort_keys=True, ensure_ascii=False) + "\n", "utf-8")
-    print(json.dumps({"residual_clusters": len(b["residual"]), **b["residual_method"]}))
+    print(json.dumps({"residual_clusters": _cell(n, bool(a.real)), **b["residual_method"]}))
     return 0
 
 
@@ -192,7 +219,8 @@ def real_section(r: Mapping[str, Any]) -> list[str]:
     """The real-data part: refused first (no identifier, quote or day date, no unsuppressed small count), then
     rendered from counts alone."""
     battery.refuse(r, (), _ids_in(r))
-    out = [f"Set `{r['set']}`: {_n(r['criterion_rows'])} criterion rows, {_n(r['failure_rows'])} failure rows. "
+    out = [f"Set `{r['set']}`: {_n(r['criterion_rows'])} criterion rows, {_n(r['failure_rows'])} patient failure rows, "
+           f"{_n(r.get('trial_failure_rows'))} trial failure rows. "
            "Counts only; cells below 10 shown as <10.", "", "Codes:", ""]  # fmt: skip
     out += [*codes_table(r), "", "Clusters (deterministic):", "", *clusters_table(r)]
     out += ["", "Residual clusters:", "", *residual_table(r), "", "Data-gap map:", "", *gap_table(r)]
@@ -222,10 +250,11 @@ def render(
             "real-data section holds counts only.", ""]  # fmt: skip
     if prior:
         out += [f"The round's instrument table (§1.3) is in {prior}.", ""]
-    sets = [[b["set"], _n(b["criterion_rows"]), _n(b["failure_rows"]),
+    sets = [[b["set"], _n(b["criterion_rows"]), _n(b["failure_rows"]), _n(b.get("trial_failure_rows")),
              _pct(b["failure_rows"] / b["criterion_rows"]) if b["criterion_rows"] and b["failure_rows"] else "—"]
             for b in [*batteries, *([real] if real else [])]]  # fmt: skip
-    out += ["## Sets", "", *_table(["set", "criterion rows", "failure rows", "failure share"], sets)]
+    head = ["set", "criterion rows", "failure rows", "trial failure rows", "failure share"]
+    out += ["## Sets", "", *_table(head, sets)]
     for b in batteries:
         out += ["", f"## Set `{b['set']}`", "", f"### Top {battery.TOP} clusters (deterministic)", ""]
         out += [*clusters_table(b), "", "### Residual clusters (embedded, named)", "", *residual_table(b)]
@@ -261,12 +290,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--name", required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--records", type=Path)
+    p.add_argument("--embedder-path")
     p.add_argument("--real", action="store_true")
     p.set_defaults(fn=cmd_battery)
     p = sub.add_parser("residual")
     p.add_argument("--battery", type=Path, required=True)
     p.add_argument("--records", type=Path, required=True)
     p.add_argument("--labels", type=Path, required=True)
+    p.add_argument("--runs")
     p.add_argument("--real", action="store_true")
     p.set_defaults(fn=cmd_residual)
     p = sub.add_parser("render")

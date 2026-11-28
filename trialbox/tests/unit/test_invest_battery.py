@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ import pytest
 from tb_common.reasons import CODES as REASONS
 from tb_common.ruleset import Ruleset
 
-from bench.invest import ledger
+from bench.invest import export, ledger
 from bench.invest.analysis import battery, cluster, findings, metamorphic, taxonomy
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -264,3 +265,143 @@ def test_the_metamorphic_comparison_names_the_criterion_that_broke() -> None:
     assert d["compared"] == 2 and d["criteria"] == {"R/c1": 1}  # c3 reads another table too: not compared
     lost = metamorphic.compare("delete_medication", base, {}, doms)
     assert lost["compared"] == 0 and lost["not_comparable"] == 2 and lost["pass"]
+
+
+# ---- the real-data wall: defaults, no raw side files, nothing small or identifying on disk or on screen ----------------
+
+PATS = [f"pat-77{i:02d}-x" for i in range(40)]
+
+
+def _real_ledger(root: Path, sets: dict[str, Any]) -> Path:
+    """25 failure groups of 3 rows each (a card id apart) over patient ids that must never leave, plus 30 big rows."""
+    a = _crits()[0]
+    header = {"code_sha": "r", "sets_json": sets}
+    w = ledger.LedgerWriter(root, ledger.run_id_of(header), header)
+    for g in range(25):
+        for k in range(3):
+            w.add("match_stage", "GZQO", {"protocol_id": "GZQO", "attempt": 0, "pid": PATS[(3 * g + k) % 40],
+                                          "criterion_id": a.id, "stage": "S1", "verdict": "U", "card_id": f"card{g}",
+                                          "reason_code": "data_gap", "unknown_kind": "data_gap", "basis": "coded",
+                                          "atoms_json": ATOMS_LAB})  # fmt: skip
+    for k in range(30):
+        w.add("match_stage", "GZQO", {"protocol_id": "GZQO", "attempt": 0, "pid": PATS[k], "criterion_id": a.id,
+                                      "stage": "S2", "verdict": "T", "reason_code": "coded", "basis": "coded"})  # fmt: skip
+    w.close()
+    return w.dir
+
+
+def _clean(text: str) -> None:
+    """No patient id and no count of 1..9 anywhere in ``text`` (a json file or a printed line)."""
+    assert not any(p in text for p in PATS)
+    for v in re.findall(r"(?<=[:\[,]) ?(\d+)(?=[,}\]\n])", text):
+        assert not 0 < int(v) < export.MIN_CELL, text
+
+
+def test_the_battery_command_protects_by_default_and_writes_no_raw_records(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    d = _real_ledger(tmp_path / "real", {"real_twin": ["GZQO"]})  # not marked synthetic or public
+    out, rec = tmp_path / "b.json", tmp_path / "rec.json"
+    assert findings.main(["battery", "--runs", str(d), "--name", "twin", "--out", str(out), "--records", str(rec)]) == 0
+    shown = capsys.readouterr()
+    assert not rec.exists()  # R2: clustered in memory, only the protected aggregate is written
+    assert json.loads(out.read_text("utf-8"))["residual"]
+    for text in (out.read_text("utf-8"), shown.out):  # R1 (no flag), R3 (screen), R4 (the codes and stages maps)
+        _clean(text)
+    assert json.loads(shown.out)["clusters"] == 25 and "WARN" in shown.err
+    out2 = tmp_path / "b2.json"  # --real gives the same file
+    rec2 = tmp_path / "rec2.json"
+    findings.main(["battery", "--runs", str(d), "--name", "twin", "--out", str(out2), "--records", str(rec2), "--real"])
+    assert not rec2.exists()
+    assert out2.read_text("utf-8") == out.read_text("utf-8")
+
+
+def test_a_run_marked_synthetic_keeps_its_exact_counts_and_its_records_file(tmp_path: Path) -> None:
+    d = _real_ledger(tmp_path / "syn", {"synthetic": ["GZQO"], "tag": "t"})
+    out, rec = tmp_path / "b.json", tmp_path / "rec.json"
+    findings.main(["battery", "--runs", str(d), "--name", "syn", "--out", str(out), "--records", str(rec)])
+    assert rec.exists() and any(c["n"] == 3 for c in json.loads(out.read_text("utf-8"))["clusters"])
+
+
+def test_the_residual_pass_checks_the_final_payload_against_the_source_ledgers_patient_ids(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    d = _real_ledger(tmp_path / "real", {"real_twin": ["GZQO"]})
+    out = tmp_path / "b.json"
+    findings.main(["battery", "--runs", str(d), "--name", "twin", "--out", str(out)])
+    con = battery.open_runs([d])
+    meta = battery.criteria_meta(["GZQO"])
+    recs = findings.residual_records(con, battery.run_battery(con, meta, name="twin"), meta)
+    recs_f, labels_f = tmp_path / "recs.json", tmp_path / "labels.json"
+    labels_f.write_text(json.dumps({"labels": [0] * len(recs), "method": "kmeans", "embedder": "hash"}), "utf-8")
+    recs_f.write_text(json.dumps(recs), "utf-8")
+    capsys.readouterr()
+    argv = ["residual", "--battery", str(out), "--records", str(recs_f), "--labels", str(labels_f), "--real",
+            "--runs", str(d)]  # fmt: skip
+    assert findings.main(argv) == 0
+    for text in (out.read_text("utf-8"), capsys.readouterr().out):
+        _clean(text)
+    before = out.read_text("utf-8")
+    recs[0]["protocol_id"] = f"GZQO-{PATS[5]}"  # an identifier the records file brought in
+    recs_f.write_text(json.dumps(recs), "utf-8")
+    with pytest.raises(battery.Refused):
+        findings.main(argv)
+    assert out.read_text("utf-8") == before
+
+
+def test_scalar_protocol_counts_and_the_code_and_stage_maps_are_suppressed_and_checked() -> None:
+    raw = {"data_gap": [{"n": 50, "criteria": 3, "protocols": 2}],
+           "residual": [{"n": 50, "codes": {"P1": 4, "P2": 30}, "stages": {"S1": 9, "S2": 12}}]}  # fmt: skip
+    out = battery.suppress(raw)
+    assert out["data_gap"][0] == {"n": 50, "criteria": None, "protocols": None}
+    assert out["residual"][0]["codes"] == {"P1": None, "P2": 30}
+    assert out["residual"][0]["stages"] == {"S1": None, "S2": 12}
+    battery.refuse(out, (), ())
+    for leak in ({"data_gap": [{"protocols": 2}]}, {"residual": [{"codes": {"P1": 4}}]},
+                 {"residual": [{"stages": {"S1": 4}}]}):  # fmt: skip
+        with pytest.raises(battery.Refused):
+            battery.refuse(leak, (), ())
+
+
+def test_a_latency_quantile_is_suppressed_by_the_number_of_timed_rows() -> None:
+    out = battery.suppress({"n": 500, "timed": 1, "p50_ms": 120.0, "p99_ms": 120.0})
+    assert out == {"n": 500, "timed": None, "p50_ms": None, "p99_ms": None}
+    assert battery.suppress({"n": 500, "timed": 40, "p50_ms": 120.0})["p50_ms"] == 120.0
+
+
+def test_suppressing_an_already_suppressed_battery_is_a_no_op() -> None:
+    once = battery.suppress({"n": 50, "criteria": {"GZQO/a": 3, "GZQO/b": 30}, "protocols": {"GZQO": 3}, "changed": 2,
+                             "rate": 0.04, "timed": 2, "p50_ms": 5.0})  # fmt: skip
+    assert once["criteria"] == {"GZQO/a": None, "GZQO/b": 30}
+    assert battery.suppress(once) == once
+
+
+def test_the_repeat_join_pairs_stages_and_attempts_one_to_one(tmp_path: Path) -> None:
+    a = _crits()[0]
+    rows = [{"pid": "p0", "criterion_id": a.id, "stage": "S1", "attempt": 0, "verdict": "T", "basis": "coded"},
+            {"pid": "p0", "criterion_id": a.id, "stage": "S1", "attempt": 1, "verdict": "F", "basis": "coded"},
+            {"pid": "p0", "criterion_id": a.id, "stage": "S2", "attempt": 0, "verdict": "U", "basis": "coded"}]  # fmt: skip
+    x = battery.open_runs([_ledger(tmp_path / "x", rows)])
+    y = battery.open_runs([_ledger(tmp_path / "y", [dict(r) for r in rows], tag="y")])
+    (row,) = battery.diff_runs(x, y)
+    assert (row["n"], row["changed"]) == (3, 0)  # identical repeats: three answers, no change
+
+
+def test_the_failure_share_is_patient_side_and_trial_failures_are_reported_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    con = battery.open_runs([_ledger(tmp_path, _rows(_crits()))])
+    fake = [{"side": "patient", "n": 5}, {"side": "trial", "n": 200}]
+    monkeypatch.setattr(battery, "failure_rows", lambda *_a, **_k: fake)
+    monkeypatch.setattr(battery, "by_code", lambda _f: {})
+    monkeypatch.setattr(battery, "group", lambda _f: [])
+    monkeypatch.setattr(battery, "data_gap_map", lambda _f: [])
+    b = battery.run_battery(con, {}, name="t")
+    assert (b["failure_rows"], b["trial_failure_rows"]) == (5, 200) and b["failure_rows"] <= b["criterion_rows"]
+
+
+def test_the_metamorphic_run_never_deletes_its_source(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    _site(work / "site-base")  # the source is the directory the run used to wipe
+    out = metamorphic.run(work / "site-base", work, 2, (), "UTC", ("shift",), lambda *_a, **_k: ({}, {}))
+    assert (work / "site-base" / "patient.csv").exists() and out["patients"] == 2

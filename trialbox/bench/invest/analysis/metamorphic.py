@@ -22,6 +22,7 @@ import argparse
 import csv
 import json
 import shutil
+import tempfile
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from datetime import date, datetime, timedelta
@@ -203,6 +204,8 @@ def screen_cascades(source: Path, work: Path, ids: tuple[str, ...], tz: str) -> 
 def run(source: Path, work: Path, patients: int, ids: tuple[str, ...], tz: str,
         kinds: tuple[str, ...], cascades: Callable[..., Any] = screen_cascades) -> dict[str, Any]:  # fmt: skip
     """Subsample, build each variant, run the coded cascades, compare."""
+    work.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="metamorphic-", dir=work))  # fresh per run, never the source
     site = work / "site-base"
     keep = subsample(source, site, patients)
     rss, res = cascades(site, work / "run-base", ids, tz)
