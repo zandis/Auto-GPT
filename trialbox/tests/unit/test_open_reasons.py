@@ -79,6 +79,20 @@ def test_coded_complete_needs_a_coded_yes_no_no_and_only_site_gaps_open() -> Non
     assert f(BY_ID, [_v("Z-9", "unknown", "data_gap")]).opens == ()  # not a criterion of the ruleset
 
 
+def test_a_held_back_not_met_is_an_open_point_with_its_reason_not_a_no() -> None:
+    """The one rule of ``verdict_word``: a note "not met" that was not allowed to exclude (one model; or given while
+    notes could not exclude) is open with its reason, as CASE prints it, so it is no "no" for coded-complete."""
+    f = open_reasons.facts_of
+    single = CriterionVerdict(id="N-1", verdict="fail", basis="single")
+    not_final = CriterionVerdict(id="N-1", verdict="fail", final=False)
+    allowed = CriterionVerdict(id="N-1", verdict="fail", basis="pair", final=True)
+    yes = _v("S-1", "pass", "coded")
+    assert f(BY_ID, [yes, single]).opens == (("N-1", "single_model", "person"),)
+    assert f(BY_ID, [yes, not_final]).opens == (("N-1", "not_final", "person"),)
+    assert not f(BY_ID, [yes, single]).coded_complete  # a person or a model still decides
+    assert f(BY_ID, [yes, allowed]).opens == () and not f(BY_ID, [yes, allowed]).coded_complete  # a real no
+
+
 def _facts(*verdicts: CriterionVerdict) -> open_reasons.Facts:
     return open_reasons.facts_of(BY_ID, verdicts)
 
