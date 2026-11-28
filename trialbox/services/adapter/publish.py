@@ -114,26 +114,32 @@ class NothingToPublish(RuntimeError):
 
 
 class TwoPeopleOneChart(RuntimeError):  # review M2: never caught as no held night
-    """H34-06: the held night's folder does not say its identity check ran on it; it is never published as it stands."""
+    """H34-06: the held night has a chart number that arrived as two people; it is never published as it stands."""
 
 
 def refuse_two_people(folder: Path) -> None:
-    """H34-06: :class:`TwoPeopleOneChart` unless the held night's folder holds this night's identity check result
-    (``adapter.pipeline.IDENTITY_CHECKED``: written last by the run, after its records were written without the
-    records of a chart number that arrived as two people; PRODUCT-2, "hold records, not nights"). A night held by an
-    earlier release, by a run that stopped before the check, or with a result that is not this night's or cannot be
-    read is refused (review M1): its folder may hold two people's records under one chart."""
-    from adapter.pipeline import IDENTITY_CHECKED
+    """H34-06: :class:`TwoPeopleOneChart` when the held night's folder lists a chart number that arrived as two
+    people within the night (``adapter.pipeline.IDENTITY_CONFLICT``, ``tonight``): an accept would serve one of them
+    under the other's chart. A change against the served night alone (``against``) is the steward's to accept.
+    A file that cannot be read refuses too, and so does a night the check never ran on (no file and no
+    ``IDENTITY_CHECKED``: held by an earlier release, or by a run that stopped before the check; review M1)."""
+    from adapter.pipeline import IDENTITY_CHECKED, IDENTITY_CONFLICT
 
     try:
-        said = json.loads((folder / IDENTITY_CHECKED).read_text(encoding="utf-8"))
-        ok = isinstance(said, dict) and said.get("snapshot") == folder.name and isinstance(said.get("held"), list)
-    except (OSError, ValueError):
-        ok = False
-    if not ok:
+        tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
+    except FileNotFoundError:
+        if (folder / IDENTITY_CHECKED).is_file():
+            return
         raise TwoPeopleOneChart(
             "the identity check (one chart number arriving as two people) never ran on this night: it was held by an "
             "earlier release or its run stopped before the check. Run the night again, then decide on it"
+        ) from None
+    except (OSError, ValueError, AttributeError):
+        tonight = True
+    if tonight:
+        raise TwoPeopleOneChart(
+            f"a chart number of this night arrived as two different people ({IDENTITY_CONFLICT}): it cannot be "
+            "accepted as it stands. Reject it, correct the chart at the source and run the night again"
         )
 
 
@@ -1150,17 +1156,10 @@ def publish_held(
     """The steward's accept (T-723, D-489): publish the held night's folder as it stands, with the same function a
     night that passed the gate goes through. The gate's verdict is what the steward overrode; the lake's own
     refusal of the data (D-271) still stands."""
-    from zoneinfo import ZoneInfo
-
-    from adapter.pipeline import FutureNight, merge_base, refuse_future_night
+    from adapter.pipeline import merge_base
 
     folder = held_folder(cfg, snap)
-    try:
-        refuse_future_night(snap, datetime.now(ZoneInfo(cfg.tz)).date())
-    except FutureNight:
-        pass  # D-529: publish_night refuses it by name, before anything is read
-    else:
-        refuse_two_people(folder)  # H34-06
+    refuse_two_people(folder)  # H34-06
     try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
         since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
         full: bool | None = not since
@@ -1183,8 +1182,8 @@ __all__ = [
     "NightRefused",
     "NothingToPublish",
     "Published",
-    "RecoveryBusy",
     "TwoPeopleOneChart",
+    "RecoveryBusy",
     "derive",
     "fingerprint",
     "finish_served",
@@ -1196,8 +1195,8 @@ __all__ = [
     "read_record",
     "recover",
     "recover_all",
-    "refuse_split",
     "refuse_two_people",
+    "refuse_split",
     "restore",
     "settle",
     "verify_fhir",
