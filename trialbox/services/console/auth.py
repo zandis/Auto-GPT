@@ -35,11 +35,11 @@ import ipaddress
 import json
 import re
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from tb_common.authz import permit
@@ -214,9 +214,24 @@ CREATE TABLE IF NOT EXISTS user_pref (
   PRIMARY KEY (username, name)
 )
 """
+# TOL-AUTH (TOL-1 §2.5, T-A030/T-A031): a session that ended on a time limit leaves one row naming its account; a
+# form sent to it afterwards keeps its typed values there (never a secret: console.form_errors.is_secret) until the
+# same account signs in again on that browser, for DRAFT_TTL at most. A new table only: nothing that is stored changes
+SCHEMA_V10 = """
+CREATE TABLE IF NOT EXISTS session_drafts (
+  token_sha TEXT COLLATE "C" NOT NULL,
+  username TEXT COLLATE "C" NOT NULL,
+  page TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL DEFAULT '',
+  fields TEXT NOT NULL DEFAULT '',
+  at TEXT COLLATE "C" NOT NULL,
+  PRIMARY KEY (token_sha, page)
+)
+"""
 MIGRATIONS: tuple[str, ...] = (
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10
 )  # fmt: skip
+DRAFT_TTL = timedelta(minutes=15)  # as the kept page (console.next_page.MAX_AGE)
 FACTORS = ("password", "totp")
 FACTOR_WINDOW = timedelta(days=30)  # D-719: the owner's rule, not a setting: one factor at a time for 30 days
 _COLS = "username, role, mailbox, affiliation, studies, expires"
@@ -466,6 +481,11 @@ class UserStore:
         self.idle = idle
         self.absolute = absolute
         self.oidc_absolute = oidc_absolute
+        # TOL-AUTH: the pseudonyms of the patients who opted out (console.app sets it): a kept form naming one goes
+        self.draft_gone: Callable[[], Collection[str]] | None = None
+        self.keep_drafts = (
+            False  # TOL-AUTH: a form sent after the session ended is kept (TB_KEEP_DRAFT=on; default off)
+        )
         self.zone: ZoneInfo | None = None  # the site's zone, set by console.app (D-270)
         self.enrol_ttl = ENROL_TTL  # D-719: TB_CONSOLE_ENROL_CODE_HOURS, set by console.app
         #: STEPS-ROLE (D-877): whether a session may act in an extra role now (the flag on, on a test box: set by
@@ -822,6 +842,15 @@ class UserStore:
         user = self.get(str(row[0]))
         absolute = self._absolute_of(str(row[5]))
         if user is None or now - created > absolute or now - last > self.idle:
+            if (
+                user is not None and self.keep_drafts
+            ):  # TOL-AUTH (T-A030): a time limit; a form sent to it later is kept for this account
+                self.drop_stale_drafts()
+                self.db.execute(
+                    "INSERT INTO session_drafts (token_sha, username, at) VALUES (?, ?, ?) "
+                    "ON CONFLICT (token_sha, page) DO NOTHING",
+                    (sha, user.username, now.isoformat()),
+                )
             self.end_session(token)
             return None
         if touch:
@@ -1286,6 +1315,72 @@ class UserStore:
 
     def end_session(self, token: str) -> None:
         self.db.execute("DELETE FROM sessions WHERE token_sha = ?", (_sha(token),))
+
+    # ------------------------------------------------------------------ a form sent after the end (TOL-AUTH, T-A030)
+    def keep_draft(self, token: str, page: str, action: str, fields: Mapping[str, list[str]]) -> None:
+        """Keep what a form sent to the ended session ``token`` carried (the caller leaves secrets out); nothing
+        when ``token`` is no session that ended on a time limit within ``DRAFT_TTL``."""
+        if not self.keep_drafts or not token or len(token) > 256 or not fields:
+            return
+        self.db.execute(
+            "INSERT INTO session_drafts (token_sha, username, page, action, fields, at) "
+            "SELECT token_sha, username, ?, ?, ?, at FROM session_drafts WHERE token_sha = ? AND page = '' AND at >= ? "
+            "ON CONFLICT (token_sha, page) DO UPDATE SET action = excluded.action, fields = excluded.fields",
+            (page, action, json.dumps(fields), _sha(token), (self.clock() - DRAFT_TTL).isoformat()),
+        )
+        self.drop_stale_drafts()
+
+    def drop_stale_drafts(self) -> None:
+        """A kept form lives 15 minutes at most, and goes at once when it names a patient who opted out (it may hold
+        the pseudonym and a free-text note): the expired rows go, then every kept form naming a pseudonym of
+        ``draft_gone``. If that register cannot be read, every kept form goes (fail closed)."""
+        self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((self.clock() - DRAFT_TTL).isoformat(),))
+        if self.draft_gone is None:
+            return
+        try:
+            gone = [str(p).lower() for p in self.draft_gone()]
+        except Exception:
+            gone = []
+            self.db.execute("DELETE FROM session_drafts WHERE page <> ''")
+        if not gone:
+            return
+        for sha, page, fields in self.db.fetchall(
+            "SELECT token_sha, page, fields FROM session_drafts WHERE page <> ''"
+        ):
+            text = str(fields).lower()
+            if any(p in text for p in gone):
+                self.db.execute("DELETE FROM session_drafts WHERE token_sha = ? AND page = ?", (sha, page))
+
+    def hand_draft(self, old_token: str, username: str, new_token: str) -> bool:
+        """At a sign-in on a browser whose last session ended: its kept forms move to the new session when the same
+        account signed in, else they are dropped (another person never sees them). True when one moved."""
+        if not self.keep_drafts or not old_token or len(old_token) > 256:
+            return False
+        sha = _sha(old_token)
+        self.drop_stale_drafts()
+        n = self.db.execute("UPDATE session_drafts SET token_sha = ? WHERE token_sha = ? AND username = ? "
+                            "AND page <> ''", (_sha(new_token), sha, username))  # fmt: skip
+        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ?", (sha,))
+        return n > 0
+
+    def take_draft(self, token_sha: str, page: str) -> dict[str, Any] | None:
+        """The kept form of this session for ``page`` ({"action", "fields"}); it stays until ``drop_draft`` (its form
+        was sent) or its 15 minutes end; None otherwise (and always, with the switch off)."""
+        if not self.keep_drafts:
+            return None
+        self.drop_stale_drafts()
+        row = self.db.fetchone("SELECT action, fields, at FROM session_drafts WHERE token_sha = ? AND page = ?",
+                               (token_sha, page))  # fmt: skip
+        if row is None:
+            return None
+        if not row[1]:
+            return None
+        return {"action": str(row[0]), "fields": json.loads(str(row[1]))}
+
+    def drop_draft(self, token_sha: str, page: str, action: str) -> None:
+        """The form of ``action`` was sent from ``page``: its kept draft is used up."""
+        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ? AND page = ? AND action = ?",
+                        (token_sha, page, action))  # fmt: skip
 
     # ------------------------------------------------------------------ first start
     def bootstrap_from_file(self, path: Path, username: str = "admin", mailbox: str | None = None) -> User | None:

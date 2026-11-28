@@ -44,6 +44,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import ClientDisconnect
 from tb_common import egress_edge, trusted_proxy
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditFull, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
@@ -65,6 +66,7 @@ from console import (
     demo_guard,
     feedback,
     firstrun,
+    form_errors,
     i18n_roles,
     next_page,
     person_state,
@@ -614,6 +616,7 @@ def create_app(
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
+    us.keep_drafts = _env_map(env).get("TB_KEEP_DRAFT", "") == "on"  # TOL-AUTH: off unless exactly "on"
     us.zone = site_tz  # an account's end date is a site day (D-270)
     us.enrol_ttl = timedelta(hours=settings.identity.enrol_hours)  # D-719: TB_CONSOLE_ENROL_CODE_HOURS
     account_team: dict[str, Any] = {}  # the study team store, once the workspace registers it (D-719: the PIs)
@@ -679,6 +682,11 @@ def create_app(
         finally:
             if token is not None:
                 person_state.end_request(token)
+        if request.method == "POST" and resp.status_code < 400 and request.cookies.get(next_page.DRAFT_COOKIE):
+            # TOL-AUTH (T-A030): the form the kept draft is for was sent from its page: the draft is used up
+            kept_for = us.session(request.cookies.get(COOKIE), touch=False)
+            if kept_for is not None:
+                us.drop_draft(kept_for.token_sha, next_page.page_of(request), request.url.path)
         resp.headers.setdefault("Content-Security-Policy", CSP)  # the sandboxed preview sets its own
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -987,6 +995,10 @@ def create_app(
             "ui_attrs": _once(lambda: prefs.html_attrs(us.prefs(sess.user.username)) if sess else {}),
             # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
             "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
+            # TOL-AUTH (T-A030): a form sent after the session ended, back on its page once the same account is in
+            "draft": us.take_draft(sess.token_sha, next_page.page_of(request))
+            if sess and request.method == "GET" and request.cookies.get(next_page.DRAFT_COOKIE)
+            else None,
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path
             + "?"
@@ -1001,7 +1013,18 @@ def create_app(
         ended = bool(request.cookies.get(COOKIE))
         resp = RedirectResponse("/login?why=idle" if ended else "/login", status_code=303)
         if request.query_params.get("keep") != "1":  # D-1370: the idle warning's request is no page to return to
-            next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
+            kept = next_page.page_of(request)
+            next_page.remember(resp, kept, settings.secure_cookie)
+            if ended and kept and request.method == "POST":  # TOL-AUTH (T-A030): what the form carried, no secret
+                fields: dict[str, list[str]] = {}
+                try:
+                    items = (await request.form()).multi_items()
+                except (StarletteHTTPException, ClientDisconnect):  # no readable form: the redirect alone, as before
+                    items = []
+                for k, v in items:
+                    if isinstance(v, str) and not form_errors.is_secret(k):
+                        fields.setdefault(k, []).append(v)  # whole: a cut note would be saved cut
+                us.keep_draft(request.cookies.get(COOKIE, ""), kept, request.url.path, fields)
         return resp
 
     @app.exception_handler(_KeepAlive)
@@ -1242,6 +1265,7 @@ def create_app(
             return ident.second_step(user, role=role)  # D-1151: the chosen role waits for the code
         acting.at_sign_in(us, au, user.username, role)  # D-1151: every factor is right
         token, _ = us.new_session(user, lang_of(request, None), "password")
+        kept = us.hand_draft(request.cookies.get(COOKIE, ""), user.username, token)  # TOL-AUTH (T-A030)
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
         landing = "/home" if settings.pilot else "/"  # S1: land on the work list
         if us.must_change(user.username):  # D-279: a password someone else set is replaced first
@@ -1250,6 +1274,8 @@ def create_app(
         if not us.must_change(user.username):
             next_page.take(request, done)  # D-777: back to the page the session ended on
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
+        if kept:
+            next_page.flag_draft(done, settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
         done.delete_cookie(LANG_COOKIE)
         return done
@@ -1494,7 +1520,13 @@ def create_app(
                 password = random_password()
                 us.set_password(name, password, must_change=True)  # D-279: the owner replaces it at sign-in
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
-                keep_once(sess, name, password)
+                code = ""
+                reset_user = us.get(name)
+                # TOL-AUTH (T-A021): no authenticator yet, so the code goes with the password, one hand-over
+                if reset_user is not None and ident.needs_code(reset_user) and us.totp_state(name)[0] is None:
+                    code = us.issue_enrol_code(name)
+                    au.append("console.enrol_code", actor=actor(sess), detail={"user": name})
+                keep_once(sess, name, password + (f"\ncode:{code}" if code else ""))
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "scope":
                 scope_values(affiliation, studies, expires or None)
@@ -1599,6 +1631,7 @@ def create_app(
         identity=ident,  # D-279: the second factor at signing (console.edc_pages)
         recorded=recorded_opinions.from_env(_env_map(env)),  # T-515: DEV demo opinions (TB_DEMO_OPINIONS)
     )
+    us.draft_gone = helpers.gone  # TOL-AUTH: a kept form that names an opted-out patient goes (erasure registry)
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
     assert helpers.api_session is not None

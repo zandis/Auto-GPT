@@ -260,3 +260,26 @@ ZH.update(
         "account.err.breached_list": "無法讀取此設備上的外洩密碼清單，因此無法檢查新密碼。請聯絡設備管理者。",
     }
 )
+
+# TOL-AUTH (TOL-1 §2.5): where the enrolment code comes from, who lifts a lock, a clock that is off
+EN.update(
+    {
+        "totp.enrol.where": "Your administrator makes one under {users} > {reset}: the new password comes with the code.",
+        "login.locked.who": "An administrator can unlock it sooner: {page} > {button}.",
+        "totp.failed.clock": "That code is right for a different minute: the phone's clock or this box's clock is off. Check that the phone shows the right time, then enter the newest code; if it still fails, tell IT the box's clock may be wrong.",
+    }
+)
+JA.update(
+    {
+        "totp.enrol.where": "管理者は「{users}」→「{reset}」で作成できます。新しいパスワードと一緒に登録コードが表示されます。",
+        "login.locked.who": "管理者は「{page}」→「{button}」ですぐにロックを解除できます。",
+        "totp.failed.clock": "このコードは別の時刻のものです。スマートフォンかこのボックスの時計がずれています。スマートフォンの時刻を確認して最新のコードを入力してください。それでも失敗する場合は、ボックスの時計がずれている可能性を IT 担当者に伝えてください。",
+    }
+)
+ZH.update(
+    {
+        "totp.enrol.where": "管理者可在「{users}」→「{reset}」建立：新密碼會連同註冊碼一起顯示。",
+        "login.locked.who": "管理者可在「{page}」→「{button}」立即解除鎖定。",
+        "totp.failed.clock": "此代碼屬於另一個時間：手機或本設備的時鐘不準。請確認手機時間正確後輸入最新的代碼；若仍失敗，請告知 IT 本設備的時鐘可能不準。",
+    }
+)

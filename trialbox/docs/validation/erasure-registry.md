@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-239 entries: 89 erase, 29 keep, 121 no patient data. 26 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+240 entries: 89 erase, 30 keep, 121 no patient data. 26 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -57,6 +57,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 
 | Store | Decision | Why |
 | --- | --- | --- |
+| `auth.session_drafts` | D-777 | a form sent after the session ended (TOL-AUTH): what was typed, never a secret; it may name a patient by pseudonym; cleared by time, 15 minutes at most; the console also deletes one that names an opted-out patient when a kept form is next read, kept or handed over (UserStore.drop_stale_drafts), and every kept form if the register cannot be read |
 | `breakglass.grants` | D-430 | the record of an emergency access to a patient, for the steward's review |
 | `breakglass.uses` | D-430 | each use of a break-glass grant, for the steward's review |
 | `datacore.ae_ack` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |

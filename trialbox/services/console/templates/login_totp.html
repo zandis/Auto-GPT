@@ -7,6 +7,7 @@
 <section class="card narrow" data-testid="totp">
 <h1>{{ t('totp.title') }}</h1>
 {% if no_enrol_code %}<p class="error" role="alert" data-testid="totp-no-code">{{ t('totp.enrol.none') }}</p>
+<p data-testid="totp-no-code-where">{# TOL-AUTH (T-A021) #}{{ t('totp.enrol.where', users=t('nav.users'), reset=t('users.reset')) }}</p>
 <p><a href="/login">{{ t('totp.cancel') }}</a></p>
 {% else %}
 {% if enrol %}<section data-testid="totp-enrol" aria-labelledby="enrol-h">
