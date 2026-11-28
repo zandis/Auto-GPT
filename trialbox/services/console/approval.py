@@ -267,7 +267,8 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         label_id, label_text = [str(x) for x in form.getlist("label_id")], [str(x) for x in form.getlist("label_text")]
         label_was = [str(x) for x in form.getlist("label_was")]
         edited = any(
-            " ".join(t.split()) and " ".join(t.split()) != " ".join(w.split()) for t, w in zip(label_text, label_was)
+            " ".join(t.split()) and " ".join(t.split()) != " ".join(w.split())
+            for t, w in zip(label_text, label_was, strict=False)
         )
         if not (sess.user.can_request or sess.user.can_approve) or ((opened or tick) and not sess.user.can_approve):
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
