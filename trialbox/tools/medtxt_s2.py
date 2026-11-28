@@ -63,16 +63,17 @@ def misses(ja: dict[str, str], en: dict[str, str]) -> dict[str, Any]:
                 if lang == "ja" and kind != "hit":
                     fix[(fja, fen.lower())] += 1
     out: dict[str, Any] = {}
-    for lang, c in res.items():
-        n = sum(c.values())
-        out[lang] = {"findings": n, **{k: c[k] for k in ("hit", "missed", "no_key")}}
-        out[lang]["miss_rate"] = round(1 - c["hit"] / n, 4) if n else 0.0
+    for lang, cnt in res.items():
+        n = sum(cnt.values())
+        out[lang] = {"findings": n, **{k: cnt[k] for k in ("hit", "missed", "no_key")}}
+        out[lang]["miss_rate"] = round(1 - cnt["hit"] / n, 4) if n else 0.0
     out["fix_list_ja"] = [{"ja": j, "en": e, "n": k} for (j, e), k in sorted(fix.items(), key=lambda x: (-x[1], x[0]))]
     return out
 
 
 def main() -> None:
-    ja, en = {}, {}
+    ja: dict[str, str] = {}
+    en: dict[str, str] = {}
     for corpus in FILES:
         ja |= articles(corpus, "ja")
         en |= articles(corpus, "en")
