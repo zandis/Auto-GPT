@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tb_common.reasons import Reason, code_of
+from tb_common.verdict_word import shown_of
 
 NO_REASON = "no_reason"  # an open answer that carried none: a defect of the box, never a site question
 
@@ -125,15 +126,16 @@ def facts_of(by_id: Mapping[str, Any], verdicts: Iterable[Any]) -> Facts:
         c = by_id.get(v.id)
         if c is None:
             continue
-        if v.verdict == "pass":
+        word, held = shown_of(v)  # a held-back "not met" is open with its reason (tb_common.verdict_word)
+        if word == "pass":
             if _not_coded(c, v):
                 clean = False
             else:
                 yes += 1
-        elif v.verdict == "fail":
+        elif word == "fail":
             clean = False
         else:
-            r = _reason(v)
+            r = held or _reason(v)
             opens.append((v.id, r, where(r, c)))
             clean = clean and kind_of(r) == "site_gap"
     return Facts(tuple(opens), clean and yes > 0)

@@ -247,5 +247,5 @@ ZH: dict[str, str] = {
     "stillneeded.open.where.report": "報告（報告資料檢視）",
     "stillneeded.open.where.records": "本院紀錄（沒有單一檢視）",
     "stillneeded.open.where.product": "TrialBox 本身的部分：不是要問醫院的問題",
-    "stillneeded.open.where.person": "由人員或模型判斷：不是要問醫院的問題",
+    "stillneeded.open.where.person": "由人員或模型決定：不是要問醫院的問題",
 }
