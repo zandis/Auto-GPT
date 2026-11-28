@@ -581,7 +581,8 @@ def test_review_r1_a_quoted_flag_value_with_spaces_is_replaced_whole(line: str) 
 
 
 @pytest.mark.parametrize(
-    "line", ['["mysql", "--password", "-Kq7w Zx9m"]', '["mysql", "--password", "Kq7w Zx9m"]', "['--token', 'Kq7w Zx9m']"]
+    "line",
+    ['["mysql", "--password", "-Kq7w Zx9m"]', '["mysql", "--password", "Kq7w Zx9m"]', "['--token', 'Kq7w Zx9m']"],
 )
 def test_review_r3_a_quoted_list_value_with_a_hyphen_or_a_space_is_replaced(line: str) -> None:
     seen = _bundle(line)

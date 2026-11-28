@@ -233,12 +233,13 @@ FLAG = re.compile(r"(?<![\w\-])(?P<dash>--?)(?P<key>[A-Za-z][A-Za-z0-9_\-]{0,40}
 #: H76-05: a flag and its value as two items of a list: ``["--password", "X"]``, ``- --password`` then ``- X``
 LIST_FLAG = re.compile(
     r"(?<![\w\-])(?P<q>[\"']?)--?(?P<key>[A-Za-z][A-Za-z0-9_\-]{0,40})(?P=q)"
-    r"(?P<sep>[ \t]*,[ \t]*|[ \t]*\r?\n[ \t]*-[ \t]+)(?P<q2>[\"']?)(?P<val>[^\"'\s,\[\]\-][^\"'\s,\]]*)(?P=q2)"
+    r"(?P<sep>[ \t]*,[ \t]*|[ \t]*\r?\n[ \t]*-[ \t]+)(?P<val>\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'"
+    r"|[^\"'\s,\[\]\-][^\"'\s,\]]*)"
 )
 #: ``curl -u user:password``, ``--user``, ``--proxy-user``
 CLI_USER = re.compile(r"(?<![\w\-])(?P<key>-u|--user|--proxy-user|-U)(?P<sep>[ \t]+|=)(?P<user>[^\s:]*):(?P<val>\S+)")
 #: ``<password>VALUE</password>`` (any namespace, any attributes)
-XML = re.compile(r"<(?P<key>[A-Za-z_][\w.\-:]{0,80})(?P<attrs>\s[^<>]{0,512})?>(?P<val>[^<]{1,4096})</(?P=key)\s*>")
+XML = re.compile(r"<(?P<key>[^\W\d][\w.\-:]{0,80})(?P<attrs>\s[^<>]{0,512})?>(?P<val>[^<]{1,4096})</(?P=key)\s*>")
 #: what an encoding makes of a character: ``%2F``, ``%252F``, ``\u002F``, ``\x2F``, ``&#x2F;``, ``&quot;``, ``=3D``
 ENCODED = re.compile(
     "%u[0-9A-Fa-f]{4}|\\\\[0-3][0-7]{2}|[\uff10-\uff19\uff20-\uff3a\uff41-\uff5a]|%[0-9A-Fa-f]{2}|\\\\+[uxU][0-9A-Fa-f]{2}|&#?[A-Za-z0-9]{1,8};"
@@ -257,12 +258,13 @@ ENC_PID = (
 )
 _BACKSLASH = re.compile(r"\\+(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|U([0-9A-Fa-f]{8}))")
 _QP = re.compile(r"=([0-9A-F]{2})")
+_QP_RUN = re.compile(r"(?:=[0-9A-F]{2})+")
 #: the review of #1354's list: ``%u002F`` (an old JavaScript escape) and a C octal escape (``\\057``)
 _PCT_U = re.compile(r"%u([0-9A-Fa-f]{4})")
 _OCTAL = re.compile(r"\\([0-3][0-7]{2})")
 _QP_AT = re.compile(r"(?<=[A-Za-z0-9._%+\-])=40(?=[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,7}\.[A-Za-z]{2,24}\b)")
 #: H76-09: a run that may be base64 (either alphabet, with or without padding); bounded so that one pass is linear
-B64_RUN = re.compile(r"(?<![A-Za-z0-9+/_\-])[A-Za-z0-9+/_\-]{24,4194304}={0,2}")
+B64_RUN = re.compile(r"(?<![A-Za-z0-9+/_\-])[A-Za-z0-9+/_\-]{8,4194304}={0,2}")
 #: a PEM block's END line whose BEGIN is not in the text (a cut, a rotated log): the base64 lines before it go too
 PEM_END = re.compile(r"-----END [A-Z0-9 ]{1,64}-----")
 _B64 = re.compile(r"[A-Za-z0-9+/=]{16,}")
@@ -276,6 +278,8 @@ LINE = re.compile(
 PAIR = re.compile(rf"(?:(?<=%3[Ff])|(?<=%26)|(?<![A-Za-z0-9_.%]))(?P<key>{_KEY})(?P<sep>[ \t]*(?:=|%3[Dd])[ \t]*)")
 VIEW_VALUE = re.compile(r"[^\n]+")
 WORD = re.compile(r"\S+")
+#: review 1634.1 R1: a flag's value: quoted (escaped quotes inside), to the line's end when the quote does not close
+FLAG_VALUE = re.compile(r"\"(?:\\.|[^\"\\\n])*(?:\"|$)|'(?:\\.|[^'\\\n])*(?:'|$)|\S+", re.M)
 PAIR_VALUE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'|(?:(?!%26)[^\s&;,\"'<>(){}\[\]])+")
 #: ``"name": value`` and ``'name': value`` (JSON, a Python repr), the value a string, a number, a word or a list
 QUOTED = re.compile(
@@ -336,7 +340,7 @@ LABEL_CJK = re.compile(
     rf"(?P<q>[\"']?)(?P<key>{'|'.join(sorted(LABELS_CJK, key=len, reverse=True))})(?P=q){_LABEL_SEP}"
 )
 #: the value after a label: quoted; after ``=``, up to the next ``name=`` or a separator; after ``:``, to the line's end
-_LABEL_QUOTED = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")
+_LABEL_QUOTED = re.compile(r"\"(?:\\.|[^\"\\\n])*(?:\"|$)|'(?:\\.|[^'\\\n])*(?:'|$)", re.M)
 _LABEL_EQ = re.compile(r"[^\s\"'<>{}\[\],;&](?:(?!\s+[A-Za-z_][\w.\-]*=)[^\n\"'<>{}\[\];&])*")
 _LABEL_COLON = re.compile(r"[^\s\"'<>{}\[\],;&][^\n\"'<>{}\[\];&]*")
 _NAME_WITH = frozenset({"first", "last", "full", "given", "family", "patient", "pt", "middle", "maiden", "kana",
@@ -554,7 +558,7 @@ class Scrubber:
         for m in FLAG.finditer(text):
             if m.start() < at or not secret_name(m["key"], self.decl):
                 continue
-            v = WORD.match(text, m.end())
+            v = FLAG_VALUE.match(text, m.end())
             if v is None or _keeps(v.group(0).strip("\"'")) or v.group(0) == REDACTED:
                 continue
             out += [text[at : m.end()], REDACTED]
@@ -747,24 +751,29 @@ class Scrubber:
     def soft(self, text: str) -> str:
         """H76-04: lines joined by a quoted-printable soft break (a line that ends in ``=``) are read as one line;
         when the raw rules would leave a fragment of what that line holds, they are written as one, scrubbed."""
-        if "=\n" not in text:
+        if "=\n" not in text and "=\r\n" not in text:
             return text
         lines = text.split("\n")
         out: list[str] = []
         i = 0
         while i < len(lines):
             j = i
-            while j < len(lines) - 1 and j - i < 4096 and lines[j].endswith("=") and not lines[j].endswith("=="):
+            while (
+                j < len(lines) - 1
+                and j - i < 4096
+                and lines[j].rstrip("\r").endswith("=")
+                and not lines[j].rstrip("\r").endswith("==")
+            ):
                 j += 1
             region = lines[i : j + 1]
             i = j + 1
             if len(region) == 1:
                 out += region
                 continue
-            plain = _decode("".join(x[:-1] for x in region[:-1]) + region[-1])
+            plain = _decode("".join(x.rstrip("\r")[:-1] for x in region[:-1]) + region[-1])
             clean = self._view_rules(plain)
             if clean != plain:
-                raw_view = _decode(self._rules("\n".join(region)).replace("=\n", ""))
+                raw_view = _decode(self._rules("\n".join(region)).replace("=\r\n", "").replace("=\n", ""))
                 if not _same_masks(raw_view, self._rules(plain)):
                     out.append(clean)
                     self.found["soft-broken lines"] += 1
@@ -788,7 +797,9 @@ class Scrubber:
                 plain = raw.decode("utf-8")
             except (binascii.Error, ValueError):
                 return run
-            if len(plain) < 8 or _CONTROL.search(plain) or not plain.strip():
+            if len(run) < 24 and not EMAIL.search(plain):  # review 1634.1 R4: a short run, for an e-mail only
+                return run
+            if len(plain) < 6 or _CONTROL.search(plain) or not plain.strip():
                 return run
             clean = self._rules(self.decoded(self.b64(plain, depth + 1)))
             if clean == plain:
@@ -924,6 +935,15 @@ def _unmasked(text: str) -> int:
     return len(_A_MASK.sub("", text))
 
 
+def _qp_octets(m: re.Match[str]) -> str:
+    """Review 1634.1 R6: a run of quoted-printable octets read as UTF-8 (``=E6=82=A3`` is one character)."""
+    raw = bytes.fromhex(m.group(0).replace("=", ""))
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
 def _decode(line: str) -> str:
     """``line`` with every encoding undone, up to sixteen layers (``%252F`` is ``/``; H76-03: five layers and more,
     an entity without ``;``, quoted-printable when the line has ``=3D`` or two ``=XX``), and the characters a reader
@@ -934,7 +954,7 @@ def _decode(line: str) -> str:
         new = html.unescape(new)
         new = _BACKSLASH.sub(lambda m: chr(int(m.group(1) or m.group(2) or m.group(3), 16) % 0x110000), new)
         if "=3D" in new or len(_QP.findall(new)) >= 2:
-            new = _QP.sub(lambda m: chr(int(m.group(1), 16)), new)
+            new = _QP_RUN.sub(_qp_octets, new)
         new = _QP_AT.sub("@", new)  # round B: a lone quoted-printable at sign, between an e-mail's two halves only
         new = _OCTAL.sub(lambda m: chr(int(m.group(1), 8)), new)
         new = INVISIBLE.sub("", new)
@@ -1033,6 +1053,7 @@ def token_patterns(hex_len: int) -> dict[str, re.Pattern[str]]:
         "screening-no spaced": re.compile(
             r"(?<![^\W_])[A-Z][A-Z0-9]{1,15}(?: [A-Z0-9]{1,15}){0,3} \d{4,}(?![^\W_]|[\-_.:/ ]\d)"
         ),
+        "screening-no spaced short": re.compile(r"(?<![^\W_])[A-Z][A-Z0-9]{1,15} \d{4,}(?![^\W_]|[\-_.:/]\d)"),
         "screening-no letters": re.compile(r"(?<![^\W_])[A-Z][A-Za-z]{0,15}\d{4,}(?![^\W_]|[\-_]\d)"),
         "screening-no other script": re.compile(r"(?<![^\W_])[^\W\dA-Za-z_]{1,16}\d{4,}(?![^\W_]|[\-_]\d)"),
     }
