@@ -11,8 +11,10 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/account` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/admin` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/accounts` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/data-step` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/edc` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/egress` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/health` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/notice` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops/network/{name}` | n | - | - | - | - | - | - | - | - |
@@ -24,6 +26,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/edc/oidc/.well-known/openid-configuration` | n | n | n | n | n | n | n | n | n |
 | GET | `/api/edc/oidc/authorize` | n | n | n | n | n | n | n | n | n |
 | GET | `/api/edc/oidc/userinfo` | n | n | n | n | n | n | n | n | n |
+| GET | `/api/v1/admin/data-step` | Y | - | - | - | - | - | - | - | - |
+| GET | `/api/v1/admin/health` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/admin/ops` | Y | - | - | - | - | - | - | - | - |
 | POST | `/api/v1/admin/still-needed/{item}` | n | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/ask` | Y | Y | Y | Y | Y | - | Y | Y | Y |
