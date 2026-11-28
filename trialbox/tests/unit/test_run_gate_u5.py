@@ -120,12 +120,17 @@ def test_a_stand_in_is_audited_not_refused_on_production(tmp_path: Path, monkeyp
 
 
 def test_the_refusal_without_a_backup_key_names_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The install cannot require the key (doctor warns during it), so the first night on PRODUCTION is where its
-    absence stops the box: with a named reason, and before any patient data is read."""
+    """The install cannot require the key (doctor warns during it). SAFE-1 A3 (the owner's ruling): the first night on
+    PRODUCTION goes on and warns; the refusal moved to a study opening (``study_records``, which the console's study
+    state change asks before a study opens), refused with the key named, read through the mount as the console reads
+    it."""
     _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
-    with pytest.raises(SiteNeeded) as got:
-        pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")
-    assert "The backup key" in str(got.value)
+    pipeline.refuse_site_needs(_cfg(tmp_path), "2026-11-20", "csv")  # the first night: warned, not refused
+    assert [e["detail"]["needs"] for e in _warnings(tmp_path)] == [{"backup_key": "missing"}]
+    got = site_needs.gate("study_records", production=True, env=os.environ, files=site_needs.mounted_files(),
+                          stand_ins=site_needs.read_mounted_stand_ins())  # fmt: skip
+    assert got.refused and [n.key for n, _ in got.blocking] == ["backup_key"]
+    assert "The backup key" in got.message()
 
 
 @pytest.mark.parametrize("env", ["DEV", "TEST", "VALIDATION"])
