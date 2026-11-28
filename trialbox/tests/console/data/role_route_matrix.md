@@ -74,6 +74,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/audit/patients/{pid}` | - | - | - | - | - | - | - | Y | Y |
 | GET | `/audit/patients/{pid}/report.csv` | - | - | - | - | - | - | - | Y | Y |
 | GET | `/audit/provenance` | Y | - | - | - | - | - | - | Y | Y |
+| GET | `/audit/published` | Y | - | - | - | - | - | - | Y | Y |
 | GET | `/auth/oidc/callback` | n | n | n | n | n | n | n | n | n |
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n | n | n |
 | GET | `/breakglass` | Y | - | Y | Y | - | - | - | Y | - |

@@ -19,7 +19,9 @@ PW = "published-page-password-01"
 
 def test_the_steward_sees_every_feed_and_pack_with_its_rounding(box: dict[str, Any]) -> None:  # noqa: F811
     job = _done_feas(box["backend"])
-    data = json.dumps({"schema": "feasprofile/1", "ruleset": "GZQO", "small_cell": 10}).encode()
+    data = json.dumps(
+        {"schema": "feasprofile/1", "ruleset": "GZQO", "snapshot": "2026-10-04", "small_cell": 10}
+    ).encode()
     key = f"outputs/{job.job_id}/feasprofile_GZQO_v1.0.0.json"
     box["backend"].objects[key] = data
     out = JobOutput(filename="feasprofile_GZQO_v1.0.0.json", sha256=sha256_bytes(data), minio_key=key,
@@ -27,7 +29,7 @@ def test_the_steward_sees_every_feed_and_pack_with_its_rounding(box: dict[str, A
     box["backend"].jobs[job.job_id] = job.model_copy(update={"outputs": [*(job.outputs or []), out]})
     box["audit"].append("opportunity.feed", job_id=job.job_id, detail={
         "conditions": ["gout"], "counted": 4, "published": 3, "threshold": 11,
-        "period": {"start": "2026-10-01", "end": "2026-10-30"}, "opt_out_register": "optout"})  # fmt: skip
+        "period": {"start": "2026-10-01", "days": 30}, "opt_out_register": "optout"})  # fmt: skip
     box["users"].create("stw", "steward", PW, "stw@hospa.test")
     box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
     stw, _ = login(box["app"], "stw", PW)

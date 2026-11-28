@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{# Lane K (H3-PROD §2 row 7): what was published, for the steward (console.egress_page.published). Counts only. #}
+{% block title %}{{ t('pub.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('pub.title') }}</h1>
+<p class="hint">{{ t('pub.help') }}</p>
+<section class="card">
+<h2>{{ t('pub.feeds') }}</h2>
+{% if feeds %}<table data-testid="published-feeds">
+<thead><tr><th>{{ t('egress.day') }}</th><th>{{ t('pub.period') }}</th><th>{{ t('pub.studies') }}</th><th>{{ t('pub.rounding') }}</th></tr></thead>
+<tbody>{% for f in feeds %}<tr><td>{{ f.day }}</td><td>{{ t('pub.period.line', start=f.period.start, days=f.period.days) if f.period is mapping else '–' }}</td><td class="num">{{ f.published }}</td><td>{{ t('pub.rounding.t', t=f.threshold) }}</td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p data-testid="published-feeds">{{ t('pub.feeds.none') }}</p>{% endif %}
+</section>
+<section class="card">
+<h2>{{ t('pub.packs') }}</h2>
+{% if packs %}<table data-testid="published-packs">
+<thead><tr><th>{{ t('pub.study') }}</th><th>{{ t('pub.snapshot') }}</th><th>{{ t('pub.made') }}</th><th>{{ t('pub.cell') }}</th></tr></thead>
+<tbody>{% for p in packs %}<tr><td><a href="/studies/{{ p.job.ruleset }}/feasibility">{{ p.job.ruleset }}</a> v{{ p.job.ruleset_version }}</td><td>{{ p.snapshot or '–' }}</td><td>{{ p.job.updated_at|local(10) }}</td><td class="num">{{ p.small_cell if p.small_cell is not none else t('pub.cell.unread') }}</td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p data-testid="published-packs">{{ t('pub.packs.none') }}</p>{% endif %}
+<p class="hint">{{ t('pub.packs.help') }}</p>
+</section>
+<section class="card" data-testid="published-left">
+<h2>{{ t('egress.title') }}</h2>
+<p class="hint">{{ t('egress.help', days=days) }}</p>
+{% if rows %}<table>
+<thead><tr><th>{{ t('egress.day') }}</th><th>{{ t('egress.route') }}</th><th>{{ t('egress.result') }}</th><th>{{ t('egress.count') }}</th></tr></thead>
+<tbody>{% for r in rows %}<tr><td>{{ r.day }}</td><td class="mono">{{ r.route }}</td><td>{{ r.result_text }}</td><td class="num">{{ r.count }}</td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p>{{ t('egress.none') }}</p>{% endif %}
+</section>
+{% endblock %}
