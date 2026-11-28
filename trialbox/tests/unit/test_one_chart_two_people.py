@@ -320,16 +320,13 @@ def test_a_retry_that_stops_before_the_check_leaves_no_earlier_result(
     folder = snapshot_dir(cfg.lake_dir, NEXT)
     assert json.loads((folder / IDENTITY_CONFLICT).read_text())["tonight"] == []
     _write(feed / "patient.csv", [*rows, _other_person(first)])  # the retry: two people tonight
-    import adapter.pipeline as pipeline
-
-    real = pipeline.read_type
 
     def stop(d: Path, rtype: str) -> Any:
         if d == snapshot_dir(cfg.lake_dir, GOOD) and rtype == "Patient":
             raise OSError("the run stops here (synthetic)")
-        return real(d, rtype)
+        return read_type(d, rtype)
 
-    monkeypatch.setattr(pipeline, "read_type", stop)
+    monkeypatch.setattr("adapter.pipeline.read_type", stop)
     with contextlib.suppress(OSError):
         _night(cfg, feed, NEXT)
     monkeypatch.undo()
@@ -373,7 +370,7 @@ def test_another_identity_column_changing_is_no_second_person(tmp_path: Path, pg
     (tmp_path / "next").mkdir()
     feed = _feed(tmp_path / "next")
     rows = _rows(feed / "patient.csv")
-    _write(feed / "patient.csv", [{**rows[0], "phone": "0900000001"}, *rows[1:], {**rows[1], "phone": "0900000002"}])
+    _write(feed / "patient.csv", [{**rows[0], "phone": "synthetic-1"}, *rows[1:], {**rows[1], "phone": "synthetic-2"}])
     rep = _night(cfg, feed, NEXT)
     assert rep.passed and not rep.held, rep.errors
     assert not (snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).exists()
