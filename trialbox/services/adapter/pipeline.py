@@ -52,8 +52,10 @@ from adapter.validate.validator import (
     StructuralValidator,
     capped_types,
     missing_required,
+    no_birthdate_hold,
     sample_cap,
     sample_size,
+    validate_sample,
 )
 
 log = logging.getLogger("adapter")
@@ -1188,7 +1190,7 @@ def _run_ingest(
         picked = night.sample.result() if night.sample is not None else []
         cut = capped_types(night.kept, cfg.sample_fraction, cap=cap)
         try:
-            vres = chosen.validate(picked)
+            vres = validate_sample(chosen, picked)
             vsum = ValidationSummary(
                 sampled=vres.sampled,
                 errors=vres.errors,
@@ -1197,7 +1199,18 @@ def _run_ingest(
                 messages=vres.messages,
                 sample_cap=cap,
                 capped=cut or None,
+                patients_sampled=vres.patients,
+                no_birthdate=vres.no_birthdate,
             )
+            if vres.no_birthdate:
+                log.info(
+                    "%d of %d sampled patients have no birth date: age criteria are unknown for them",
+                    vres.no_birthdate,
+                    vres.patients,
+                )
+            if hold := no_birthdate_hold(vres):
+                errors.append(hold)
+                validation_msgs.append(hold)
         except Exception as exc:
             from adapter import failure
 
@@ -1418,7 +1431,7 @@ def _run_ingest(
                     {
                         k: v
                         for k, v in dump(omop_load).items()
-                        if k in ("state", "seconds", "counts", "relational_failed")
+                        if k in ("state", "seconds", "counts", "relational_failed", "dqd")
                     }
                     if omop_load is not None
                     else None
@@ -1749,37 +1762,32 @@ POC_ENVS = ("DEV", "TEST", "VALIDATION")
 def refuse_site_needs(cfg: AdapterConfig, snap: str, source_kind: str) -> None:
     """U-5 (D-1280, the integrator's go on #639): the first real-data run, at any time, is the step that needs the
     data source, the chart-number rule, the backup target, key and alarm, the audit share and the hospital's name.
-    On a PRODUCTION box a run with any of them missing, not usable or a stand-in is refused, and the refusal is
-    audited (``ingest.failed``, ``refused: site_needs``, the keys only); on a PoC box the run goes on and the items
-    are logged. The backup key is on the host only: the host's ``host-given.json`` says whether it is there."""
+    SAFE-1 A3: the run is never refused for them (its source is the hospital's own system and the run can be made
+    again); every box goes on and logs the items, and a PRODUCTION box also audits them (``ingest.site_needs``, the
+    keys only) for the page "Information still needed". The backup is asked where records nobody can make again
+    begin: a study opening (``study_records``). The backup key is on the host only: the host's ``host-given.json``
+    says whether it is there. ``SiteNeeded`` stays for the callers that name it."""
     from tb_common.config import environment_name
 
+    production = environment_name(os.environ) not in POC_ENVS and not cfg.synthetic_source
     g = site_needs.gate(
         "first_real_run",
-        production=environment_name(os.environ) not in POC_ENVS and not cfg.synthetic_source,
+        production=False,  # SAFE-1 A3: warns on every box
         env=os.environ,
         settings=cfg.site_settings,
         files=site_needs.mounted_files(),
         stand_ins=site_needs.read_mounted_stand_ins(),
     )
-    if not g.refused:
-        if g.warning:
-            log.warning("run goes on with stand-ins: %s", ", ".join(n.key for n, _ in g.warning))
+    if not g.warning:
         return
-    msg = g.message("en")
-    log.error("run refused: %s", msg)
-    if cfg.audit_dir:
+    log.warning("run goes on with stand-ins: %s", ", ".join(n.key for n, _ in g.warning))
+    if production and cfg.audit_dir:
         open_audit(cfg.audit_dir, cfg.tz).append(
-            "ingest.failed",
+            "ingest.site_needs",
             snapshot=snap,
             actor="adapter",
-            detail={
-                "source": source_kind,
-                "refused": "site_needs",
-                "needs": {n.key: st for n, st in g.blocking},
-            },
+            detail={"source": source_kind, "warned": "site_needs", "needs": {n.key: st for n, st in g.warning}},
         )
-    raise SiteNeeded(msg)
 
 
 class OlderNight(FutureNight):

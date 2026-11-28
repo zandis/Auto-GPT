@@ -46,6 +46,7 @@ def _api_login(c: TestClient, user: str, pw: str) -> httpx.Response:
 
 
 # ---------------------------------------------------------------------------------------------- P-1 forced change
+@pytest.mark.usefixtures("held_dir")
 def test_an_account_the_administrator_made_changes_its_password_before_anything_else(tmp_path: Path) -> None:
     clock = Clock()
     app, users, audit_dir = _app(tmp_path, clock, **PILOT_ENV, TB_CONSOLE_WORKSPACE="on")
@@ -92,6 +93,7 @@ def test_an_account_the_administrator_made_changes_its_password_before_anything_
     assert changed and changed[0]["actor"] == "console:tester.a"
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_an_administrators_reset_and_the_command_line_mark_the_password(tmp_path: Path) -> None:
     clock = Clock()
     app, users, _ = _app(tmp_path, clock)

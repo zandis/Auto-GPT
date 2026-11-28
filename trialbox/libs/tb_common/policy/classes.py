@@ -237,6 +237,8 @@ _D1 = {
     "JobError",
     "JobMetrics",
     "PrefilterRecord",  # 10E-12 (D-1259): a nightly job's stage counts, no patient id; exact on internal pages only
+    "OpenReason",  # F17 5a: a criterion, a reason code, a site view and a patient count; no patient id
+    "NightOpen",  # F17 5a, 5b: the open reasons and the coded-complete count of a nightly job; counts only
     "IngestRequest",
     "RebuildRequest",
     "RebuildResult",

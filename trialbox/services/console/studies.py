@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_common.config import environment_name
+from tb_common.reasons import Reason
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job
 
@@ -263,6 +264,8 @@ def feas_report(
         }
         for s in result.get("sensitivity") or []
     ]
+    for r in funnel_rows:  # lane K: each attrition row opens its own threshold variants (the what-if toggle)
+        r["variants"] = [s for s in sens if s["criterion"] == r["id"]]
     potential = next(
         (s.get("remaining") for s in result.get("sensitivity") or [] if s.get("variant") == "unknown_as_pass"), None
     )
@@ -388,8 +391,15 @@ class Fit:
     todo_words: dict[str, str] = field(default_factory=dict)  # a run's to-do -> its words in the page language (D-309)
 
 
-def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta]) -> Fit:
-    fit = Fit(todo_words={m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original})
+def todo_words_of(crit: Mapping[str, CriterionMeta]) -> dict[str, str]:
+    return {m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original}
+
+
+def fit_facts(
+    criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta], todo_words: dict[str, str] | None = None
+) -> Fit:
+    """``todo_words``: :func:`todo_words_of` ``crit``, when the caller made it once for many rows (MVP-B)."""
+    fit = Fit(todo_words=todo_words_of(crit) if todo_words is None else todo_words)
     for v in criteria:
         cid = str(v.get("id"))
         meta = crit.get(cid)
@@ -423,6 +433,19 @@ def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Criterio
     return fit
 
 
+def kept_fit(
+    r: Mapping[str, Any], crit: Mapping[str, CriterionMeta], todo: dict[str, str], fits: dict[str, tuple[Any, Fit]]
+) -> Fit:
+    """MVP-B: the row's :func:`fit_facts`, made once while the row's own criteria list is the one kept (``is``: a row
+    sent back or laid over gets a new list, so a new fit). Shared between views: a page that adds to it replaces it
+    with its own copy (``home.others_of``), never changes it in place."""
+    pid, src = str(r.get("pid") or ""), r.get("criteria")
+    got = fits.get(pid)
+    if got is None or got[0] is not src:
+        got = fits[pid] = (src, fit_facts(list(src or []), crit, todo))
+    return got[1]
+
+
 def weekly_rows(
     cl: Mapping[str, Any] | None,
     crit: Mapping[str, CriterionMeta],
@@ -434,11 +457,15 @@ def weekly_rows(
     *,
     include_closed: bool = False,
     today: date | None = None,
+    fits: dict[str, tuple[Any, Fit]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled,
+    """``fits``: kept fits of this list and ``crit`` (:func:`kept_fit`), for a caller that views it again.
+
+    Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled,
     closed or set aside, sorted by next visit (none last), then tier, then pseudonym. A "Not now, re-check on <date>"
     mark hides the patient until that date (``today``); from then on the patient is back with the mark shown."""
     names = dict(practitioners or {})
+    todo = todo_words_of(crit)  # read only (the page's to-do words), so one for every row
     rows = []
     for r in (cl or {}).get("rows") or []:
         tier = r.get("tier")
@@ -453,7 +480,7 @@ def weekly_rows(
         if not include_closed and status in ("closed", "enrolled", "set_aside"):
             continue
         crits = list(r.get("criteria") or [])
-        fit = fit_facts(crits, crit)
+        fit = fit_facts(crits, crit, todo) if fits is None else kept_fit(r, crit, todo, fits)
         nxt = r.get("next_appointment") or ""
         when = None
         if nxt:
@@ -481,8 +508,15 @@ def weekly_rows(
             }
         )
     order = {"high": 0, "review": 1}
-    rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2), x["pid"]))
+    rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2),
+                             second_opinion_differs(x["criteria"]), x["pid"]))  # fmt: skip
     return rows
+
+
+def second_opinion_differs(crits: Sequence[Mapping[str, Any]]) -> bool:
+    """A criterion of the row stands on the judge's answer that the second model did not confirm (BENCH-2 §2): the
+    row sorts below the unflagged ones of its tier, never off the list."""
+    return any((c.get("evidence") or {}).get("reason") == Reason.SECOND_OPINION_DIFFERS.value for c in crits)
 
 
 # ---------------------------------------------------------------------------------------------- amendment re-screen
@@ -690,12 +724,21 @@ def n_open(row: Mapping[str, Any]) -> int:
     return len(getattr(fit, "open", []) or [])
 
 
+def n_not_documented(row: Mapping[str, Any]) -> int:
+    """How many criteria of the row are exclusions the notes do not mention (BENCH-2 §2): still open, but sorted as
+    lighter than a real unknown, below the fully decided rows."""
+    return sum(1 for c in row.get("criteria") or [] if (c.get("evidence") or {}).get("reason") == "not_documented")
+
+
 def worklist_sorted(rows: Sequence[dict[str, Any]], key: str) -> list[dict[str, Any]]:
     """The clinic list stays in visit order; every other list puts the fewest unknowns first (the patients closest
     to a decision), then the visit (none last), then the pseudonym (D-120)."""
     if key == "clinic":
         return list(rows)
-    return sorted(rows, key=lambda r: (n_open(r), r["visit"] is None, r["visit_text"] or "9", r["pid"]))
+    return sorted(rows, key=lambda r: (n_open(r) - min(n_not_documented(r), n_open(r)),
+                                       min(n_not_documented(r), n_open(r)),
+                                       second_opinion_differs(r.get("criteria") or []),
+                                       r["visit"] is None, r["visit_text"] or "9", r["pid"]))  # fmt: skip
 
 
 def paged(rows: Sequence[dict[str, Any]], page: int, size: int = PAGE_SIZE) -> tuple[list[dict[str, Any]], int, int]:

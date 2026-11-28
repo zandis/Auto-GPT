@@ -41,6 +41,16 @@ TERMS: dict[str, tuple[str, ...]] = {
     "ecog": ("ECOG", "體能狀態"),
     "egfr": ("EGFR", "表皮生長因子受體"),  # the receptor; the kidney's eGFR is ``_KIDNEY_EGFR`` (D-986)
     "mutation": ("突變", "変異"),
+    # U6 (inv-j5 P5): the AD-MAB and RA-JAK note criteria had no term at all
+    "mmse": ("MMSE",),
+    "cdr": ("CDR",),
+    "amyloid": ("類澱粉", "アミロイド"),
+    "microbleeds": ("微出血", "微小出血"),
+    "siderosis": ("ヘモジデリン沈着",),
+    "zoster": ("帶狀疱疹", "帯状疱疹"),
+    "shingles": ("帶狀疱疹", "帯状疱疹"),
+    "thrombosis": ("血栓",),
+    "embolism": ("栓塞", "塞栓"),
 }
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9]+")
 

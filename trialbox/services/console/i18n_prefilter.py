@@ -21,6 +21,9 @@ EN: dict[str, str] = {
     "job.prefilter.no_model": "Answered without the model reading notes, not listed",
     "job.prefilter.model_not_listed": "Notes read by the model, not listed",
     "job.prefilter.listed": "Listed",
+    "job.prefilter.coded_complete": "Coded-complete: {n} of the patients who passed the coded check. "
+    "Every answer the coded records give is yes, and the only open criteria are gaps in the site's data. "
+    "Shown as unknown, never as a level.",
 }
 
 JA: dict[str, str] = {
@@ -40,6 +43,8 @@ JA: dict[str, str] = {
     "job.prefilter.no_model": "モデルが記録文を読まずに回答、リストに載らない",
     "job.prefilter.model_not_listed": "モデルが記録文を読んだ、リストに載らない",
     "job.prefilter.listed": "リストに掲載",
+    "job.prefilter.coded_complete": "コード完結：コード化された記録の確認を通過した患者のうち {n} 人。"
+    "コード化された記録の回答はすべて「はい」で、未決の条件は施設データの不足だけです。「不明」として表示し、区分にはしません。",
 }
 
 ZH: dict[str, str] = {
@@ -58,4 +63,6 @@ ZH: dict[str, str] = {
     "job.prefilter.no_model": "模型未讀病歷文字即已回答，未列入名單",
     "job.prefilter.model_not_listed": "模型已讀病歷文字，未列入名單",
     "job.prefilter.listed": "列入名單",
+    "job.prefilter.coded_complete": "編碼完整：已通過編碼紀錄檢查的病人中有 {n} 位。"
+    "編碼紀錄給出的答案全為「是」，僅剩的未決條件是院方資料的缺口。顯示為「未知」，不作為分級。",
 }

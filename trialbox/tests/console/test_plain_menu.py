@@ -149,6 +149,7 @@ def _heading(page_text: str, tag: str = "h1") -> list[str]:
     return [_text(re.sub(r'<span class="hint[^"]*">.*?</span>', "", h, flags=re.S)) for h in found]
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_every_menu_entry_has_one_name_its_label_title_and_heading_in_three_languages(box: dict[str, Any]) -> None:
     """For every role, every entry of its menu (top bar and "More") on the opening page and on a study page, in each
     language: the page the entry opens has the entry's label as its main heading and as its title's first part (each
@@ -205,6 +206,7 @@ THING = re.compile(r"\b[0-9a-f]{8}\b|\b[0-9a-f]{32}\b|…[0-9A-Z]{8}\b")
 ABSENT_SECTIONS = {f"/studies/{RS}/setup#who": "setup.who.title"}
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_every_link_says_the_name_of_the_page_or_section_it_opens(box: dict[str, Any], monkeypatch: Any) -> None:
     """The coordinator's review of J-7: a link's words are the name of the page it opens (its main heading, without
     data values), or, for a link to an action or a section, the heading of that section on the page it opens. Read on
@@ -406,6 +408,7 @@ STILL_ALLOWED_NOT_LINKED: tuple[tuple[str, str], ...] = (
 )
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_nothing_that_leaves_more_becomes_unreachable(box: dict[str, Any]) -> None:
     """Every entry a role's menu had on master (the flag off) and has no longer (the flag on) is still reached by
     clicks: a link on a page the new menu opens, or one click further (the Admin page's tabs; a study's IRB page from
@@ -637,6 +640,7 @@ def test_with_the_flag_off_every_page_is_byte_for_byte_the_page_without_this_car
 
 
 # ------------------------------------------------------------------------------------------- no route answers otherwise
+@pytest.mark.usefixtures("held_dir")
 def test_with_the_flag_on_every_role_gets_every_route_s_answer_of_the_committed_table(box: dict[str, Any]) -> None:
     """A menu is not a permission. With the flag on, the role-by-route walk (``test_role_route_matrix``: every route,
     every column of the matrix, GET and the changing methods) equals the committed table

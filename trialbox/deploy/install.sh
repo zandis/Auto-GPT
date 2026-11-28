@@ -1194,6 +1194,11 @@ if command -v python3 >/dev/null; then
 else
   echo "install: warning: no python3: TB_MEM_ADAPTER, TB_MEM_LAKE and TB_MEM_ORCH keep the compose defaults (doctor memory_caps checks them)" >&2
 fi
+# P2-11 (ASSESS-1-ADDENDUM D7): the site's concurrent users, declared with the patient count (TB_CONSOLE_USERS, 25 when
+# unset, written so the box says it), size the console's worker processes (TB_CONSOLE_WORKERS; one set by hand is kept)
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox.console_size --env-file deploy/.env --write 2>&1 | indent || stop_or_warn console-size "the console's worker processes (one)" "the concurrent users could not be read (above): set TB_CONSOLE_USERS in deploy/.env to a whole number, then re-run"
+fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
 if command -v python3 >/dev/null; then
@@ -1541,21 +1546,30 @@ if [ "$KEYS_OK" = 0 ]; then
   echo "    site keys: not sealed (they could not be made or read, above)"
 elif [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
   echo "    site keys: sealed at the box's apply step, under the owner's passphrase (box-install.sh, T-729)"
-elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
+elif [ -z "$KP_VALUE" ] && [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
     && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
   # D-837: a plain VM has no usable TPM; the passphrase back end seals the keys when it is asked for
   echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with --kek-passphrase-file seals them); the host check lists it"
-elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ]; then
+elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ] || [ -n "$KP_VALUE" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"  # H-94 (4)
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
   # KEK-INPUT (H-96): the passphrase this run read goes to the seal step by a pipe (never an argument's value, an
   # environment or the file's name again); the operator's file is removed here once the keys are sealed (rm: a link
   # is taken away, never what it names), kept with --keep-kek-passphrase-file or when the seal failed
+  # P-28 (E2E R1: plain site keys although the install was given a passphrase): a passphrase given to this run is
+  # the site asking for a seal, the poc profile too (above). With no back end named (TB_KEK_BACKEND, hardening.conf's
+  # KEK_BACKEND) and no usable TPM, the passphrase back end seals (the default, tpm, cannot there)
+  if [ -n "$KP_VALUE" ] && [ -z "${TB_KEK_BACKEND:-}" ] && ! { [ -f "$HB_CONF" ] && grep -q '^KEK_BACKEND=' "$HB_CONF"; } \
+      && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
+    SEAL_BACKEND=passphrase
+  else SEAL_BACKEND="${TB_KEK_BACKEND:-}"; fi
+  [ -z "$SEAL_BACKEND" ] || echo "    the KEK's back end: $SEAL_BACKEND"
   seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" --record deploy/site/kek-backend "$@"; }
   sealed=0
-  if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | seal --kek-passphrase-stdin && sealed=1
-  else seal </dev/null && sealed=1; fi
+  # the back end goes to seal_keys.sh alone (a prefix on the call), never to the installer's own environment
+  if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | TB_KEK_BACKEND="$SEAL_BACKEND" seal --kek-passphrase-stdin && sealed=1
+  else TB_KEK_BACKEND="$SEAL_BACKEND" seal </dev/null && sealed=1; fi
   if [ "$sealed" = 1 ] && [ -n "$KP_FILE" ]; then
     if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
     else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi

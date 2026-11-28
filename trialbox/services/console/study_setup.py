@@ -697,6 +697,20 @@ def register(app: FastAPI, h: Helpers) -> None:
             return "sstate.sae_type"
         return ""
 
+    def backup_missing() -> dict[str, str]:
+        """SAFE-1 A3: a study that opens starts records nobody can make again (consents, the screening log). A
+        PRODUCTION box refuses while the backup target or key is missing or a stand-in; a PoC box opens, and the
+        page "Information still needed" lists them."""
+        poc = environment_name(os.environ) in ("DEV", "TEST", "VALIDATION")
+        g = site_needs.gate(
+            "study_records",
+            production=not poc,
+            env=os.environ,
+            files=site_needs.mounted_files(),
+            stand_ins=site_needs.read_mounted_stand_ins(),
+        )
+        return {n.key: st for n, st in g.blocking}
+
     @app.get("/studies/{rs}/state")
     def study_state(request: Request, rs: str) -> Response:
         sess = h.need(request)
@@ -719,6 +733,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             return state_page(request, sess, rid, status=400, err="sstate.bad_move")
         if state in REASON_STATES and not why:
             return state_page(request, sess, rid, status=400, err="sstate.need_reason")
+        if state == "open" and (needs := backup_missing()):
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": "study_open", "reason": "site_needs", "needs": needs})  # fmt: skip
+            return state_page(request, sess, rid, status=409, err="sstate.backup")
         if state == "open" and (refused := sae_type_missing(rid)):
             return state_page(request, sess, rid, status=409, err=refused)
         if state == "open" and (missing := committee_missing(rid)):  # 10C-4 (D-1227): the Japan profile only
