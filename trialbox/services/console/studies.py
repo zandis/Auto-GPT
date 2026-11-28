@@ -737,8 +737,12 @@ def closeness_key(row: Mapping[str, Any], crit: Mapping[str, CriterionMeta]) -> 
 
 
 def coded_complete(row: Mapping[str, Any], crit: Mapping[str, CriterionMeta]) -> tuple[int, int]:
-    """``(answered, total)`` of the criteria the records answer, for the row header (F17 5b): a count, never a tier."""
-    return coded_counts(row.get("criteria") or [], {cid: m.cls for cid, m in crit.items()})
+    """``(answered, total)`` of the criteria the records answer, for the row header (F17 5b): a count, never a tier.
+    The total is the study's structured criteria, so one the row holds no verdict for is still one of them."""
+    verdicts = row.get("criteria") or []
+    classes = {cid: m.cls for cid, m in crit.items()}
+    answered, _ = coded_counts(verdicts, classes)
+    return answered, (sum(c == "structured" for c in classes.values()) if verdicts else 0)
 
 
 def worklist_sorted(rows: Sequence[dict[str, Any]], key: str) -> list[dict[str, Any]]:

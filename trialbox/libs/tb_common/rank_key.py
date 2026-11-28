@@ -100,10 +100,13 @@ def stored_rank_key(
 def coded_counts(verdicts: Iterable[Mapping[str, Any]], classes: Mapping[str, str]) -> tuple[int, int]:
     """``(answered, total)`` over the criteria the records answer (class ``structured``): the "coded-complete" count
     of the row header (F17 5b). It is a count to read, never a tier and never part of the key."""
-    answered = total = 0
+    answered: set[str] = set()
+    seen: set[str] = set()
     for v in verdicts:
-        if classes.get(str(v.get("id"))) != "structured":
+        cid = str(v.get("id"))
+        if classes.get(cid) != "structured":
             continue
-        total += 1
-        answered += shown_of(v)[0] in ("pass", "fail")
-    return answered, total
+        seen.add(cid)
+        if shown_of(v)[0] in ("pass", "fail"):
+            answered.add(cid)
+    return len(answered), len(seen)
