@@ -138,7 +138,8 @@ def parse_sites(text: str, seed: int, lang_mix: dict[str, dict[str, float]]) -> 
         mix = rest[0] if rest else "mix"
         if mix not in RATES["site"]:
             raise SystemExit(f"--sites: unknown patient mix {mix!r} (rates.yaml site: {', '.join(RATES['site'])})")
-        spec = SiteSpec(site_id.upper(), style, int(n), str(k + 2), seed + 1000 * k, lang_mix.get(style, {}), mix)
+        prefix = rest[1] if len(rest) > 1 else str(k + 2)
+        spec = SiteSpec(site_id.upper(), style, int(n), prefix, seed + 1000 * k, lang_mix.get(style, {}), mix)
         if spec.has_ad and "zh-TW" in spec.lang_mix:
             raise SystemExit(f"--sites: {site_id} has Alzheimer's patients, whose notes are Japanese or English only")
         out.append(spec)

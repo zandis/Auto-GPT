@@ -274,3 +274,23 @@ def test_a_bulk_export_with_two_people_under_one_patient_id_is_held(tmp_path: Pa
     said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
     assert said["tonight"] == [bulk_id(KEY, "Patient", "p1")]
     assert rep.counts.get("Encounter") == 1  # the rest of the export was read
+
+
+def test_another_site_sharing_a_chart_number_of_the_pid_map_is_held(good: Any, tmp_path: Path) -> None:
+    """The goldens fixture once gave two synthetic sites the same chart numbers: the hold is right, the fixture was
+    wrong. Here the chart number is really shared: a second lake with no served night, on the same pid map and key,
+    gets another person under a chart the first site published."""
+    # the pid map is the one of its key file, shared between the two sites as in the harness
+    shutil.copytree(good[0] / "secrets", tmp_path / "secrets")
+    cfg, rb = _cfg(tmp_path, good[1])
+    feed = _feed(tmp_path)
+    first = good[2]
+    pid = pid_for_mrn(KEY, first["mrn"])
+    rows = _rows(feed / "patient.csv")
+    _write(feed / "patient.csv", [_other_person(rows[0]), *rows[1:]])
+    rep = _night(cfg, feed, NEXT)
+    text = " ".join(rep.errors)
+    assert "two different people" in text and "0 within this night, 1 against the served night -" in text, text
+    said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
+    assert said["tonight"] == [] and said["against"] == {"snapshot": None, "pids": [pid]}
+    assert rep.held and not rep.passed and rb.calls == []
