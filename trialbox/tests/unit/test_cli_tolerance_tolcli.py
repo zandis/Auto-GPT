@@ -49,7 +49,7 @@ def engine(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
         seen.append(argv)
         return subprocess.CompletedProcess(argv, 0)
 
-    monkeypatch.setattr(launch.subprocess, "run", run)
+    monkeypatch.setattr("tools.trialbox.launch.subprocess.run", run)
     return seen
 
 
