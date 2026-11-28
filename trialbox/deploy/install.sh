@@ -280,6 +280,7 @@ KP_WHO=install
 # and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
 # (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
 # exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+set +a  # H-09 (seventh review): bash -a (allexport) would export every assignment below
 unset KP_VALUE KP_FILE kp_again  # H-09: a caller's export of these is dropped here (an assignment keeps an export)
 KP_VALUE=""; KP_FILE=""
 kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
@@ -1841,8 +1842,8 @@ case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:
       # P-01 (fifth review): the sealed copy goes only to the declared off-box target; the install declares
       # TB_BACKUP_OFFBOX (deploy/.env) when the box has none, and never replaces a declaration
       KP_OFFBOX=""
-      [ -f deploy/secrets/backup-target.json ] || KP_OFFBOX="$(envget TB_BACKUP_OFFBOX | tr -d "\"'
-")"
+      [ -f deploy/secrets/backup-target.json ] || KP_OFFBOX="$(envget TB_BACKUP_OFFBOX)"
+      case "$KP_OFFBOX" in \"*\"|\'*\') KP_OFFBOX="${KP_OFFBOX:1:${#KP_OFFBOX}-2}" ;; esac  # M-17: only outer quotes
       if [ ! -f deploy/secrets/backup-target.json ] && { [ -z "$KP_OFFBOX" ] || ! PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --declare-backup-target "$KP_OFFBOX" --operator install; }; then
         FAILS+=("no backup key: no off-box backup target is declared (TB_BACKUP_OFFBOX in deploy/.env: ${KP_OFFBOX:-not set}${KP_OFFBOX:+, refused above}); no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --declare-backup-target <folder> --operator <name>, then python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
       else

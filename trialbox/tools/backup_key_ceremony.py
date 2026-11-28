@@ -1479,7 +1479,7 @@ def _read_target(pfd: int) -> dict[str, Any] | None:
         raise Stop(NO_TARGET_DECLARED, record=PUB_DIR / TARGET_RECORD) from None
     try:
         rec = json.loads(os.pread(fd, MAX_FILE, 0)) if stat.S_ISREG(os.fstat(fd).st_mode) else None
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):  # M-16: nesting deeper than the decoder recurses
         rec = None
     finally:
         os.close(fd)
