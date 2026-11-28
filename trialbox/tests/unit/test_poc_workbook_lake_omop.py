@@ -29,6 +29,12 @@ TEXT = "合成の例: 両側の海馬に軽度の萎縮"
 SNAP = "2026-11-01"
 
 
+@pytest.fixture(autouse=True)
+def _site_zone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The workbook mapping states no zone: it reads the site's own (TB_TZ)."""
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
+
+
 def _patient(birth: str) -> dict[str, Any]:
     return {"resourceType": "Patient", "id": "P1", "birthDate": birth, "gender": "male"}
 

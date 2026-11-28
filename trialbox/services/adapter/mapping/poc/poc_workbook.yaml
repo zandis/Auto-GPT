@@ -2,14 +2,14 @@
 # A sheet is a table: `source:` names the sheet, `rename:` maps its Japanese headers onto the canonical columns
 # (templates/CANONICAL.md), `values:` its words onto the canonical codes. The template workbook is
 # poc_workbook_template.xlsx (written by tools/poc_workbook.py; every example row is synthetic: case numbers SYN-...).
-#   adapter run --source xlsx --path <workbook.xlsx> --mapping mapping/jp_core/poc_workbook.yaml
+#   adapter run --source xlsx --path <workbook.xlsx> --mapping mapping/poc/poc_workbook.yaml
 # The patient key is the case number (症例番号); there is no national id. Birth is year and month (生年月, 1948-05) and
 # stays year and month. Lab codes are JLAC10 (jlac10_to_loinc.csv, sample rows, verify). 検査 results, スコア
 # (instrument scores) and 所見 (findings) carry their own source codes.
 version: 1
 name: poc_workbook
 extends: ../tw_core/demo_his.yaml
-tz: Asia/Tokyo
+tz: ~   # the source's zone is the site's own (TB_TZ): the workbook is read in the zone the site settings name
 fhir_profiles: jp-core
 systems:
   icd10: http://hl7.org/fhir/sid/icd-10
@@ -61,7 +61,7 @@ tables:
     rename: {記録番号: note_no, 症例番号: mrn, 受診番号: enc_no, 記録日時: note_datetime, 種別: note_type, 本文: text}
     values: {note_type: {経過: progress, 入院: admission, 退院: discharge, 紹介: consult, 看護: nursing}}
 lookups:
-  lab: {file: jlac10_to_loinc.csv, key: local_code}
+  lab: {file: ../jp_core/jlac10_to_loinc.csv, key: local_code}
 profiles:
   https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Patient-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Patient
   https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Practitioner-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Practitioner

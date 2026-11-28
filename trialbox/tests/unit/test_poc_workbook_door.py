@@ -15,6 +15,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import pytest
 from adapter.mapping.engine import Mapping
 from adapter.ndjson import read_all, read_type, snapshot_dir
 from adapter.pipeline import COMPLETENESS, AdapterConfig, make_source, run_ingest
@@ -22,14 +23,20 @@ from adapter.sources.xlsx.source import XlsxSource
 from openpyxl import Workbook, load_workbook
 
 ROOT = Path(__file__).resolve().parents[2]
-MAPPING = ROOT / "services/adapter/mapping/jp_core/poc_workbook.yaml"
-TEMPLATE = ROOT / "services/adapter/mapping/jp_core/poc_workbook_template.xlsx"
+MAPPING = ROOT / "services/adapter/mapping/poc/poc_workbook.yaml"
+TEMPLATE = ROOT / "services/adapter/mapping/poc/poc_workbook_template.xlsx"
 SNAP = "2026-11-01"
 SHEETS = ("患者", "受診", "病名", "処方", "検査", "スコア", "所見", "画像レポート", "記録")
 TABLE_OF = {
     "患者": "patient", "受診": "encounter", "病名": "diagnosis", "処方": "medication", "検査": "lab",
     "スコア": "score", "所見": "finding", "画像レポート": "report", "記録": "note",
 }  # fmt: skip
+
+
+@pytest.fixture(autouse=True)
+def _site_zone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The workbook mapping states no zone: it reads the site's own (TB_TZ)."""
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
 
 
 def _cfg(tmp: Path) -> AdapterConfig:

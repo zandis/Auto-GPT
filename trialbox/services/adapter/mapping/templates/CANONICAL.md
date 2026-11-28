@@ -9,7 +9,7 @@ roc}`; `era`), and the source's placeholder dates in `empty_dates` (D-589); noth
 
 | table | key | columns | canonical codes (`values`) |
 | --- | --- | --- | --- |
-| patient | mrn | mrn, name, id_no, birth_date, sex, death_date†, phone† | sex: `M`, `F`; birth_date may be `YYYY-MM` (a mapping that types it `partial_date`, as `jp_core/poc_workbook.yaml` does): the month is kept, no day is invented |
+| patient | mrn | mrn, name, id_no, birth_date, sex, death_date†, phone† | sex: `M`, `F`; birth_date may be `YYYY-MM` (a mapping that types it `partial_date`, as `poc/poc_workbook.yaml` does): the month is kept, no day is invented |
 | practitioner | staff_id | staff_id, name, dept_code | — |
 | encounter | enc_no | enc_no, mrn, visit_datetime, dept_code, staff_id, enc_type | enc_type: `OPD`, `IPD`, `ER` |
 | appointment | appt_no | appt_no, mrn, appt_datetime, duration_min, staff_id, dept_code, status | status: `B` booked, `A` arrived, `C` cancelled, `N` no-show |
@@ -50,7 +50,7 @@ Check a filled mapping against a real export before the first nightly run:
 
     python tools/mapping_check.py --mapping services/adapter/mapping/<profile>/<site>.yaml --source csv --path <dir>
 
-A workbook door (`--source xlsx --path <file.xlsx>`, `jp_core/poc_workbook.yaml`): one `.xlsx`, each sheet a table (the
+A workbook door (`--source xlsx --path <file.xlsx>`, `poc/poc_workbook.yaml`): one `.xlsx`, each sheet a table (the
 mapping's `source:` is the sheet name, Japanese headers are `rename`d like any local column). Values only: a cell that
 holds a formula makes its row a refused row (counted in the run report with the reason, the night goes on), and a sheet
 over 100,000 rows or a workbook over 25 MB is refused whole with a reason. A missing sheet is a missing table.

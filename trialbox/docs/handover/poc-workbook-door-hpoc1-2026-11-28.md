@@ -19,7 +19,7 @@ did not become an OMOP observation, and no year-month birth was handled anywhere
 - `--source xlsx --path <file>`: one workbook, each sheet a table. Values only: a formula cell leaves its row out
   (counted with the reason in the night's completeness file), a sheet over 100,000 rows or a workbook over 25 MB is
   refused whole with a reason, a missing sheet is reported as missing. None of these stops the night.
-- `mapping/jp_core/poc_workbook.yaml`: the nine Japanese-headed sheets onto the canonical tables. `score` and
+- `mapping/poc/poc_workbook.yaml`: the nine Japanese-headed sheets onto the canonical tables. `score` and
   `finding` are new canonical tables. A site mapping may now carry resources of its own.
 - Birth: `1948-05` stays year and month in FHIR, in the lake (`patient.birth_ym`, `birth_date` NULL) and in OMOP
   `person` (year and month, day and birth datetime NULL).

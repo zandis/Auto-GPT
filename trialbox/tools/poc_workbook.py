@@ -1,12 +1,12 @@
 """Writes the template workbook of the proof-of-concept upload: nine Japanese-headed sheets, ONE synthetic row each.
 
-    python -m tools.poc_workbook            # rewrites services/adapter/mapping/jp_core/poc_workbook_template.xlsx
+    python -m tools.poc_workbook            # rewrites services/adapter/mapping/poc/poc_workbook_template.xlsx
     python -m tools.poc_workbook --check    # exit 1 when the committed file is not what this script writes
 
 The bytes are deterministic (fixed document dates, fixed zip entry times, a fixed order), so a test can hold the
 committed file equal to :func:`build`. Every example row is synthetic and marked so: the case numbers start with
 ``SYN-``, the names are made up, and nothing is a real person's. The headers are the ones
-``mapping/jp_core/poc_workbook.yaml`` renames onto the canonical columns. Dates and the birth month are written as
+``mapping/poc/poc_workbook.yaml`` renames onto the canonical columns. Dates and the birth month are written as
 text, so a spreadsheet keeps ``1948-05`` as a year and a month.
 """
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "services/adapter/mapping/jp_core/poc_workbook_template.xlsx"
+TEMPLATE = Path(__file__).resolve().parents[1] / "services/adapter/mapping/poc/poc_workbook_template.xlsx"
 CASE = "SYN-0001"  # a case number that is obviously not a real one
 
 SHEETS: dict[str, tuple[list[str], list[str]]] = {
