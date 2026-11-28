@@ -1290,3 +1290,12 @@ from console.i18n_guides import ZH as _GUIDE_ZH  # noqa: E402
 EN.update(_GUIDE_EN)
 JA.update(_GUIDE_JA)
 ZH.update(_GUIDE_ZH)
+
+# Lane H, PoC item 2: "Your first day" (console.first_day)
+from console.i18n_first_day import EN as _FD_EN  # noqa: E402
+from console.i18n_first_day import JA as _FD_JA  # noqa: E402
+from console.i18n_first_day import ZH as _FD_ZH  # noqa: E402
+
+EN.update(_FD_EN)
+JA.update(_FD_JA)
+ZH.update(_FD_ZH)
