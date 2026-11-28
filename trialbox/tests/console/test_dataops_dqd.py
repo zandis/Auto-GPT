@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from console import i18n_dataops
 from datacore.dataops import DataOps
+from fastapi.testclient import TestClient
 from tb_common.audit import AuditLog
 
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
@@ -62,6 +63,14 @@ def _steward(b: dict[str, Any]) -> Any:
     return login(b["app"], "stwq", PW)
 
 
+def _api(b: dict[str, Any]) -> TestClient:
+    c = TestClient(b["app"])
+    r = c.post("/api/v1/session", json={"username": "stwq", "password": PW})
+    assert r.status_code == 200, r.text
+    c.headers["Authorization"] = f"Bearer {r.json()['token']}"
+    return c
+
+
 def test_the_nights_page_names_each_check_that_did_not_pass_in_the_dashboards_words(box: dict[str, Any]) -> None:
     bid = _night(box, {"state": "loaded", "dqd": {"checks": 60, "fail": 1, "known": 1, "failed": [FAIL, KNOWN]}})
     c, _ = _steward(box)
@@ -75,13 +84,14 @@ def test_the_nights_page_names_each_check_that_did_not_pass_in_the_dashboards_wo
     assert "no SNOMED CT on the box" in sec
     assert i18n_dataops.EN["dataops.dqd.title"] in sec
 
-    api = c.get(f"/api/v1/data/batches/{bid}").json()
+    api = _api(box).get(f"/api/v1/data/batches/{bid}").json()
     assert api["data_quality"] == {"checks": 60, "fail": 1, "known": 1, "failed": [FAIL, KNOWN]}
 
 
 def test_a_night_without_the_checks_shows_no_section_and_a_malformed_record_is_not_shown(box: dict[str, Any]) -> None:
     c, _ = _steward(box)
+    api = _api(box)
     for omop in (None, {"state": "loaded"}, {"state": "loaded", "dqd": {"checks": "x", "failed": "y"}}):
         bid = _night(box, omop)
         assert 'data-testid="batch-dqd"' not in c.get(f"/data-ops/batches/{bid}").text
-        assert c.get(f"/api/v1/data/batches/{bid}").json()["data_quality"] is None
+        assert api.get(f"/api/v1/data/batches/{bid}").json()["data_quality"] is None
