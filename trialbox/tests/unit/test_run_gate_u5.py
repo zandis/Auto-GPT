@@ -137,7 +137,7 @@ def test_a_night_with_the_backup_key_still_needed_is_published_and_audits_it_onc
     patients = [{"resourceType": "Patient", "id": f"p{i}", "gender": "female", "birthDate": "1970-01-01"}
                 for i in range(3)]  # fmt: skip
     (exp / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in patients) + "\n", encoding="utf-8")
-    cfg = AdapterConfig(lake_dir=tmp_path / "lake", secrets_dir=sec, site_id="T", tz="Asia/Taipei",
+    cfg = AdapterConfig(lake_dir=tmp_path / "lake", secrets_dir=sec, site_id=f"A3-{tmp_path.name}", tz="Asia/Taipei",
                         audit_dir=tmp_path / "audit", site_settings=SETTINGS,
                         mapping_path=Path(__file__).resolve().parents[2] / "services/adapter/mapping/tw_core/demo_his.yaml")  # fmt: skip
     rep = pipeline.run_ingest(cfg, "fhir_bulk", str(exp), snapshot="2026-11-20", load_fhir=False, rebuild_lake=False,
