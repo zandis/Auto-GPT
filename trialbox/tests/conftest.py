@@ -42,15 +42,35 @@ def repo_root() -> Path:
     return ROOT
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _held_root() -> Iterator[None]:
+    """P2-11: TB_CONSOLE_HELD_DIR (no default; compose sets the console's tmpfs) for the whole session, a tmpfs folder
+    of its own (0700), removed at the end. Every console app a test builds is given the process's value unless its own
+    env names one, so a test of the unset store takes it away with monkeypatch.delenv."""
+    try:
+        from console import app
+    except ImportError:  # a run without services/ on the path
+        yield
+        return
+    root = tempfile.mkdtemp(prefix="tb-held-", dir="/dev/shm")
+    given = app._env_map
+
+    def with_held(env: Any) -> dict[str, str]:
+        held = os.environ.get("TB_CONSOLE_HELD_DIR")
+        return {**({"TB_CONSOLE_HELD_DIR": held} if held else {}), **given(env)}
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TB_CONSOLE_HELD_DIR", root)
+        mp.setattr(app, "_env_map", with_held)
+        yield
+    shutil.rmtree(root)
+
+
 @pytest.fixture
 def held_dir(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """P2-11: TB_CONSOLE_HELD_DIR (no default; compose sets the console's tmpfs) for every console app this test
-    builds, a tmpfs folder of its own, removed after. Only for a test that keeps a one-time password or a proposal."""
-    from console import app
-
+    """P2-11: a tmpfs folder of this test's own as TB_CONSOLE_HELD_DIR (see _held_root), removed after."""
     root = Path(tempfile.mkdtemp(dir="/dev/shm"))
-    given = app._env_map
-    monkeypatch.setattr(app, "_env_map", lambda env: {"TB_CONSOLE_HELD_DIR": str(root), **given(env)})
+    monkeypatch.setenv("TB_CONSOLE_HELD_DIR", str(root))
     yield root
     shutil.rmtree(root)
 

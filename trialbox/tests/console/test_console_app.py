@@ -20,7 +20,6 @@ from console.app import PilotRefused, cell, create_app
 from console.auth import UserStore, hash_password, verify_password
 from console.backend import AuditRecord, Health, MailItem, Refused, RulesetInfo, read_audit
 from console.cascade import CascadeRuns
-from console.held import HeldUnset
 from console.i18n import CATALOGUES, EN
 from console.proposals import ProposalError, propose
 from fastapi.testclient import TestClient
@@ -1536,16 +1535,23 @@ def test_coordinator_requests_and_approves_but_does_not_operate(box: dict[str, A
     assert "/ops/users" not in c.get("/").text  # no link either
 
 
-def test_without_a_held_dir_no_password_is_made_that_cannot_be_shown(box: dict[str, Any]) -> None:
+@pytest.fixture
+def no_held_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TB_CONSOLE_HELD_DIR")  # set for the session by tests/conftest.py (_held_root)
+
+
+def test_without_a_held_dir_no_password_is_made_that_cannot_be_shown(no_held_dir: None, box: dict[str, Any]) -> None:
     # P2-11 (TB-06 ruling): TB_CONSOLE_HELD_DIR unset: the console starts and serves; a new account or a reset is
-    # refused by name before anything is made, so no password exists that no one was shown
+    # refused by name before anything is made, so no password exists that no one was shown; the refusal is a page
+    # that names the setting for IT (503), never a server error
     c, csrf = login(box["app"])
     assert c.get("/ops/users").status_code == 200
-    with pytest.raises(HeldUnset, match="TB_CONSOLE_HELD_DIR"):
-        c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "nurse.lin", "role": "viewer"})
+    for data in ({"action": "add", "username": "nurse.lin", "role": "viewer"},
+                 {"action": "reset", "username": "viewer", "confirm": "yes"}):  # fmt: skip
+        r = c.post("/ops/users", data={"csrf": csrf, **data})
+        assert r.status_code == 503 and 'data-testid="problem-page"' in r.text
+        assert "is not set up on this box (ask IT: TB_CONSOLE_HELD_DIR on tmpfs)" in r.text
     assert box["users"].get("nurse.lin") is None
-    with pytest.raises(HeldUnset, match="TB_CONSOLE_HELD_DIR"):
-        c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "viewer", "confirm": "yes"})
     login(box["app"], "viewer", VIEWER_PW)  # the password is the one it was
 
 
