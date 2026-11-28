@@ -129,6 +129,7 @@ def test_a_night_with_the_backup_key_still_needed_is_published_and_audits_it_onc
     PRODUCTION box whose backup key is still needed, and the item is audited once."""
     _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
     monkeypatch.delenv("TB_DB_URL", raising=False)  # a bulk night pseudonymises with the site key alone
+    monkeypatch.setenv("TB_CHARTNO_RULE", "asis")  # a rule the night itself can read
     sec = tmp_path / "secrets"
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(b"k" * 32)
