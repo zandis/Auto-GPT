@@ -283,7 +283,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
                           detail={"action": crit, "reason": why[crit]})  # fmt: skip
                 store.open_row(job.job_id, crit, sess.user.username, now)
                 done["opened"] += 1
-        for crit, text, was in labels:
+        for crit, (text, was) in {c: (t, w) for c, t, w in labels}.items():  # one criterion once: its last label
             words = " ".join(text.split())[:80]
             if words and words != " ".join(was.split())[:80] and words != ctx["labels"].get(crit, ""):
                 au.append("console.criterion_label", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
@@ -327,9 +327,17 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         rows = body.get("labels", []) if isinstance(body, dict) else None
         if not isinstance(body, dict) or not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
             raise h.problem(400, "request.refused", reason="a JSON object")
-        labels = [(str(r.get("id") or ""), str(r.get("text") or ""), str(r.get("was") or "")) for r in rows]
-        done = apply_save(sess, request.url.path, job_id, [str(x) for x in body.get("opened") or []],
-                          [str(x) for x in body.get("tick") or []], labels, str(body.get("lang") or ""))  # fmt: skip
+        # a label sent without the value it was shown with is taken as unchanged (never over a newer one)
+        labels = [
+            (str(r.get("id") or ""), str(r.get("text") or ""), str(r.get("was", r.get("text")) or "")) for r in rows
+        ]
+
+        def ids(key: str) -> list[str]:
+            got = body.get(key) or []
+            return [got] if isinstance(got, str) else [str(x) for x in got]
+
+        done = apply_save(sess, request.url.path, job_id, ids("opened"), ids("tick"), labels,
+                          str(body.get("lang") or ""))  # fmt: skip
         return {"job_id": job_id, "recorded": done}
 
     @app.post("/pilot/jobs/{job_id}/approve")

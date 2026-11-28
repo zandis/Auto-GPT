@@ -168,3 +168,6 @@ def test_the_one_form_has_an_api_twin(box: dict[str, Any]) -> None:
     r = api.post(f"/api/v1/jobs/{job.job_id}/approval/save", json={"tick": ["GZQO-INC-99"]}, headers=hdr)
     assert r.status_code == 404
     assert api.post(f"/api/v1/jobs/{job.job_id}/approval/save", json={"opened": AMBER}).status_code == 401
+    # review: one id as a string is one id; a label without the value it was shown with is not an edit
+    r = api.post(f"/api/v1/jobs/{job.job_id}/approval/save", json={"tick": IDS[2]}, headers=hdr)
+    assert r.status_code == 200 and r.json()["recorded"]["ticks"] == 1
