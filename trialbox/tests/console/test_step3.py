@@ -93,6 +93,17 @@ def test_s36_token_entered_once_masked_and_tested(b3: dict[str, Any]) -> None:
     assert crc.post("/admin/redcap", data={"csrf": crc_csrf, "url": "x"}).status_code == 403
 
 
+def test_s36_an_http_address_shows_the_connector_s_reason(b3: dict[str, Any]) -> None:
+    """P-13 review M4: the administrator sees why on the page, the connector's HTTPS requirement, not a bare error."""
+    c, csrf = login(b3["app"], "admin", ADMIN_PW)
+    r = c.post("/admin/redcap", data={"csrf": csrf, "token_ref": "main", "url": "http://10.0.2.2:28080/redcap/",
+                                      "token": TOKEN_A})  # fmt: skip
+    m = re.search(r'data-testid="s36-error">(.*?)</p>', r.text, re.S)
+    assert m, r.text[:400]
+    assert "the REDCap URL must start with https://" in m.group(1) and "RC-FIELD" in m.group(1)
+    assert b3["svc"].store.connection("main") is None  # nothing saved
+
+
 def test_s21_sections_saved_in_the_orchestrator_store(b3: dict[str, Any]) -> None:
     c, csrf = login(b3["app"], "crc", PW)
     page = c.get("/studies/GZQO/setup").text

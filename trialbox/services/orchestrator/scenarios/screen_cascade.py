@@ -34,9 +34,10 @@ from matching.cascade import CascadeConfig, CascadeError, CascadeResult, run_cas
 from matching.cascade.engine import FILTERED, JUDGED, NOT_AT_INDEX
 from matching.cascade.judge import JudgeReply
 from matching.cascade.model import Outcome, PatientTrace
+from tb_common import open_reasons
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
-from tb_contracts import CriterionVerdict, Evidence, Opinion
+from tb_contracts import CriterionVerdict, Evidence, Need, Opinion
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx
@@ -45,6 +46,7 @@ from orchestrator.jobs import llm_concurrency
 from orchestrator.scenarios.evaluate import (
     MAX_JUDGE_FAILURE_SHARE,
     NoteJudge,
+    NoteResult,
     PatientVerdicts,
     is_pair,
     not_in_snapshot,
@@ -102,27 +104,34 @@ class OrchestratorJudge(NoteJudge):
         purpose: str,
     ) -> JudgeReply:
         if role == "judge":
-            r = self.judge_excerpts(criterion_text, note_question, index_date, excerpts)
+            r = self.judge_excerpts(criterion_text, note_question, index_date, excerpts, demote=True)
         else:  # S4: one opinion from the other model
             other = self.verifier if self.verifier is not None else self.llm
             r = self.judge_excerpts(criterion_text, note_question, index_date, excerpts, verify=False, primary=other)
-        return JudgeReply(
-            verdict=r.predicate,
-            confidence=r.confidence,
-            quote=r.quote,
-            quote_date=r.quote_date,
-            reason=r.reason or "",
-            call_id=r.call_id,
-            build_sha=r.build_sha,  # D-989: the build that answered ("" on a direct call), never the model's name
-            prompt=r.prompt,
-            prompt_sha=r.prompt_sha,
-            tokens_in=r.tokens_in,
-            tokens_out=r.tokens_out,
-            opinions=list(r.opinions),
-            calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
-            sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
-            affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
-        )
+        return reply_of(r)
+
+
+def reply_of(r: NoteResult) -> JudgeReply:
+    """The note judge's answer as the cascade's reply (and the judge's own answer it keeps, BENCH-2 §2)."""
+    return JudgeReply(
+        verdict=r.predicate,
+        confidence=r.confidence,
+        quote=r.quote,
+        quote_date=r.quote_date,
+        reason=r.reason or "",
+        call_id=r.call_id,
+        build_sha=r.build_sha,  # D-989: the build that answered ("" on a direct call), never the model's name
+        prompt=r.prompt,
+        prompt_sha=r.prompt_sha,
+        tokens_in=r.tokens_in,
+        tokens_out=r.tokens_out,
+        opinions=list(r.opinions),
+        calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
+        sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
+        affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
+        pair_opinions=list(r.pair_opinions),  # D-1072: both quotes and notes of an agreed answer
+        kept=None if r.kept is None else reply_of(r.kept),
+    )
 
 
 log = logging.getLogger("orchestrator")
@@ -416,15 +425,34 @@ def _final(o: Outcome, status: str) -> bool | None:
     return True if o.stage in ("S3", "S4") else None
 
 
-def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
+def verdict_of(o: Outcome, pair: bool = False, rs: Ruleset | None = None) -> CriterionVerdict:
     """One cascade outcome as the candidate-list verdict: the verified span (document, quote, date), the lake records
     of a coded answer, the judge's confidence and the stage's reason. ``pair``: the run's judge is two different
-    models (the basis of its note answers, D-478). Always the caller's own object."""
-    return _own(_row_of(o, pair))
+    models (the basis of its note answers, D-478). ``rs``: the ruleset, for what an open answer needs (H-7). Always
+    the caller's own object."""
+    c = rs.by_id().get(o.criterion_id) if rs is not None else None
+    return _own(_row_of(o, pair, c, rs.valuesets if rs is not None else None))
 
 
-def _row_of(o: Outcome, pair: bool) -> CriterionVerdict | _Shared:
-    """:func:`verdict_of` as a patient's row holds it: an answer with no record, quote, opinion or call is shared."""
+# H-7: what an open answer needs is the same for every patient with the same criterion, value sets and engine reason,
+# so it is worked out once per triple (the criterion and the value sets are kept in the value, so their ids are never
+# reused while the entry lives)
+# ponytail: unbounded, but criteria x engine reasons is a few hundred entries per loaded ruleset
+_NEEDS: dict[tuple[int, int, str], tuple[Any, Any, tuple[str, str, str] | None]] = {}
+
+
+def _need_of(o: Outcome, c: Any, valuesets: Any) -> tuple[str, str, str] | None:
+    key = (id(c), id(valuesets), str(o.reason or ""))
+    hit = _NEEDS.get(key)
+    if hit is None or hit[0] is not c or hit[1] is not valuesets:
+        n = open_reasons.needs(o.reason, c, valuesets)
+        hit = _NEEDS[key] = (c, valuesets, (n["view"], n["field"], n["concept"]) if n else None)
+    return hit[2]
+
+
+def _row_of(o: Outcome, pair: bool, c: Any = None, valuesets: Any = None) -> CriterionVerdict | _Shared:
+    """:func:`verdict_of` as a patient's row holds it: an answer with no record, quote, opinion or call is shared.
+    An open answer of a known criterion ``c`` names what the site must supply (``Evidence.needs``, H-7)."""
     refs: list[str] = []
     quote: str | None = None
     quote_date: str | None = None
@@ -446,10 +474,11 @@ def _row_of(o: Outcome, pair: bool) -> CriterionVerdict | _Shared:
     status = o.status
     if status == "pass" and o.unknown_kind == "data_gap":
         status = "unknown"  # S1 kept the patient on a null exclusion value; the list says "unknown" as v1 did
+    need = _need_of(o, c, valuesets) if c is not None and status == "unknown" else None
     if not (refs or quote or quote_date or opinions or prov) and confidence is None:
         affirmed = o.affirmed if status == "fail" else None
         return _bare(o.criterion_id, status, code_of(o.reason, status, False), _final(o, status),
-                     basis_of(o, status, pair), affirmed)  # fmt: skip
+                     basis_of(o, status, pair), affirmed, need)  # fmt: skip
     return CriterionVerdict(
         id=o.criterion_id,
         verdict=status,
@@ -457,9 +486,10 @@ def _row_of(o: Outcome, pair: bool) -> CriterionVerdict | _Shared:
             resource_refs=refs[:20],
             quote=quote,
             quote_date=quote_date,
-            confidence=confidence,
+            confidence=None if status == "unknown" else confidence,  # INT-S-C: an unknown carries none
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
             opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
+            needs=Need(view=need[0], field=need[1], concept=need[2]) if need else None,
         ),
         final=_final(o, status),
         basis=basis_of(o, status, pair),
@@ -517,14 +547,28 @@ class Verdicts(MutableSequence[CriterionVerdict]):
 
 
 @functools.lru_cache(maxsize=8192)
-def _bare(cid: str, status: Any, reason: str, final: bool | None, basis: Any, affirmed: bool | None) -> _Shared:
+def _bare(
+    cid: str,
+    status: Any,
+    reason: str,
+    final: bool | None,
+    basis: Any,
+    affirmed: bool | None,
+    need: tuple[str, str, str] | None = None,
+) -> _Shared:
     """:func:`verdict_of`'s answer that carries no record, quote, confidence, opinion or call."""
     return _Shared(
         CriterionVerdict(
             id=cid,
             verdict=status,
             evidence=Evidence(
-                resource_refs=[], quote=None, quote_date=None, confidence=None, reason=reason, opinions=None
+                resource_refs=[],
+                quote=None,
+                quote_date=None,
+                confidence=None,
+                reason=reason,
+                opinions=None,
+                needs=Need(view=need[0], field=need[1], concept=need[2]) if need else None,
             ),
             final=final,
             basis=basis,
@@ -568,7 +612,7 @@ def verdicts_of(
         if o is None:
             vs._rows.append(_not_evaluated(c.id))
             continue
-        vs._rows.append(_row_of(o, pair))
+        vs._rows.append(_row_of(o, pair, c, rs.valuesets))
         judged_rows.append(vs[-1])  # the patient's own copy, read by the status only
     if not t.in_scope and t.scope_reason == NOT_AT_INDEX:
         # no base row: never "excluded" with the engine's words; a person looks (D-142, review B-02)

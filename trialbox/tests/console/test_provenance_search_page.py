@@ -19,6 +19,9 @@ PW = "provenance-search-password-01"
 
 
 def _box(b: dict[str, Any], c: Any, tmp_path: Path) -> None:
+    # P-19: the page serves an index whose marker (in the console's audit directory) says verified: the install's one
+    # rebuild, from that directory's chain (it holds no model call), then the index of the test's own chain
+    idx.rebuild(c, Path(b["app"].state.audit_hooks.au.directory))
     idx.rebuild(c, _chain(tmp_path).directory)
     b["app"].state.audit_hooks.doors["provenance"] = lambda: _Kept(c)
     for name, role in (("stw", "steward"), ("dpo", "privacy"), ("ops", "admin"), ("crc", "coordinator")):
@@ -116,3 +119,18 @@ def test_a_failed_search_is_audited_and_the_administrators_search_says_no_pseudo
     box["app"].state.audit_hooks.doors["provenance"] = down
     assert ops.get("/audit/provenance", params={"build_sha": "b2"}).status_code == 503
     assert _events(box)[-1]["detail"]["error"] is True
+
+
+def test_a_search_is_refused_while_the_index_must_be_rebuilt(
+    box: dict[str, Any],  # noqa: F811
+    con: Any,  # noqa: F811
+    tmp_path: Path,
+) -> None:
+    """P-19 (review P19-X1, High; P19-DESIGN-3 §2): after a restore the index may not equal the chain filtered by the
+    register; while its marker says rebuild-required the page serves nothing, said as an index that cannot be read."""
+    _box(box, con, tmp_path)
+    idx.require_rebuild(Path(box["app"].state.audit_hooks.au.directory), "journal resync")
+    c, _ = login(box["app"], "stw", PW)
+    page = c.get("/audit/provenance", params={"build_sha": "b2"})
+    assert page.status_code == 503 and 'data-testid="prov-error"' in page.text
+    assert PID_A not in page.text and PID_B not in page.text and 'data-testid="prov-row"' not in page.text

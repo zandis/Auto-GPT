@@ -262,6 +262,8 @@ class MappingResult:
     needs_review: bool
     notes: list[str] = field(default_factory=list)
     families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
+    # INT-R2: the families from ``family`` rows only (unknown, never members): no YJ stem is added for them
+    open_families: list[tuple[str, str]] = field(default_factory=list)
 
 
 ConceptMapLLM = Callable[[str, str, list[Concept]], tuple[list[tuple[str, str, float]], bool]]
@@ -469,8 +471,12 @@ class Terminology:
         return {k: sorted(set(v)) for k, v in sorted(out.items())}
 
     def _atc_lost(self, fams: set[tuple[str, str]]) -> list[str]:
-        """The ATC families of ``fams`` with no code to list (``atc_losses``)."""
-        return sorted(code for sy, code in fams if sy == SYSTEMS["atc"] and not self.expand("atc", code, "prefix"))
+        """The ATC families of ``fams`` with no code to list (``atc_losses``): prefix rows only, as there. A
+        ``family`` row (INT-R2) lists no code by design, so it is never a loss."""
+        pre = {str(s["code"]) for s in self.synonyms if s["table"] == "atc" and s["match"] == "prefix"}
+        return sorted(
+            code for sy, code in fams if sy == SYSTEMS["atc"] and code in pre and not self.expand("atc", code, "prefix")
+        )
 
     def concept(self, system: str, code: str) -> Concept | None:
         return self._by_code.get((system, code))
@@ -497,6 +503,12 @@ class Terminology:
     ) -> MappingResult:
         """The concept's codes. E-TERM-3 (D-1048): while a site list is refused, every answer says it was not read."""
         res = self._map(domain, name, synonyms, llm)
+        opened = {(SYSTEMS.get(s["table"], ""), s["code"]) for s in self.synonyms if s["match"] == "family"}
+        # V-18b (D-1183) x INT-R2 (D-1074): an ATC ``family`` row is unknown, never a member family, so it leaves
+        # ``families`` (the grouper's prefix families) for ``open_families``; the ValueSet writes both
+        atc_open = {f for f in res.families if f in opened and f[0] == SYSTEMS["atc"]}
+        res.families = [f for f in res.families if f not in atc_open]
+        res.open_families = sorted((set(res.families) & opened) | atc_open)
         for r in self.refused_site_lists():
             res.notes.append(f"site list {r['table']} was not read; the shipped tables answered")
         return res
@@ -544,7 +556,12 @@ class Terminology:
                 return wide
             # V-18b: a name of the site's own ATC copy keeps the method of a table loaded at install
             site = bool(self.rows.get("atc")) and all(c.system == SYSTEMS["atc"] for c in hits)
-            return MappingResult(name, domain, _dedupe(hits), "loaded" if site else "exact", False)
+            # INT-R2: a drug's own name (methotrexate) keeps its curated ``family`` rows: the codes that may hold it
+            # outside its listed ones read unknown, never a silent "not on it"
+            opened = {(SYSTEMS[s["table"]], s["code"]) for s in self.synonyms
+                      if s["domain"] == domain and s["match"] == "family" and norm(s["name"]) == primary}  # fmt: skip
+            method = "loaded" if site else "exact"
+            return MappingResult(name, domain, _dedupe(hits), method, False, families=sorted(opened))
         # 2. curated synonym/grouper table on the name — a grouper such as "urate-lowering therapy" must win over
         #    exact matches of individual example drugs
         hits, fams = grouped([primary])
@@ -988,13 +1005,16 @@ def valueset(
     status: str = "draft",
     families: list[tuple[str, str]] | None = None,
     ingredients: dict[str, dict[str, str]] | None = None,
+    open_families: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """A FHIR ValueSet of the concepts. ``ingredients`` (``stem -> {atc, ingredient}``, a Japanese site's
     ingredient-to-ATC table, :func:`tb_common.refdata_jp.ingredient_atc`) adds the YJ stems of its ATC codes and
-    families (:func:`yj_ingredients`)."""
+    families (:func:`yj_ingredients`), never of an ``open_families`` one (INT-R2: such a family is unknown, not a
+    member)."""
     by_system: dict[str, list[Concept]] = {}
     if ingredients:
-        concepts = [*concepts, *yj_ingredients(concepts, families or [], ingredients)]
+        members = [f for f in families or [] if f not in set(open_families or [])]
+        concepts = [*concepts, *yj_ingredients(concepts, members, ingredients)]
     for c in concepts:
         by_system.setdefault(c.system, []).append(c)
     rid = vs_resource_id(ruleset, vs_name)
@@ -1019,8 +1039,9 @@ def valueset(
         "status": status,
         "compose": compose,
     }
-    if families:
-        vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{sy}|{pre}"} for sy, pre in sorted(set(families))]
+    if families or open_families:
+        every = set(families or []) | set(open_families or [])
+        vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{sy}|{pre}"} for sy, pre in sorted(every)]
     if needs_review:
         vs["meta"] = {"tag": [{"system": REVIEW_TAG_SYSTEM, "code": "needs_review"}]}
     return vs

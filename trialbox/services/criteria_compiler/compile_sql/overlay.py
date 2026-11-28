@@ -14,7 +14,7 @@ the same approved criteria and ValueSets by the current generator, and keeps a s
   only; the other criteria and the job go on.
 
 So an approved ruleset can only lose decided answers to "unknown", never gain an exclusion or an inclusion. The
-stored text is not changed (it is embedded as it is). SQL compiled since D-275 carries the generator's ``MARK`` line
+stored text is not changed (it is embedded as it is). SQL compiled since D-1073 carries the generator's ``MARK`` line
 in its header and is run alone. The guarded SQL is built once per ruleset content and kept (review F12).
 """
 

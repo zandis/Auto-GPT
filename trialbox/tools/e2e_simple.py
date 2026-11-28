@@ -864,7 +864,7 @@ GOUT_COH_BEFORE_STEP7: dict[str, Any] = {
         "start": 5000,
         "remaining": {
             "GOUT-COH-INC-02": 1210,
-            "GOUT-COH-INC-03": 797,
+            "GOUT-COH-INC-03": 800,  # 2026-11-25 (INT-R1, D-1073): was 797, the look-back reads the supply period
             "GOUT-COH-INC-04": 237,
             "GOUT-COH-INC-05": 54,
             "GOUT-COH-INC-06": 26,

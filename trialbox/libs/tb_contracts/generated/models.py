@@ -517,6 +517,20 @@ class CodedValue(BaseModel):
     comparator: str | None = None
 
 
+class Need(BaseModel):
+    """
+    H-7 (REAL2): what the site must supply for an open answer: the view and the field of the site mapping template (demo_his) the reason points at, and the concept the criterion reads (its value set, or a score and its missing input). Absent on a decided answer and on one a person decides.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    view: str
+    field: str
+    concept: str
+
+
 class Evidence(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -538,6 +552,10 @@ class Evidence(BaseModel):
     coded: list[CodedValue] | None = None
     """
     T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.
+    """
+    needs: Need | None = Field(None, title="Need")
+    """
+    H-7 (REAL2): what the site must supply for an open answer: the view and the field of the site mapping template (demo_his) the reason points at, and the concept the criterion reads (its value set, or a score and its missing input). Absent on a decided answer and on one a person decides.
     """
 
 
@@ -1065,6 +1083,35 @@ class NavScope(BaseModel):
     application_lookback_days: int = 90
 
 
+class DqdCheckRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    checkName: str
+    cdmTableName: str
+    cdmFieldName: str | None
+    numViolatedRows: int
+    numDenominatorRows: int
+    status: Literal["fail", "known"]
+    notes: str
+
+
+class Dqd(BaseModel):
+    """
+    H3-NLP 3.1: the DQD-shaped checks of omop.dqd run after the load; every check that did not pass, in DQD's words
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    checks: int = Field(..., ge=0)
+    fail: int = Field(..., ge=0)
+    known: int = Field(..., ge=0)
+    failed: list[DqdCheckRow]
+
+
 class OmopLoadSummary(BaseModel):
     """
     one feed batch loaded into the OMOP store by the adapter (T-106): all or nothing; a failure never holds the night
@@ -1088,6 +1135,10 @@ class OmopLoadSummary(BaseModel):
     relational_checks: int | None = Field(None, ge=0)
     """
     Data Quality Relational checks run after the load (isRequired, isPrimaryKey, isForeignKey)
+    """
+    dqd: Dqd | None = None
+    """
+    H3-NLP 3.1: the DQD-shaped checks of omop.dqd run after the load; every check that did not pass, in DQD's words
     """
     relational_failed: dict[str, int] | None = None
     """
@@ -2539,6 +2590,14 @@ class ValidationSummary(BaseModel):
     capped: dict[str, Any] | None = None
     """
     T-693 (D-457): the resource types the cap cut, with the number of their resources
+    """
+    patients_sampled: int | None = None
+    """
+    U4: the Patients in the sample
+    """
+    no_birthdate: int | None = None
+    """
+    U4: the sampled Patients with no birthDate, a class of its own outside errors (its own limit)
     """
 
 

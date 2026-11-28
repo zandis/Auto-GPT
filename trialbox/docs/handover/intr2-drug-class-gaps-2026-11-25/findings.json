@@ -1,0 +1,62 @@
+{
+ "card": "INTR2",
+ "title": "a drug class's gap reads unknown, never False",
+ "date": "2026-11-25",
+ "source": "docs/handover/intr2-drug-class-gaps-2026-11-25.md",
+ "findings": [
+  {
+   "id": "INTR2-01",
+   "severity": "High",
+   "claim": "a drug class read a member outside its one to three prefixes as False (deep check R2); fixed: the class's families are the complement of the branches it excludes, so an unplaced code reads unknown",
+   "lane": "V",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/criteria_compiler/terminology/src/synonyms.csv"
+  },
+  {
+   "id": "INTR2-02",
+   "severity": "High",
+   "claim": "a duration criterion read no code family in SQL or CQL, so an off-list member read False (RA-BIO-INC-03, RA-BIO-INC-04, GZQO-INC-06, RA-JAK-INC-03); fixed; the CQL was translated, not executed",
+   "lane": "V",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/criteria_compiler/compile_sql/generator.py; services/criteria_compiler/compile_cql/generator.py"
+  },
+  {
+   "id": "INTR2-03",
+   "severity": "Medium",
+   "claim": "an ATC code coarser than a class's node read False; fixed",
+   "lane": "V",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/criteria_compiler/compile_sql/generator.py; services/criteria_compiler/compile_cql/generator.py"
+  },
+  {
+   "id": "INTR2-04",
+   "severity": "Medium",
+   "claim": "a drug matched by its own name lost its family rows; a family row would have made Japanese ingredient stems members; both fixed",
+   "lane": "V",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/criteria_compiler/terminology/mapper.py; services/criteria_compiler/ir_extract/postprocess.py"
+  },
+  {
+   "id": "INTR2-05",
+   "severity": "Medium",
+   "claim": "a medication with no ATC, not listed by its own code, read False for a drug exclusion (D-130 covers inclusions only); fixed for exclusions, none and negated atoms, in the window",
+   "lane": "V",
+   "basis": "shown",
+   "state": "fixed",
+   "place": "services/criteria_compiler/semantics.py"
+  },
+  {
+   "id": "INTR2-06",
+   "severity": "Low",
+   "claim": "the members and exclusions on the card page's list wait for a pharmacist; the members read unknown until then",
+   "lane": "V",
+   "basis": "shown",
+   "state": "open",
+   "place": "docs/handover/intr2-drug-class-gaps-2026-11-25.md"
+  }
+ ]
+}

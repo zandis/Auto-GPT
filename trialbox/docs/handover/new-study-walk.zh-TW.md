@@ -125,8 +125,8 @@ Exclusion Criteria
 | --- | --- | --- | --- |
 | 在上方列點選 | This week's patients | 本週病人 | 今週の患者 |
 | 點選 | Criteria waiting for your approval: MYSTUDY v1.0.0 | 等待您核准的條件：MYSTUDY v1.0.0 | 承認待ちの基準：MYSTUDY v1.0.0 |
-| 僅中文與日文頁面：為每條條件加上簡短標籤，然後點選 | Save label | 儲存標籤 | 表示名を保存 |
-| 在每一列點選 | Open | 開啟 | 開く |
+| 僅中文與日文頁面：為每條條件加上簡短標籤，然後點選 | Save labels and ticks | 儲存標籤與確認 | 表示名と確認を保存 |
+| 在每一黃色列打開代碼並勾選 | I have read this row | 我已看過這一列 | この行を確認しました |
 | 點選 | Approve all | 全部核准 | すべて承認 |
 | 點選 | Yes, do it | 是，執行 | はい、実行します |
 

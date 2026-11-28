@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "24d6a78f44cbf94542108343570279d3d093fce2",
+  "head": "8e6f3b8a4f9c37dc380b472142aa5c21a6ab19f1",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "lane G B1 (P1b review): public-en birth date = visit minus stated age; chart 70000014 (sigir-201414, 85-year-old) is 85 at the run date, not 86, so df261f5f meets AD-MAB-INC-01 (50-85) and is a candidate",
+  "reason": "int/data: the jp-ss synthetic fixture has chart numbers of its own (prefix 9); it shared 2xxxxxxx with synthetic-jp-a, so the H34-06 identity hold fired on 398 chart numbers",
   "ref_date": "2026-11-01",
   "ruleset": "AD-MAB",
   "ruleset_version": "1.0.0",
@@ -66,19 +66,19 @@
   },
   "ssmix2-jp": {
    "candidate_pids": [
-    "161b9442bad3d1c6769c712e8e8d6c61",
-    "20e10cadd2826063640513ccee355a5f",
-    "322f79f4288aaf2e8b0aed44d371864c",
-    "3a3b2b5624771533cbdebb80039c80e3",
-    "439a3ca5b2d5095cf013783ba00df1ef",
-    "4f9e060f92e2bf67ae4460a26bf49dfd",
-    "65a07b9e16d44a52ce7bed81f8083b5d",
-    "69865cd7cf35b5a55713668040aea992",
-    "8563b74ca8a102aba2ae036708070374",
-    "d80ba0d957a079b23f2a0dd5bf079f31"
+    "35c4b0ed1bfd6495b61338cd1f43e6c9",
+    "553d39bf683939f7bed9f8aeb34ff05b",
+    "599cb266556524261509e4f5905b6ed2",
+    "6cdf030252cd10fb3ff7f4b69c019762",
+    "7abe4b567b51e9ab84587d1ee4317f3a",
+    "847fc98887ca254ddecd5fe538b57265",
+    "879fd9aca8914fcf1737a759bf5fba8e",
+    "94950535e15a5b872a8f42b64735f22c",
+    "d308cf0e8c055825eadd233c4a70d496",
+    "e734b94ea5616c8d57de78b260593675"
    ],
    "candidates": 10,
-   "outcomes_sha": "5d6a071b789cdd1cb882d873b0965a368d8091be91afa82b62629524002df8fa",
+   "outcomes_sha": "67510caba2103d2548cbdbabac9059e61b9df86b9a33213050f2986e3384662a",
    "patients": 400,
    "structured_criteria": [
     "AD-MAB-INC-01",

@@ -129,6 +129,12 @@ CLEARS: dict[str, Clear] = {
             f"{_W}:verify_profile",
             "ProfileStore.erase: every version of the twin (D-440)",
         ),
+        Clear(
+            "provenance_index",
+            f"{_W}:clear_provenance",
+            f"{_W}:verify_provenance",
+            "D-989 point 5: the provenance index's use rows of the patient go (provenance_index.erase)",
+        ),
     )
 }
 
@@ -583,11 +589,11 @@ OUTSIDE: dict[str, Entry] = {
         "the space drops it whole (D-714)",
         "the opt-out's clear in a practice space's store",
     ),
-    "outside:provenance_index": _owed(
+    "outside:provenance_index": _erase(
+        "provenance_index",
         "D-989 point 5: the provenance index (schema provenance: model_calls, model_uses), derived from the audit "
         "chain and rebuilt from it; a use row names a patient by pseudonym and goes at the opt-out "
         "(tb_common.provenance_index.erase; a rebuild leaves an opted-out patient out); the call rows name no patient",
-        "the opt-out worker's clear of the use rows (D-989), once the role script grants its role DELETE (lane D)",
     ),
     "outside:audit": _keep(
         "D-394",

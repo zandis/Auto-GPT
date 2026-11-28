@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
 
-from tb_common.llm import no_sentinel_date
+from tb_common.llm import no_sentinel_date, unknown_carries_nothing
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
 from tb_common.quotes import as_in, quote_key
 from tb_llm import budget
@@ -110,6 +110,11 @@ class JudgeReply:
     # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
+    # D-1072: on an agreed answer, each model's answer, verified quote and note (``did``), judge first; published only
+    # on a "not eligible" (``engine._map``)
+    pair_opinions: list[dict[str, Any]] = field(default_factory=list)
+    # BENCH-2 §2: on a disagreement, the judge's own answer (never affirmed); the engine takes it only where it keeps
+    kept: JudgeReply | None = None
 
     @property
     def all_calls(self) -> tuple[str, ...]:
@@ -218,6 +223,7 @@ class GatewayJudge:
         schema = p.meta.output_schema
         data = null_absent(load_schema(schema), res.data) if isinstance(res.data, dict) else None
         data = no_sentinel_date(data) if isinstance(data, dict) else data
+        data = unknown_carries_nothing(data) if isinstance(data, dict) else data  # INT-S-C
         if not isinstance(data, dict) or schema_errors(schema, data):
             # LLM-022: a reply outside the judge schema is no answer; it never reaches the verdict (fails safe)
             self.refusals.append("schema_invalid")
@@ -291,8 +297,14 @@ class AgreementJudge:
         if d.verdict == first.verdict:
             # L3: the verifier's quote is read too, in its sentence of the excerpts (never published); M1: it was found
             other = next((x for t in texts if found and (x := sentence_of(found, t))), str(found or ""))
+            # D-1072: both quotes and their notes (``verify_span`` checks the judge's own again)
+            pair = [
+                {**_opinion(role, r), "did": next((e.get("did") for e in kw.get("excerpts") or []
+                                                   if r.quote and as_in(r.quote, str(e.get("text", "")))), None)}
+                for role, r in (("judge", first), ("verifier", second))
+            ]  # fmt: skip
             # round 5: the exclusion stands only when both models said the quote affirms it
-            return replace(first, confidence=d.confidence, calls=calls, sentence=other,
+            return replace(first, confidence=d.confidence, calls=calls, sentence=other, pair_opinions=pair,
                            affirmed=first.affirmed and second.affirmed)  # fmt: skip
         return JudgeReply(
             "unknown",

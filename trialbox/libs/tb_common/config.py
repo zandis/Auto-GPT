@@ -475,6 +475,9 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
+    "TB_DOCTOR_INSTALL_PHASE": Declared(
+        "str", "", "doctor: set by install.sh's host check, so a missing backup key is a WARN"
+    ),
     "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
     "TB_DOCTOR_RESTORE_HOLD": Declared("str", "", "doctor in the image: the hold the host read through the box (JSON)"),
@@ -786,6 +789,11 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
+    "TB_LANG": Declared(
+        "str",
+        "",
+        "language of the trialbox command line's plain messages: en, ja or zh-TW (TOL-CLI; else LC_ALL, LANG)",
+    ),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
     "TB_HOST_PROFILE": Declared(
         "str",
@@ -883,7 +891,7 @@ DECLARED: dict[str, Declared] = {
     "TB_MIG_PROFILE": Declared("str", "", "platform: GPU MIG profile"),
     "TB_MODELS_DIR": Declared("path", "", "models folder"),
     "TB_MODEL_SWAP": Declared("str", "", "one GPU for two models (sleep) or not"),
-    "TB_NOTE_BLOCK": Declared("str", "both_agree", "note-block policy"),
+    "TB_NOTE_BLOCK": Declared("str", "never", "note-block policy"),
     "TB_NOTICE_N1_AT": Declared("str", "07:00", "console: first notice time"),
     "TB_NOTICE_N2_AT": Declared("str", "07:30", "console: second notice time"),
     "TB_NOT_MATCHED_GATE": Declared(
@@ -1017,6 +1025,9 @@ DECLARED: dict[str, Declared] = {
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
+    "TB_PUBLIC_NAMES_FILE": Declared(
+        "path", "", "public-names check (tools): the pattern list, a file kept outside the repository"
+    ),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
     "TB_RELEASE_REGISTRY": Declared(

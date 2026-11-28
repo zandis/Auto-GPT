@@ -53,10 +53,11 @@ from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.flowledger import level_of_tag, record_export
+from tb_common.open_reasons import needs_text
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
-from tb_common.verdict_word import shown_of
+from tb_common.verdict_word import against_ids, flagged_last, shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import (
@@ -490,8 +491,9 @@ def build_sponsor_pack(
     if models:
         verifier = f", verifier {models['verifier_model']}" if models.get("verifier_model") else ", no verifier"
         screening = (
-            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers may exclude: "
-            f"{'yes' if models.get('may_block') else 'no'}."
+            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers final: "
+            f"{'yes' if models.get('may_block') else 'no'} (the notes may speak against a criterion; no note answer "
+            "takes a patient off a list)."
         )
     lines = [
         f"TrialBox sponsor pack · {job.ruleset} v{version} · job {job.job_id}",
@@ -602,6 +604,7 @@ def create_app(
     # D-146 (review J-17): a person, not the raw actor id ("console:crc" -> "crc"), on every translated page
     templates.env.filters["who"] = lambda v: str(v or "").removeprefix("console:") or "–"
     templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
+    templates.env.globals["needs_text"] = needs_text  # H-7: what the site must supply for an open answer
     templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
     # D-380 (ROLE-018): the menu asks the matrix, as the routes do (``permit(user.role, action, BEST)``)
     templates.env.globals["permit"] = permit
@@ -2119,7 +2122,10 @@ def create_app(
                     # D-478: the words a person reads (one model's "not met" is an open point, not a failing one)
                     words = {v["id"]: shown_of(v)[0] for v in r.get("criteria") or []}
                     unknown = [i for i, w in words.items() if w == "unknown"]
-                    failing = [i for i, w in words.items() if w == "fail"]
+                    against = against_ids(
+                        r.get("criteria")
+                    )  # INT-S-B: still open (above), said as a note speaking against
+                    failing = [i for i, w in words.items() if w == "fail" and i not in against]
                     quotes = [
                         {
                             "id": v["id"],
@@ -2139,6 +2145,7 @@ def create_app(
                             "department": r.get("department") or "",
                             "unknown": unknown,
                             "failing": failing,
+                            "against": against,
                             "quotes": quotes,
                             "actions": r.get("actions") or [],
                             "changed": r.get("changed") or [],
@@ -2146,6 +2153,13 @@ def create_app(
                     )
                 order = {"high": 0, "review": 1}
                 rows.sort(key=lambda r: (order.get(str(r["tier"]), 2), r["next_appointment"] or "9", r["pid"]))
+                rows = flagged_last(
+                    rows,
+                    lambda r: r["next_appointment"][:10],
+                    lambda r: r["tier"] == "review",
+                    lambda r: bool(r["against"]),
+                )
+                card["against_n"] = sum(1 for r in rows if r["against"])
                 card["rows"] = rows
         card["practitioners"] = (card["summary"] or {}).get("practitioner_names") or {}
         return card

@@ -146,3 +146,48 @@ def test_the_job_pages_night_card_carries_the_coded_complete_line_only_when_the_
         assert block is not None
         assert str(escape(CATALOGUES[lang]["job.prefilter.coded_complete"].format(n=5))) in block, lang
         assert check_page(block) == [], lang
+
+
+def _second(no: NightOpen) -> NightOpen:
+    return no.model_copy(
+        update={
+            "coded_complete": 2,
+            "open_reasons": [OpenReason(criterion="GZQO-INC-05", reason="no_notes", where="notes", count=3)],
+        }
+    )
+
+
+def test_two_jobs_of_a_night_are_shown_one_number_per_job_never_added_and_say_how_many_wrote_them(
+    sn: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _night(sn, 807, OPEN)
+    _night(sn, 808, _second(OPEN))
+    _night(sn, 809, None)  # a job from before the figures: it supplied none
+    monkeypatch.setattr(sn["app"].state.helpers, "admits_candidates", lambda user, rs: rs == "GZQO")
+    c, _ = login(sn["app"], "admin", ADMIN_PW)
+    sec = _section(c.get(PATH).text)
+    assert sec is not None
+    cat = CATALOGUES["en"]
+    assert str(escape(cat["stillneeded.open.partial"].format(k=2, n=3))) in sec
+    assert f'<th scope="col">{escape(cat["stillneeded.open.patients_by_job"])}</th>' in sec
+    cells = {k: re.findall(r"<td>([\d /]+)</td>", v[2]) for k, v in _rows(sec).items()}
+    assert sorted(cells["GZQO-INC-05"][0].split(" / ")) == ["17", "3"]  # not 20
+    assert sorted(re.findall(r"Coded-complete: ([\d /]+) patients", sec)[0].split(" / ")) == ["2", "5"]  # not 7
+
+
+def test_the_job_pages_night_card_shows_the_coded_complete_figure_per_job_when_two_jobs_wrote_it(
+    box: dict[str, Any],
+) -> None:
+    ids = [_nightly(box, 810, WEEKLY), _nightly(box, 811, WEEKLY)]
+    for jid, no in zip(ids, (OPEN, _second(OPEN)), strict=True):
+        job = box["backend"].jobs[jid]
+        box["backend"].jobs[jid] = job.model_copy(update={"metrics": job.metrics.model_copy(update={"night_open": no})})
+    c, csrf = login_crc(box)
+    for lang in LANGS:
+        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+        block = _block(c.get(f"/pilot/jobs/{ids[0]}").text)
+        assert block is not None
+        assert str(escape(CATALOGUES[lang]["job.prefilter.open_partial"].format(k=2, n=2))) in block, lang
+        shown = re.findall(r"(\d+ / \d+)", block)
+        assert shown and sorted(shown[0].split(" / ")) == ["2", "5"], lang  # one number per job, not 7
+        assert check_page(block) == [], lang

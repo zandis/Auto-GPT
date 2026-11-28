@@ -2,7 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
--- Safety rules: D-275 (units, sex, order dates).
+-- Safety rules: D-275 (units, sex, order dates), D-1073 (supply periods).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -39,7 +39,89 @@ vs(vs_id, system, code) AS (VALUES
   ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.91'),
   ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.92')),
 vsf(vs_id, system, prefix) AS (VALUES
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'E'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'F'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'I'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'K'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L00'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EA'),
   ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EB'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EC'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01ED'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EE'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EF'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EG'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EH'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EI'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EJ'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EK'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EL'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EM'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EN'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EO'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EP'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EQ'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01ER'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01ES'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01ET'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EU'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EV'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EW'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EX'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EY'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EZ'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01F'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01G'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01H'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01I'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01J'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01K'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01L'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01M'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01N'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01O'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01P'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01Q'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01R'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01S'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01T'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01U'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01V'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01W'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01X'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01Y'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01Z'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L05'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L06'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L07'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L08'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L09'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L1'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L2'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L3'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L4'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L5'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L6'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L7'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L8'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L9'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'O'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'Q'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'T'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'U'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'W'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X0'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X1'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X2'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X3'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X4'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X5'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X6'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X7'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X8'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'X9'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'Y'),
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'Z'),
   ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34')),
 -- ONC-OSI-INC-01 (inclusion): 病患年齡須滿十八歲。
 c_onc_osi_inc_01 AS (
@@ -99,17 +181,17 @@ c_onc_osi_inc_03 AS (
 a_onc_osi_exc_01_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND (e.d BETWEEN (b.index_date + -365) AND b.index_date OR (e.d IS NOT NULL AND e.te >= (b.index_date + -365) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 a_onc_osi_exc_01_1_nd AS (
   SELECT b.pid, b.index_date, count(*) AS n,
-         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc))) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) e ON e.pid = b.pid AND e.d IS NULL
+         string_agg(e.rid || '|' || coalesce(strftime(e.d, '%Y-%m-%d'), ''), ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR ((EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'http://www.whocc.no/atc' AND (starts_with(x.atc, vsf.prefix) OR (x.atc <> '' AND starts_with(vsf.prefix, x.atc)))) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (coalesce(x.atc, '') = '' AND NOT (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))))) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) e ON e.pid = b.pid AND (e.d IS NULL OR (e.te IS NULL AND e.d < (b.index_date + -365) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 a_onc_osi_exc_01_1_off AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d, coalesce(start, authored) AS ts, "end" AS te FROM medication x WHERE ((EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'http://www.whocc.no/atc' AND (starts_with(x.atc, vsf.prefix) OR (x.atc <> '' AND starts_with(vsf.prefix, x.atc)))) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (coalesce(x.atc, '') = '' AND NOT (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND (e.d BETWEEN (b.index_date + -365) AND b.index_date OR (e.d IS NOT NULL AND e.te >= (b.index_date + -365) AND e.ts <= b.index_date))
   GROUP BY b.pid, b.index_date),
 -- ONC-OSI-EXC-01 (exclusion): 申請前一年內已使用 EGFR 酪胺酸激酶抑制劑者（本申請限第一線治療）。
 c_onc_osi_exc_01 AS (

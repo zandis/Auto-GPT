@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-240 entries: 89 erase, 30 keep, 121 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+240 entries: 89 erase, 30 keep, 121 no patient data. 26 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -17,6 +17,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.answers`, `orch.feedback`, `orch.judged_pairs`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `sitesetup.fact`, `team.approach_overrides`, `team.candidate_views`, `team.referral_events`, `team.referrals`, `tuned.tuned_patients` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
 | `profile` | ProfileStore.erase: every version of the twin (D-440) | `profile.tb_patient_profile` |
+| `provenance_index` | D-989 point 5: the provenance index's use rows of the patient go (provenance_index.erase) | `outside:provenance_index` |
 | `screening_log` | a never-consented patient's screening-log rows stay, numbered, under a random token; the PI's note and the registry's reasons go; a trial subject's stay (OD-8, D-1032, D-875) | `datacore.subject`, `orch.candidate_events`, `site.pi_marks`, `site.screening_no`, `site.weekly_seen`, `study.rc_read_log`, `study.rc_record` |
 | `setup_uploads` | a patient's own upload to the site set-up (a chart) goes whole: rows, items, facts and files (D-869) | `sitesetup.check_item`, `sitesetup.fix`, `sitesetup.input` |
 | `vec` | VecStore.delete_patient: the chunks and every vector no other chunk uses (D-439) | `vec.embedding`, `vec.note_chunk` |
@@ -43,7 +44,6 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
-| `outside:provenance_index` | T-206b | the opt-out worker's clear of the use rows (D-989), once the role script grants its role DELETE (lane D) | D-989 point 5: the provenance index (schema provenance: model_calls, model_uses), derived from the audit chain and rebuilt from it; a use row names a patient by pseudonym and goes at the opt-out (tb_common.provenance_index.erase; a rebuild leaves an opted-out patient out); the call rows name no patient |
 | `outside:sitesetup_space_omop` | T-206b | the opt-out's clear in a practice space's store | the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake folder>, made by a publish while the lake is built from OMOP), and that space's own lake (its site files and snapshot keep a deleted chart's text until the space is published again, D-869): the space's uploaded patients; Reset of the space drops it whole (D-714) |
 | `pidmap.identity` | T-206b | the crypto-shred of the opted-out identity | the encrypted identity of the patient |
 | `recall.recall_known_positive` | T-206b | both columns, with the certificate not adding the patient again (the review of D-866) | pid_hash and draw_id: an unsalted hash of the pseudonym, linkable |

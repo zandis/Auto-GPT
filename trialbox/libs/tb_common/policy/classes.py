@@ -250,6 +250,8 @@ _D1 = {
     "ValidationSummary",
     "IngestReport",
     "OmopLoadSummary",  # T-106: counts and check names of a dual-write load, no patient data
+    "Dqd",  # H3-NLP 3.1: the DQD checks of a dual-write load that did not pass; counts and check names only
+    "DqdCheckRow",  # one such check: check, table, field, row counts, state and a known gap's reason
     "ConnectorReport",  # 10E-9: a connector's read counts and times per table, no patient data
     "TableReadTimes",  # 10E-9: one table's read counts, seconds and histogram, no patient data
     "StageTimes",  # OPT-1 §6: one stage's seconds and peak memory, no patient data
@@ -284,6 +286,7 @@ _D3 = {
     "ChunkSearchRequest",
     "ChunkSearchResult",
     "CriterionVerdict",
+    "Need",  # H-7: the view, field and concept an open answer needs, inside a patient's verdict: as CriterionVerdict
     "Evidence",
     "Opinion",  # each model's answer and quote when the two checks disagree (D-120): patient level, as Evidence
     "CodedValue",  # a coded record's value, unit, date and code behind an answer (T-514, D-362): as Evidence

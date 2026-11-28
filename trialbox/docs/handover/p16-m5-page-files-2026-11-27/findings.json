@@ -1,0 +1,36 @@
+{
+ "card": "P16",
+ "title": "M5's three page files: the health page, the support session, the data step",
+ "date": "2026-11-27",
+ "source": "docs/handover/p16-m5-page-files-2026-11-27.md",
+ "note": "basis 'shown' means shown by the card's local tests on the test console with a stand-in backend; no real box",
+ "findings": [
+  {
+   "id": "P16-01",
+   "severity": "High",
+   "claim": "the console declared three M5 page files (health_page, data_step, support_page) that no branch had: the health page, the support session and the data step were off on every box, and F0's test passed because they stood in its PENDING set",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "this card: the three pages built, PENDING emptied, the routes on rc1's allowed list"
+  },
+  {
+   "id": "P16-02",
+   "severity": "Medium",
+   "claim": "M3's page /admin/egress is not on rc1_guard.ALLOWED, so on a refused box (PRODUCTION) the administrator's page 'What left this box' is refused as a live patient list; found while adding M5's routes, not changed here",
+   "lane": "H",
+   "basis": "read",
+   "state": "open",
+   "fix": "for the integrator: rule whether the egress record page is allowed on a refused box"
+  },
+  {
+   "id": "P16-03",
+   "severity": "Low",
+   "claim": "no service records how long a model call takes: the health page's model latency line is the wall time of the jobs that called a model over their calls, an upper bound; and the console's audit reader keeps an ingest's totals only, so the data step reads the night's counts per type from the chain itself",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "a per-call time in the orchestrator's job metrics would make the line exact"
+  }
+ ]
+}

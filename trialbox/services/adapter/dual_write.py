@@ -17,7 +17,8 @@ its NDJSON snapshot is written, before the lake rebuild and apart from it:
   the error type, since a database message can quote a cell.
 * **The foreign-key check runs every night.** After the load the Data Quality Relational checks (``isRequired``,
   ``isPrimaryKey``, ``isForeignKey``, ``omop.dqd.relational_violations``) run on the store; the ones with violated
-  rows are in the summary, which goes into the ingest report and the night's audit event.
+  rows are in the summary, which goes into the ingest report and the night's audit event. So does every other
+  check of ``omop.dqd.run`` that did not pass (``dqd``), which the steward's night page lists (H3-NLP §3.1).
 * **The flag is read once**, when the night reaches this step: the stored flag of the trial database, else its seed
   variable ``TB_OMOP_DUAL_WRITE``, else ``off``.
 
@@ -96,6 +97,9 @@ def load_night(cfg: AdapterConfig, snap: str, ndjson_dir: Path) -> OmopLoadSumma
         db.close()
 
 
+DQD_FIELDS = ("checkName", "cdmTableName", "cdmFieldName", "numViolatedRows", "numDenominatorRows", "status", "notes")
+
+
 def _load(
     db: Any, cfg: AdapterConfig, snap: str, ndjson_dir: Path, done: Callable[..., OmopLoadSummary]
 ) -> OmopLoadSummary:
@@ -129,7 +133,23 @@ def _load(
         log.error("omop dual write %s: the relational checks failed to run (%s)", snap, type(exc).__name__)
         return done("loaded", counts=counts, relational_checks=0, error=f"relational checks: {type(exc).__name__}")
     bad = {k: v for k, v in sorted(rel.items()) if v}
-    return done("loaded", counts=counts, relational_checks=len(rel), relational_failed=bad)
+    return done("loaded", counts=counts, relational_checks=len(rel), relational_failed=bad, dqd=_dqd(db, snap))
+
+
+def _dqd(db: Any, snap: str) -> dict[str, Any] | None:
+    """H3-NLP §3.1: the whole DQD-shaped subset (``omop.dqd.run``) after the load; each check that did not pass, in
+    DQD's words (check, table, field, rows; a known gap with its reason), goes into the night report and the
+    steward's night page. Counts and check names only. None when the checks could not run."""
+    from omop import dqd
+
+    try:
+        res = dqd.run(db)
+    except Exception as exc:  # the load is committed; the checks' own failure is said in the log, not the night's
+        log.error("omop dual write %s: the data quality checks failed to run (%s)", snap, type(exc).__name__)
+        return None
+    s = dqd.summary(res)
+    return {"checks": s["checks"], "fail": s["fail"], "known": s["known"],
+            "failed": [{k: r[k] for k in DQD_FIELDS} for r in res if r["status"] != "pass"]}  # fmt: skip
 
 
 def _tombstones(ndjson_dir: Path) -> dict[str, list[str]]:

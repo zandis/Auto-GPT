@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "2d35403676d1afe8c82724a28b53d0502ddd7a83",
+  "head": "8e6f3b8a4f9c37dc380b472142aa5c21a6ab19f1",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-914: an inclusion's FALSE (or an exclusion's TRUE under none) for a patient with no coded record of the atom's kind reads unknown (no_record_of_kind), never an exclusion",
+  "reason": "int/data: the jp-ss synthetic fixture has chart numbers of its own (prefix 9); it shared 2xxxxxxx with synthetic-jp-a, so the H34-06 identity hold fired on 398 chart numbers",
   "ref_date": "2026-11-01",
   "ruleset": "NEUR-COH",
   "ruleset_version": "1.0.0",
@@ -43,7 +43,7 @@
   "ssmix2-jp": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "105c3c75a0e9ce306d02040f477fb1686cfaa612b07ff5754d309412534679ad",
+   "outcomes_sha": "767bd89514aaa97816d247e00da3ae3c290d9131e8626cc7fc6eb953cd5786fb",
    "patients": 400,
    "structured_criteria": [
     "NEUR-COH-INC-01",

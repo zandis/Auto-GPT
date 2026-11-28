@@ -178,7 +178,9 @@ def test_a_diagnosis_with_an_empty_code_is_unreadable() -> None:
     con = duckdb.connect()
     con.execute("CREATE TABLE condition (pid VARCHAR, cid VARCHAR, code VARCHAR, system VARCHAR, onset DATE, "
                 "recorded DATE)")  # fmt: skip
-    con.execute("CREATE TABLE medication (pid VARCHAR, mid VARCHAR, atc VARCHAR, authored DATE)")
+    con.execute(
+        'CREATE TABLE medication (pid VARCHAR, mid VARCHAR, atc VARCHAR, authored DATE, start DATE, "end" DATE)'
+    )
     con.execute("INSERT INTO condition VALUES ('EMPTY', 'c-empty', '', ?, DATE '2026-03-01', NULL), "
                 "('NULL', 'c-null', NULL, ?, DATE '2026-03-01', NULL), "
                 "('CODED', 'c-coded', 'M10.9', ?, DATE '2026-03-01', NULL)", [ICD10CM, ICD10CM, ICD10CM])  # fmt: skip

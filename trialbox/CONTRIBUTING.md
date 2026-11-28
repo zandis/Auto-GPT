@@ -78,6 +78,13 @@ Building, testing, deploying and sharing the software need no IRB, ethics, confl
 step, because development uses synthetic or public data only. Rules that apply only when real patient data is read
 are in `docs/decisions/D-311-no-development-gates.md`.
 
+## Clinical tolerance
+
+Clinical staff are not IT people, so the product forgives by default and stops only for a named harm to a patient or
+to data. Every pull request is reviewed against the checklist in
+[`.claude/rules/clinical-tolerance.md`](../.claude/rules/clinical-tolerance.md): name the harm class of any new stop
+in the PR body, and prefer a default and a warning, an auto-fix, an ask-once, a retry, an undo or a role release.
+
 ## Licence
 
 `pyproject.toml` declares the package "Proprietary". The owner has not yet named a licence for `trialbox/`; there is
