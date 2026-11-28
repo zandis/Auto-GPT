@@ -2691,9 +2691,14 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
         return Check(
             "provenance_index", "PASS", "NOT CHECKED: no TB_DB_URL (run trialbox provenance --check on the box)"
         )
+    audit = Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit"))
+    if not audit.is_dir():  # the host check's one-off container mounts no audit volume: no marker to read here
+        return Check("provenance_index", "WARN", f"NOT CHECKED here: no audit folder {audit} (run trialbox "
+                     "provenance --check on the box)")  # fmt: skip
+    marker = idx.read_marker(audit)
+    if not marker.clean:  # P19-DESIGN-3 §2: before any database work, with the operator's step
+        return Check("provenance_index", "FAIL", marker.text)
     from tb_common.audit_writer import _dsn, _psycopg
-
-    from tools.trialbox.provenance import _erased
 
     try:
         con = _psycopg().connect(_dsn(url), autocommit=True, connect_timeout=10)
@@ -2704,7 +2709,7 @@ def check_provenance_index(inp: DoctorInputs) -> Check:
             why = ("not installed: the role script creates provenance.model_calls and provenance.model_uses (D-989 "
                    "step 2c); until then the chain is written without the index")  # fmt: skip
             return Check("provenance_index", "WARN", why)
-        diff = idx.check(con, Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")), _erased(url))
+        diff = idx.check(con, Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")))
     finally:
         con.close()
     if not diff.ok:

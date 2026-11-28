@@ -28,19 +28,33 @@ def _connect(url: str) -> Any:
     return _psycopg().connect(_dsn(url), autocommit=True, connect_timeout=10)
 
 
-def _erased(url: str) -> frozenset[str]:
-    """The pseudonyms opted out now, read through the decision context as every caller outside a job reads them."""
-    from orchestrator.decision_context import register_now
+#: review B1 (PR 1584): the rebuild where the chain and the index are, on a compose box
+REBUILD_IN_BOX = ("run", "--rm", "--no-deps", "-T", "-e", "TB_DB_URL", "audit-writer", "python", "-m",
+                  "tb_common.provenance_index", "rebuild")  # fmt: skip
 
-    before = os.environ.get("TB_DB_URL")
-    os.environ["TB_DB_URL"] = url
+
+def _rebuild_in_box() -> int | None:
+    """On a box's host (its ``deploy/.env``, not in its image) the rebuild runs in a one-off audit-writer container:
+    the one service that mounts the audit volume read-write, as the box's admin (its ``TB_DB_URL``, which may empty
+    the index; the drain's role may not). The URL travels in the environment, never on the command line. The
+    container's exit code; None: not a box's host."""
+    import subprocess
+
+    from tools.trialbox import box_hold, launch
+
+    if launch.in_box_image():
+        return None
     try:
-        return register_now()
-    finally:
-        if before is None:
-            os.environ.pop("TB_DB_URL", None)
-        else:
-            os.environ["TB_DB_URL"] = before
+        box = launch.box_file(launch.DEPLOY)
+    except launch.BoxFileError as e:
+        print(f"trialbox provenance: {e}", file=sys.stderr)
+        return 2
+    if not box.get("TB_DB_URL"):
+        return None
+    deploy = Path(os.path.abspath(launch.DEPLOY))
+    compose, env = box_hold.engine(deploy, box)
+    env["TB_DB_URL"] = box["TB_DB_URL"]
+    return subprocess.run([*compose, *REBUILD_IN_BOX], env=env, cwd=deploy, check=False).returncode
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -61,9 +75,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--audit-dir", default=os.environ.get("TB_AUDIT_DIR") or "/data/audit")
     ap.add_argument("--db-url", default=os.environ.get("TB_DB_URL") or "")
     a = ap.parse_args(list(argv) if argv is not None else None)
+    if a.rebuild and not Path(a.audit_dir).is_dir():  # no chain here: the box's host (review B1)
+        rc = _rebuild_in_box()
+        if rc is not None:
+            return rc
     if not a.db_url:
         print("trialbox provenance: TB_DB_URL is not set", file=sys.stderr)
         return 2
+    if a.check:  # P19-DESIGN-3 §2: refused with the operator's step before any database work
+        m = idx.read_marker(Path(a.audit_dir))
+        if not m.clean:
+            print(m.text)
+            return 1
     con = _connect(a.db_url)
     try:
         if not idx.installed(con):
@@ -72,10 +95,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if a.search:
             try:
                 rows = idx.search(con, model=a.model, build_sha=a.build_sha, prompt_sha=a.prompt_sha,
-                                  prompt_id=a.prompt_id, prompt_version=a.prompt_version, limit=a.limit)  # fmt: skip
+                                  prompt_id=a.prompt_id, prompt_version=a.prompt_version, limit=a.limit,
+                                  directory=Path(a.audit_dir))  # fmt: skip
             except ValueError as exc:
                 print(f"trialbox provenance: {exc}", file=sys.stderr)
                 return 2
+            except idx.ProvenanceRebuildRequired as exc:  # P-19 (review P19-X1)
+                print(f"trialbox provenance: {exc}", file=sys.stderr)
+                return 1
             if a.json:
                 print(json.dumps(rows, ensure_ascii=False, indent=1))
             else:
@@ -85,13 +112,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(f"{r['at']}  {r['record_kind']:<9} {ref}  {r['event']}{how}  call {r['call_id']}")
                 print(f"{len(rows)} record(s)")
             return 0
-        erased = _erased(a.db_url)
         audit = Path(a.audit_dir)
-        if a.rebuild:
-            calls, uses = idx.rebuild(con, audit, erased)
+        if a.rebuild:  # P19-DESIGN-3 §3: the rebuild writes the marker itself, verified last
+            try:
+                calls, uses = idx.rebuild(con, audit, say=print)
+            except idx.RebuildRefused as exc:
+                print(f"provenance index: the rebuild was refused: {exc}", file=sys.stderr)
+                return 1
             print(f"provenance index rebuilt from {audit}: {calls} call(s), {uses} use(s)")
             return 0
-        diff = idx.check(con, audit, erased)
+        diff = idx.check(con, audit)
         if diff.ok:
             print("provenance index: equal to the chain")
             return 0
