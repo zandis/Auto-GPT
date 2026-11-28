@@ -15,9 +15,15 @@ name: TrialBox CI
 # The `changes` job decides instead; a job it skips reports "skipped", which satisfies a required check.
 on:
   pull_request:
+    # PROCESS-3: a pull request into int/r1plus1 is gated before it is pushed (the full local gate, then the lander), so this workflow
+    # does not run on it; a release pull request into master still does, which is what keeps master's required checks satisfiable.
+    # The box-install rehearsal (trialbox-rehearse-box.yml) keeps its pull-request trigger: it decides itself whether a change
+    # touches the installer or the updater, and the lander reads its `rehearse-result` check by name for those changes.
+    branches: [master]
     types: [opened, synchronize, reopened, ready_for_review]  # D-564: marking ready starts the full tier
   push:
-    branches: [master]
+    # int/r1plus1: the record of every landed change (and what the watcher gates); never a merge condition
+    branches: [master, int/r1plus1]
   workflow_dispatch:
 
 permissions:
