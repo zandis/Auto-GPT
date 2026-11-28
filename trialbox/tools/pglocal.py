@@ -183,7 +183,7 @@ def _ensure_locked(root: Path) -> str:
         time.sleep(0.1)
     psql = [*pre, str(b / "psql"), "-h", str(sock), "-U", "postgres", "-d", "postgres", "-tAqc"]
     if _run([*psql, f"SELECT 1 FROM pg_roles WHERE rolname='{_user()}'"]).stdout.strip() != "1":
-        _run([*psql, f"CREATE ROLE {_user()} LOGIN CREATEDB"])
+        _run([*psql, f"CREATE ROLE {_user()} LOGIN CREATEDB CREATEROLE"])
     if _run([*psql, f"SELECT 1 FROM pg_database WHERE datname='{DB}'"]).stdout.strip() != "1":
         r = _run([*psql, f"CREATE DATABASE {DB} OWNER {_user()}"])
         if r.returncode != 0:
