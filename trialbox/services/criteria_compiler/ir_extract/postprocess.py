@@ -28,6 +28,7 @@ from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtrac
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
+from criteria_compiler.ir_extract import window_rules
 from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, demographic_alone, kind
@@ -577,6 +578,12 @@ def postprocess(
         cid = f"{ruleset}-{code}-{counters[code]:02d}"
         flags: list[str] = []
         raw = dump(ec)
+        # advisory only (window_rules): where the line's time windows and the extraction's differ, the reviewer is told;
+        # nothing is changed, dropped or decided here, and no flag or class follows from it
+        if isinstance(raw.get("logic"), dict):
+            warnings.extend(
+                window_rules.say(cid, a) for a in window_rules.advise(str(raw.get("text") or ""), raw["logic"])
+            )
         logic_raw, stray = strip_stray(
             raw.get("logic") or {"domain": "demographic"}, str(raw.get("text") or ""), str(ec.kind)
         )
