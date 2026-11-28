@@ -19,6 +19,7 @@ import gc
 import json
 import os
 import re
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
@@ -416,6 +417,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rep
 
     lists_of: dict[str, tuple[tuple[str, str], dict[str, Any]]] = {}  # study -> (its run's list object, parsed)
+    parsing = threading.Lock()  # people opening pages together after a run share one parse (E2E P-06: memory)
+
+    def freeze() -> None:
+        """MVP-B: the kept list and fits are millions of objects; each full collection walked them all (2.4 s a view
+        at 100,000 rows, measured). Frozen, the collector skips them; a list let go is still freed by its count. The
+        garbage of the moment is collected first, so none of it is frozen.
+        ponytail: a reference cycle still in use by another request at this moment is never collected once it is
+        garbage (once per new run's list); per-process, not per-study."""
+        gc.collect()
+        gc.freeze()
 
     def candidate_list(job: Job) -> dict[str, Any] | None:
         """MVP-B: a run's stored candidate list never changes, so it is read and parsed once per study and run, not at
@@ -427,14 +438,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         key = (out.minio_key, out.sha256)
         got = lists_of.get(job.ruleset)
         if got is None or got[0] != key:
-            cl = load(job, "candidate_list_", ".json")
-            if cl is None:
-                return None  # not kept: the next view asks again
-            got = lists_of[job.ruleset] = (key, cl)
-            # MVP-B: the kept list is millions of objects; each full collection walked them all (2.4 s a view at
-            # 100,000 rows, measured). Frozen, the collector skips them; a list let go is still freed by its count.
-            # ponytail: anything else in a reference cycle at this moment is never collected (once a new run's list).
-            gc.freeze()
+            with parsing:
+                got = lists_of.get(job.ruleset)
+                if got is None or got[0] != key:
+                    cl = load(job, "candidate_list_", ".json")
+                    if cl is None:
+                        return None  # not kept: the next view asks again
+                    for k in [k for k in fits_of if k[0] == job.ruleset]:
+                        del fits_of[k]  # the old list's fits (every language) go with it
+                    got = lists_of[job.ruleset] = (key, cl)
+                    freeze()
         return got[1]
 
     fits_of: dict[tuple[str, str], tuple[Any, Any, dict[str, Any]]] = {}  # (study, language) -> (list, criteria, fits)
@@ -478,7 +491,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             cl, crit, registry_map(rs), store.latest_marks(rs), seen, job.job_id, names, today=h.today(), fits=fits
         )
         if len(fits) != made:
-            gc.freeze()  # MVP-B: the fits just made are kept with the list, so frozen with it (see candidate_list)
+            freeze()  # the fits just made are kept with the list, so frozen with it
         others_of(sess, rs, rows)
         people = ps.read(h, rs)  # D-1221: the one state of each person, the same on every list
         for r in rows:
@@ -487,7 +500,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
                 "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked,
-                "people": people, "fits": fits}  # fmt: skip
+                "people": people, "fits": fits, "crit": crit}  # fmt: skip
 
     def deceased_now(cl: dict[str, Any] | None) -> tuple[set[str], bool]:
         """FIT-U04 (T-629, D-415): the listed patients whose record in the lake now says they died (T-616's

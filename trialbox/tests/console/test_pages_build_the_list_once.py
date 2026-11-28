@@ -36,13 +36,13 @@ def _list_key(box: dict[str, Any]) -> str:
 def test_the_runs_stored_list_is_read_once_for_every_page_view(
     box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    crc = clients(box)["coordinator"]
-    bk, key, reads = box["backend"], _list_key(box), []
+    bk, reads = box["backend"], []
     get = bk.get_object
-    monkeypatch.setattr(bk, "get_object", lambda k: (reads.append(k) if k == key else None, get(k))[1])
+    monkeypatch.setattr(bk, "get_object", lambda k: (reads.append(k) if "/candidate_list_" in k else None, get(k))[1])
+    crc = clients(box)["coordinator"]  # signing in opens the home page, which may read the run's list first
     for path in PAGES:
         assert crc.get(path, follow_redirects=False).status_code == 200, path
-    assert len(reads) <= 1, reads  # was 6 for these four views
+    assert reads == [_list_key(box)], reads  # once; was 6 for these four views alone
 
 
 def test_a_second_view_writes_no_seen_row_and_works_out_no_listed_fit_again(
