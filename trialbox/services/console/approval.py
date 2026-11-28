@@ -287,7 +287,8 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             words = " ".join(text.split())[:80]
             cur, shown = ctx["labels"].get(crit, ""), " ".join(was.split())[:80]
             if words and words not in (shown, cur):
-                if cur != shown:  # saved meanwhile by another person: not written over, the page then shows theirs
+                # saved meanwhile by another person (not the shipped label): not written over; the page shows theirs
+                if cur != shown and crit not in ctx["shipped"]:
                     done["conflicts"] = done.get("conflicts", 0) + 1
                     continue
                 au.append("console.criterion_label", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
