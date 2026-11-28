@@ -148,3 +148,107 @@ def tally(facts: Iterable[Facts]) -> tuple[int, list[dict[str, Any]]]:
         c.update(f.opens)
     rows = [{"criterion": k[0], "reason": k[1], "where": k[2], "count": v} for k, v in sorted(c.items())]
     return n, rows
+
+
+# H-7 (REAL2): what the site must supply for an open answer. The views and fields are those of the site mapping
+# template (services/adapter/mapping/tw_core/demo_his.yaml): a site copies it and changes only the names, so the site's
+# IT reads its own view beside the template's (tests/unit/test_open_reasons_needs.py checks each name is one the
+# template reads). Deterministic: the reason, the criterion's atoms and the ruleset's value sets, nothing else.
+CODE_FIELD: dict[str, tuple[str, str]] = {
+    "condition": ("diagnosis", "icd10"),
+    "observation": ("lab", "local_code"),
+    "medication": ("medication", "nhi_drug_code"),
+    "procedure": ("procedure", "order_code"),
+    "encounter": ("encounter", "dept_code"),
+    "demographic": ("patient", "birth_date"),
+    "claim": ("claim", "product_code"),
+    "report": ("report", "exam_code"),
+}
+#: the vital signs the template reads from its vital view (LOINC -> field); any other observation is a lab result
+VITAL_FIELD = {"8302-2": "height_cm", "29463-7": "weight_kg", "8480-6": "sbp", "8462-4": "dbp"}
+#: a score's inputs that are vital signs (``tb_common.derived.COMPONENTS``); every other input is a lab result row
+DERIVED_VITAL = {"height": "height_cm", "weight": "weight_kg"}
+LAB_VALUE, LAB_UNIT = ("lab", "result_value"), ("lab", "unit")
+NOTE_TEXT, ORDER_END = ("note", "text"), ("medication", "end_date")
+#: the reasons about a recorded value (none, unreadable, not usable): the value field, not the code field
+_VALUE_REASONS = {
+    Reason.DATA_GAP, Reason.UNKNOWN_KEPT, Reason.UNKNOWN_VALUE, Reason.DERIVED_UNIT, Reason.DERIVED_ADULT_ONLY,
+    Reason.DERIVED_NOT_STORED, Reason.DERIVED_VS_DOCUMENTED, Reason.RULES_CHANGED,
+}  # fmt: skip
+
+NEEDS_TEXT = {
+    "en": "The site's data needs {view}.{field} for {concept}",
+    "ja": "施設データに {concept} の {view}.{field} が必要です",
+    "zh-TW": "本院資料需提供 {concept} 的 {view}.{field}",
+}
+
+
+def named_sources() -> list[tuple[str, str]]:
+    """Every (view, field) :func:`needs` can name."""
+    out = [*CODE_FIELD.values(), LAB_VALUE, LAB_UNIT, NOTE_TEXT, ORDER_END]
+    out += [("vital", f) for f in (*VITAL_FIELD.values(), *DERIVED_VITAL.values())]
+    return sorted(set(out))
+
+
+def _atoms(node: Any) -> list[Any]:
+    """The criterion's atoms, depth first."""
+    if getattr(node, "domain", None):
+        return [node]
+    return [a for arg in getattr(node, "args", None) or () for a in _atoms(arg)]
+
+
+def _codes(valueset: str | None, valuesets: Mapping[str, Any] | None) -> set[str]:
+    vs = (valuesets or {}).get(valueset or "") or {}
+    return {str(c.get("code")) for i in (vs.get("compose") or {}).get("include") or [] for c in i.get("concept") or []}
+
+
+def _pick(r: Reason, atoms: list[Any]) -> Any:
+    """The atom the reason is about: a medication with a duration for missing order dates, the scored atom for a
+    score's reason, a valued atom for a value reason, else the first atom."""
+    if r is Reason.ORDER_DATES_MISSING:
+        return next((a for a in atoms if a.domain == "medication" and getattr(a, "duration", None)), atoms[0])
+    if r.value.startswith("derived_"):
+        return next((a for a in atoms if getattr(a, "derived", None)), atoms[0])
+    if r in _VALUE_REASONS:
+        return next((a for a in atoms if getattr(a, "value", None) is not None), atoms[0])
+    return atoms[0]
+
+
+def needs(reason: str | None, criterion: Any, valuesets: Mapping[str, Any] | None = None) -> dict[str, str] | None:
+    """``{"view", "field", "concept"}``: what the site must supply for an open answer with this engine reason (the
+    engine's own string or a code; ``derived_missing_input:<input>`` names the input). None for a decided answer and
+    for one a person or a model decides (:data:`PERSON`), except no notes (the note feed)."""
+    try:
+        r = Reason(code_of(reason) or "")
+    except ValueError:
+        return None
+    if r in DECIDED or (r in PERSON and r is not Reason.NO_NOTES):
+        return None
+    atoms = _atoms(criterion.logic)
+    if r is Reason.NO_NOTES or criterion.class_ == "note" or not atoms:
+        return {"view": NOTE_TEXT[0], "field": NOTE_TEXT[1], "concept": str(criterion.id)}
+    a = _pick(r, atoms)
+    concept = str(a.valueset)
+    if r is Reason.ORDER_DATES_MISSING:
+        view, field = ORDER_END
+    elif r is Reason.UNIT_MISMATCH:
+        view, field = LAB_UNIT
+    elif r.value.startswith("derived_") and getattr(a, "derived", None):
+        part = str(reason or "").partition(":")[2].strip()
+        concept = f"{a.derived}: {part}" if part else str(a.derived)
+        view, field = ("vital", DERIVED_VITAL[part]) if part in DERIVED_VITAL else LAB_VALUE
+    elif a.domain == "observation" and (vital := VITAL_FIELD.keys() & _codes(a.valueset, valuesets)):
+        view, field = "vital", VITAL_FIELD[min(vital)]
+    elif a.domain == "observation" and r in _VALUE_REASONS:
+        view, field = LAB_VALUE
+    else:
+        view, field = CODE_FIELD[a.domain]
+    return {"view": view, "field": field, "concept": concept}
+
+
+def needs_text(need: Mapping[str, str] | None, lang: str = "en") -> str:
+    """The need as one sentence in the page language (English for another language); empty for none."""
+    if not need:
+        return ""
+    tpl = NEEDS_TEXT.get(lang) or NEEDS_TEXT.get(lang.split("-", maxsplit=1)[0]) or NEEDS_TEXT["en"]
+    return tpl.format(**need)
