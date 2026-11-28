@@ -1,7 +1,7 @@
 """Lane H, PoC item 2: "Your first day" in Help.
 
 One page per role that starts a site (investigator, coordinator, data steward, administrator) at ``/help/first-day``,
-and seven one-page procedures at ``/help/first-day/<procedure>``, in en, ja and zh-TW. The page shows the signed-in
+and seven one-page procedures at ``/help/first-day?procedure=<name>``, in en, ja and zh-TW. The page shows the signed-in
 role's own and links only the procedures that role uses; a role with no first-day page, or a procedure the role does
 not use, is a 404 (as ``/help/guide`` gives an account only its own role's guide).
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 from tb_common import site_needs
 
 from console.i18n import lookup
@@ -95,7 +95,7 @@ def rules(lang: str) -> list[str]:
     return [_text(lang, f"fd.rule.{n}") for n in range(1, 5)]
 
 
-def procedure(slug: str, role: str, lang: str) -> dict[str, Any]:
+def procedure_of(slug: str, role: str, lang: str) -> dict[str, Any]:
     """One procedure in ``lang``: title, when to use it, the steps, the note and the links this role may open."""
     labels = _labels(lang)
     steps, n = [], 1
@@ -113,28 +113,25 @@ def procedure(slug: str, role: str, lang: str) -> dict[str, Any]:
 
 def register(app: FastAPI, h: Any) -> None:
     @app.get("/help/first-day")
-    def first_day_page(request: Request) -> Response:
+    def first_day_page(request: Request, procedure: str = "") -> Response:
+        """The role's first-day page; with ``?procedure=<name>`` one of the role's procedures."""
         sess = h.need(request)
         role = sess.user.role
         if role not in ROLE_PROCEDURES:
-            raise h.problem(404, "notfound")
+            return RedirectResponse("/help/guide", status_code=303)  # no first-day page: the role's own guide
+        if procedure:
+            if procedure not in ROLE_PROCEDURES[role]:
+                raise h.problem(404, "notfound")
+
+            def proc(lang: str) -> dict[str, Any]:
+                return procedure_of(procedure, role, lang)
+
+            shown: Response = h.page(request, "first_day_procedure.html", sess, role=role, slug=procedure, proc=proc)
+            return shown
 
         def page(lang: str) -> dict[str, Any]:
             return {"title": title(lang), "today": today(role, lang), "rules": rules(lang),
-                    "procs": {s: procedure(s, role, lang) for s in ROLE_PROCEDURES[role]}}  # fmt: skip
+                    "procs": {s: procedure_of(s, role, lang) for s in ROLE_PROCEDURES[role]}}  # fmt: skip
 
         response: Response = h.page(request, "first_day.html", sess, role=role, page=page)
-        return response
-
-    @app.get("/help/first-day/{slug}")
-    def first_day_procedure(request: Request, slug: str) -> Response:
-        sess = h.need(request)
-        role = sess.user.role
-        if slug not in ROLE_PROCEDURES.get(role, ()):
-            raise h.problem(404, "notfound")
-
-        def proc(lang: str) -> dict[str, Any]:
-            return procedure(slug, role, lang)
-
-        response: Response = h.page(request, "first_day_procedure.html", sess, role=role, slug=slug, proc=proc)
         return response

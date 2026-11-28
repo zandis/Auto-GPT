@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {# Lane H: "Your first day", the signed-in role's own page (console.first_day) #}
-{% block title %}{{ t('fd.title') }}{% endblock %}
+{% block title %}{{ page(lang).title }}{% endblock %}
 {% block content %}
 {% set g = page(lang) %}
 <article class="guide" data-testid="first-day" data-role="{{ role }}">
-<h1>{{ g.title }}</h1>
+<h1>{{ page(lang).title }}</h1>
 <p class="hint">{{ t('fd.intro') }}</p>
 <section class="card"><h2>{{ t('role.' + role) }}</h2><p>{{ g.today }}</p></section>
 <section class="card" data-testid="fd-procs"><h2>{{ t('fd.procs') }}</h2>
-<ul class="plain">{% for s, p in g.procs.items() %}<li><a href="/help/first-day/{{ s }}" data-testid="fd-proc-{{ s }}">{{ p.title }}</a> <span class="hint">{{ p.use }}</span></li>{% endfor %}</ul></section>
+<ul class="plain">{% for s, p in g.procs.items() %}<li><a href="/help/first-day?procedure={{ s }}" data-testid="fd-proc-{{ s }}">{{ p.title }}</a> <span class="hint">{{ p.use }}</span></li>{% endfor %}</ul></section>
 <section class="card" data-testid="fd-rules"><h2>{{ t('fd.rules') }}</h2>
 <ul class="plain">{% for r in g.rules %}<li>{{ r }}</li>{% endfor %}</ul></section>
 <p class="noprint"><a class="button secondary" href="/help">{{ t('cmd.back') }}</a></p>

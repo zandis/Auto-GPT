@@ -81,9 +81,9 @@ def test_each_role_opens_its_first_day_page(fd_box: dict[str, Any], role: str, l
     assert first_day.title(lang) in _text(page.text)
     hrefs = HREF.findall(page.text)
     for slug in first_day.ROLE_PROCEDURES[role]:
-        assert f"/help/first-day/{slug}" in hrefs
+        assert f"/help/first-day?procedure={slug}" in hrefs
     for slug in set(SLUGS) - set(first_day.ROLE_PROCEDURES[role]):
-        assert f"/help/first-day/{slug}" not in hrefs  # only the procedures this role uses
+        assert f"/help/first-day?procedure={slug}" not in hrefs  # only the procedures this role uses
     # the page shows the signed-in role's, in that language, and no other role's page
     assert first_day.today(role, lang) in _text(page.text)
     for other in ROLES:
@@ -92,20 +92,23 @@ def test_each_role_opens_its_first_day_page(fd_box: dict[str, Any], role: str, l
 
 
 @pytest.mark.parametrize("role", OTHER_ROLES)
-def test_a_role_without_a_first_day_page_is_refused_and_not_linked(fd_box: dict[str, Any], role: str) -> None:
+def test_a_role_without_a_first_day_page_is_sent_to_its_own_guide_and_not_linked(
+    fd_box: dict[str, Any], role: str
+) -> None:
     client = _client(fd_box, role, "en")
     assert 'href="/help/first-day"' not in client.get("/help").text
-    # a CRO's account reaches Help's own pages only and is refused (403) as for any other page; the rest get 404
-    assert client.get("/help/first-day").status_code in (403, 404)
-    assert client.get("/help/first-day/install-check").status_code in (403, 404)
+    # no first-day page for the role: Help's other pages answer, so the account is sent to its own role guide
+    for path in ("/help/first-day", "/help/first-day?procedure=install-check"):
+        r = client.get(path, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/help/guide", path
 
 
 @pytest.mark.parametrize("role", ROLES)
 def test_a_role_cannot_open_a_procedure_it_does_not_use(fd_box: dict[str, Any], role: str) -> None:
     client = _client(fd_box, role, "en")
     for slug in set(SLUGS) - set(first_day.ROLE_PROCEDURES[role]):
-        assert client.get(f"/help/first-day/{slug}").status_code == 404
-    assert client.get("/help/first-day/no-such-procedure").status_code == 404
+        assert client.get(f"/help/first-day?procedure={slug}").status_code == 404
+    assert client.get("/help/first-day?procedure=no-such-procedure").status_code == 404
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -113,7 +116,7 @@ def test_a_role_cannot_open_a_procedure_it_does_not_use(fd_box: dict[str, Any], 
 def test_each_procedure_of_the_role_renders_and_links_resolve(fd_box: dict[str, Any], role: str, lang: str) -> None:
     client = _client(fd_box, role, lang)
     routes = [r for r in fd_box["app"].routes if hasattr(r, "path_regex")]
-    pages = ["/help/first-day", *[f"/help/first-day/{s}" for s in first_day.ROLE_PROCEDURES[role]]]
+    pages = ["/help/first-day", *[f"/help/first-day?procedure={s}" for s in first_day.ROLE_PROCEDURES[role]]]
     seen: set[str] = set()
     for path in pages:
         page = client.get(path)
@@ -128,8 +131,8 @@ def test_each_procedure_of_the_role_renders_and_links_resolve(fd_box: dict[str, 
             assert any(r.path_regex.fullmatch(target) for r in routes), target  # a real route
             assert client.get(target).status_code < 400, (role, target)  # and one this role opens
     for slug in first_day.ROLE_PROCEDURES[role]:
-        proc = client.get(f"/help/first-day/{slug}")
-        parts = first_day.procedure(slug, role, lang)
+        proc = client.get(f"/help/first-day?procedure={slug}")
+        parts = first_day.procedure_of(slug, role, lang)
         assert parts["title"] in proc.text
         assert len(re.findall(r'data-testid="fd-step"', proc.text)) == len(parts["steps"]) >= 4
         assert 'href="/help/first-day"' in proc.text  # back to the first-day page
@@ -144,7 +147,7 @@ def test_every_procedure_has_the_same_parts_in_all_languages() -> None:
             assert all(cat[k].strip() for k in keys), (slug, lang)
             shapes[lang] = keys
         assert shapes["en"] == shapes["ja"] == shapes["zh-TW"], slug
-        parts = {lang: first_day.procedure(slug, "admin" if slug in first_day.ROLE_PROCEDURES["admin"] else
+        parts = {lang: first_day.procedure_of(slug, "admin" if slug in first_day.ROLE_PROCEDURES["admin"] else
                                            first_day.PROCEDURE_ROLES[slug][0], lang) for lang in LANGS}  # fmt: skip
         for lang in LANGS:
             assert set(parts[lang]) == {"title", "use", "steps", "note", "links"}
@@ -168,7 +171,7 @@ def test_a_procedure_names_only_the_consoles_own_labels() -> None:
     for slug in SLUGS:
         role = first_day.PROCEDURE_ROLES[slug][0]
         for lang in LANGS:
-            body = " ".join(first_day.procedure(slug, role, lang)["steps"])
+            body = " ".join(first_day.procedure_of(slug, role, lang)["steps"])
             quoted = {n for n in labels if "{" + n + "}" in CATALOGUES["en"]["fd.proc." + slug + ".step.1"]}
             for n in quoted:
                 assert (lookup(lang, labels[n]) or "") in body

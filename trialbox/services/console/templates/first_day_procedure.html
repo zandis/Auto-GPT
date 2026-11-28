@@ -4,7 +4,7 @@
 {% block content %}
 {% set p = proc(lang) %}
 <article class="guide" data-testid="first-day-procedure" data-role="{{ role }}" data-procedure="{{ slug }}">
-<h1>{{ p.title }}</h1>
+<h1>{{ proc(lang).title }}</h1>
 <p class="hint"><strong>{{ t('fd.use') }}:</strong> {{ p.use }}</p>
 <section class="card"><h2>{{ t('fd.steps') }}</h2>
 <ol>{% for s in p.steps %}<li data-testid="fd-step">{{ s }}</li>{% endfor %}</ol></section>
