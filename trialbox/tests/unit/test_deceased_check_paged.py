@@ -5,6 +5,7 @@ now asks in pages the orchestrator takes. Synthetic pseudonyms only."""
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -66,7 +67,8 @@ class _Malformed(_Orchestrator):
 
     def post_raw(self, path: str, body: dict[str, Any], headers: dict[str, str] | None = None) -> httpx.Response:
         resp = super().post_raw(path, body, headers)
-        return resp if len(self.sizes) == 1 else httpx.Response(200, json=self.body)
+        # json.dumps, not json=: a body of None must reach the console as the valid JSON `null`, not as an empty body
+        return resp if len(self.sizes) == 1 else httpx.Response(200, content=json.dumps(self.body))
 
 
 @pytest.mark.parametrize(
@@ -87,11 +89,12 @@ def test_a_page_answered_200_in_the_wrong_shape_stops_contacts(body: Any) -> Non
         _console(_Malformed(body)).deceased(STUDY)
 
 
-def test_a_page_answered_200_without_json_stops_contacts() -> None:
+@pytest.mark.parametrize("content", [b"", b"<html>proxy</html>"], ids=["empty-body", "html-body"])
+def test_a_page_answered_200_without_json_stops_contacts(content: bytes) -> None:
     class _NotJson(_Orchestrator):
         def post_raw(self, path: str, body: dict[str, Any], headers: dict[str, str] | None = None) -> httpx.Response:
             resp = super().post_raw(path, body, headers)
-            return resp if len(self.sizes) == 1 else httpx.Response(200, text="<html>proxy</html>")
+            return resp if len(self.sizes) == 1 else httpx.Response(200, content=content)
 
     with pytest.raises(Unavailable):
         _console(_NotJson({STUDY[25_000]})).deceased(STUDY)
