@@ -1,0 +1,24 @@
+{
+  "card": "CXIR31",
+  "title": "IR 3 SQL qualifiers",
+  "date": "2026-11-26",
+  "source": "docs/handover/cx-ir31.md",
+  "findings": [
+    {
+      "id": "CXIR31-01",
+      "severity": "High",
+      "claim": "The flattened query snapshot does not expose the OMOP detail relations required by the new v3 SQL path; runtime integration is not implemented or verified in this compiler-only job.",
+      "lane": "CX",
+      "basis": "shown",
+      "state": "open"
+    },
+    {
+      "id": "CXIR31-02",
+      "severity": "High",
+      "claim": "The approved GZQO-EXC-13 source still compares ALT with 120 rather than the row ULN. Its v3 SQL replacement is demonstrated separately; the loader and CQL path still consume v1.",
+      "lane": "CX",
+      "basis": "shown",
+      "state": "open"
+    }
+  ]
+}
