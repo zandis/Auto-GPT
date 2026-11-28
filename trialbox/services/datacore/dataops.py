@@ -62,6 +62,27 @@ NEXT: dict[str, tuple[str, ...]] = {
 DECISIONS = {"accept": PUBLISHED, "reject": REJECTED}
 EVENT_DECIDE = "dataops.decide"
 EVENT_STEP = "dataops.step"
+DQD_ROW = ("checkName", "cdmTableName", "cdmFieldName", "numViolatedRows", "numDenominatorRows", "status", "notes")
+
+
+def omop_kept(omop: Any) -> dict[str, Any]:
+    """H3-NLP §3.1: what a batch row keeps of the night's OMOP load: its state and the data quality record, the
+    three counts and per check DQD's seven fields; every other key is dropped."""
+    if not isinstance(omop, Mapping):
+        return {}
+    out: dict[str, Any] = {"state": omop["state"]} if isinstance(omop.get("state"), str) else {}
+    dqd = omop.get("dqd")
+    if isinstance(dqd, Mapping):
+        rows = dqd.get("failed")
+        out["dqd"] = {
+            **{k: dqd.get(k) for k in ("checks", "fail", "known")},
+            "failed": [{k: r.get(k) for k in DQD_ROW} for r in rows if isinstance(r, Mapping)]
+            if isinstance(rows, list)
+            else rows,
+        }
+    return out
+
+
 # what a batch row keeps from the night's audit detail (tables and counts only, never a row)
 DETAIL_KEYS = (
     "gate",
@@ -72,7 +93,7 @@ DETAIL_KEYS = (
     "unmapped",
     "unmapped_kinds",  # NEW-B-39 (D-740): the same rows per table split by kind, counts only
     "site_profile",  # 10B-6 (D-1233): the profile's id, version, digest and coverage counts (type names, no code)
-    "omop",  # H3-NLP §3.1: the dual write into OMOP and its data quality checks (states, counts, check names)
+    "omop",  # H3-NLP §3.1: the dual write into OMOP, projected by omop_kept (state and data quality counts)
     "full_night",  # 10B-23 (D-1254): the date of the last full night and how many delta nights since (no row)
     "error",
     "step",
@@ -367,6 +388,8 @@ class DataOps:
         path = night_path(passed, held)
         detail = fields.get("detail") or {}
         kept = {k: detail[k] for k in DETAIL_KEYS if isinstance(detail, Mapping) and detail.get(k) is not None}
+        if "omop" in kept:
+            kept["omop"] = omop_kept(kept["omop"])
         with self._db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"dataops.batch:{source}:{snapshot}",))
             opened = tx.fetchdicts("SELECT * FROM batch WHERE id = ? FOR UPDATE", (batch_id,)) if batch_id else []
