@@ -150,7 +150,7 @@ def _draft(text: str) -> dict[str, Any] | None:
 
 def test_a_form_sent_after_the_idle_end_is_back_after_signing_in_again(tmp_path: Path) -> None:
     clock = Clock()
-    app, _users, audit_dir = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    app, _users, audit_dir = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_KEEP_DRAFT="on")
     c = _signed_in_viewer(app)
     csrf = _csrf(c.get("/help").text)
 
@@ -176,7 +176,7 @@ def test_a_form_sent_after_the_idle_end_is_back_after_signing_in_again(tmp_path:
 
 def test_after_the_absolute_end_and_through_the_code_step_too(tmp_path: Path) -> None:
     clock = Clock()
-    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_CONSOLE_MFA="totp")
+    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_KEEP_DRAFT="on", TB_CONSOLE_MFA="totp")
     c, key = _enrolled(app, clock, "viewer", VIEWER_PW)
     csrf = _csrf(c.get("/help").text)
     for _ in range(17):  # kept active (last_seen moved) for 8 h 30: the absolute end, not the idle one
@@ -192,7 +192,7 @@ def test_after_the_absolute_end_and_through_the_code_step_too(tmp_path: Path) ->
 
 def test_another_account_signing_in_on_the_same_browser_gets_nothing(tmp_path: Path) -> None:
     clock = Clock()
-    app, _users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    app, _users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_KEEP_DRAFT="on")
     c = _signed_in_viewer(app)
     csrf = _csrf(c.get("/help").text)
     clock.tick(minutes=11)
@@ -203,7 +203,7 @@ def test_another_account_signing_in_on_the_same_browser_gets_nothing(tmp_path: P
 
 def test_a_kept_form_expires_with_the_kept_page(tmp_path: Path) -> None:
     clock = Clock()
-    app, _users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    app, _users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_KEEP_DRAFT="on")
     c = _signed_in_viewer(app)
     csrf = _csrf(c.get("/help").text)
     clock.tick(minutes=11)
@@ -215,7 +215,7 @@ def test_a_kept_form_expires_with_the_kept_page(tmp_path: Path) -> None:
 
 def test_two_tabs_keep_two_forms_and_a_long_note_comes_back_whole(tmp_path: Path) -> None:
     clock = Clock()
-    app, _users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    app, _users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_KEEP_DRAFT="on")
     c = _signed_in_viewer(app)
     csrf = _csrf(c.get("/help").text)
     clock.tick(minutes=11)
@@ -334,7 +334,7 @@ def test_a_draft_of_patient_a_is_not_put_into_the_form_of_patient_b() -> None:
 
 def test_a_draft_stays_when_no_form_matched_and_goes_when_one_took_it(tmp_path: Path) -> None:
     clock = Clock()
-    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_KEEP_DRAFT="on")
     c = _signed_in_viewer(app)
     csrf = _csrf(c.get("/help").text)
     clock.tick(minutes=11)
@@ -359,7 +359,7 @@ def test_a_multiple_choice_list_comes_back_whole() -> None:
 
 def test_after_an_opt_out_no_kept_form_of_that_patient_remains(tmp_path: Path) -> None:
     clock = Clock()
-    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_KEEP_DRAFT="on")
     c = _signed_in_viewer(app)
     csrf = _csrf(c.get("/help").text)
     clock.tick(minutes=11)
@@ -376,7 +376,7 @@ def test_after_an_opt_out_no_kept_form_of_that_patient_remains(tmp_path: Path) -
 
 def test_a_register_that_cannot_be_read_keeps_no_form(tmp_path: Path) -> None:
     clock = Clock()
-    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on", TB_KEEP_DRAFT="on")
     c = _signed_in_viewer(app)
     csrf = _csrf(c.get("/help").text)
     clock.tick(minutes=11)
@@ -389,3 +389,15 @@ def test_a_register_that_cannot_be_read_keeps_no_form(tmp_path: Path) -> None:
     users.draft_gone = down
     assert _draft(c.get("/help").text) is None
     assert users.db.fetchall("SELECT 1 FROM session_drafts WHERE page <> ''") == []
+
+
+def test_with_the_default_switch_a_form_sent_after_the_idle_end_is_not_kept(tmp_path: Path) -> None:
+    clock = Clock()
+    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")  # TB_KEEP_DRAFT not set: off
+    c = _signed_in_viewer(app)
+    csrf = _csrf(c.get("/help").text)
+    clock.tick(minutes=11)
+    _send_after_the_end(c, csrf)
+    assert users.db.fetchall("SELECT 1 FROM session_drafts") == []  # no row at all, not even the marker
+    assert _password(c, "viewer", VIEWER_PW).headers["location"] == "/help"  # the sign-in tolerance is unchanged
+    assert _draft(c.get("/help").text) is None

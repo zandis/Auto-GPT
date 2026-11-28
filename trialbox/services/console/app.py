@@ -616,6 +616,7 @@ def create_app(
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
+    us.keep_drafts = _env_map(env).get("TB_KEEP_DRAFT", "") == "on"  # TOL-AUTH: off unless exactly "on"
     us.zone = site_tz  # an account's end date is a site day (D-270)
     us.enrol_ttl = timedelta(hours=settings.identity.enrol_hours)  # D-719: TB_CONSOLE_ENROL_CODE_HOURS
     account_team: dict[str, Any] = {}  # the study team store, once the workspace registers it (D-719: the PIs)

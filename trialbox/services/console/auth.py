@@ -483,6 +483,9 @@ class UserStore:
         self.oidc_absolute = oidc_absolute
         # TOL-AUTH: the pseudonyms of the patients who opted out (console.app sets it): a kept form naming one goes
         self.draft_gone: Callable[[], Collection[str]] | None = None
+        self.keep_drafts = (
+            False  # TOL-AUTH: a form sent after the session ended is kept (TB_KEEP_DRAFT=on; default off)
+        )
         self.zone: ZoneInfo | None = None  # the site's zone, set by console.app (D-270)
         self.enrol_ttl = ENROL_TTL  # D-719: TB_CONSOLE_ENROL_CODE_HOURS, set by console.app
         #: STEPS-ROLE (D-877): whether a session may act in an extra role now (the flag on, on a test box: set by
@@ -839,7 +842,9 @@ class UserStore:
         user = self.get(str(row[0]))
         absolute = self._absolute_of(str(row[5]))
         if user is None or now - created > absolute or now - last > self.idle:
-            if user is not None:  # TOL-AUTH (T-A030): a time limit; a form sent to it later is kept for this account
+            if (
+                user is not None and self.keep_drafts
+            ):  # TOL-AUTH (T-A030): a time limit; a form sent to it later is kept for this account
                 self.drop_stale_drafts()
                 self.db.execute(
                     "INSERT INTO session_drafts (token_sha, username, at) VALUES (?, ?, ?) "
@@ -1315,7 +1320,7 @@ class UserStore:
     def keep_draft(self, token: str, page: str, action: str, fields: Mapping[str, list[str]]) -> None:
         """Keep what a form sent to the ended session ``token`` carried (the caller leaves secrets out); nothing
         when ``token`` is no session that ended on a time limit within ``DRAFT_TTL``."""
-        if not token or len(token) > 256 or not fields:
+        if not self.keep_drafts or not token or len(token) > 256 or not fields:
             return
         self.db.execute(
             "INSERT INTO session_drafts (token_sha, username, page, action, fields, at) "
@@ -1349,7 +1354,7 @@ class UserStore:
     def hand_draft(self, old_token: str, username: str, new_token: str) -> bool:
         """At a sign-in on a browser whose last session ended: its kept forms move to the new session when the same
         account signed in, else they are dropped (another person never sees them). True when one moved."""
-        if not old_token or len(old_token) > 256:
+        if not self.keep_drafts or not old_token or len(old_token) > 256:
             return False
         sha = _sha(old_token)
         self.drop_stale_drafts()
@@ -1360,7 +1365,9 @@ class UserStore:
 
     def take_draft(self, token_sha: str, page: str) -> dict[str, Any] | None:
         """The kept form of this session for ``page`` ({"action", "fields"}); it stays until ``drop_draft`` (its form
-        was sent) or its 15 minutes end; None otherwise."""
+        was sent) or its 15 minutes end; None otherwise (and always, with the switch off)."""
+        if not self.keep_drafts:
+            return None
         self.drop_stale_drafts()
         row = self.db.fetchone("SELECT action, fields, at FROM session_drafts WHERE token_sha = ? AND page = ?",
                                (token_sha, page))  # fmt: skip
