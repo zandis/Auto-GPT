@@ -179,3 +179,129 @@ def test_schemas_carry_the_3_1_constructs() -> None:
     )
     lib = Draft202012Validator(json.loads((SCHEMA_DIR / "criterion_library_record.schema.json").read_text("utf-8")))
     assert not list(lib.iter_errors(rec.model_dump(mode="json", by_alias=True, exclude_none=True)))
+
+
+# ------------------------------------------------------------------ 3.1 additions: anchors, anchor_text, bounds, subject
+NEW_ANCHORS = ("enrollment", "consent", "first_dose", "last_dose", "end_of_study")
+BOUNDS = {"lo": 10, "lo_incl": True, "hi": 20, "hi_incl": False, "unit": "U/L"}
+ADDITIONS = ("subject", "anchor_text", "bounds", *NEW_ANCHORS)
+USED = {"subject": "a1.subject", "anchor_text": "a1.window.anchor_text", "bounds": "a1.value.bounds"}
+
+
+def _with(base: dict[str, Any], what: str) -> dict[str, Any]:
+    """``base`` with one 3.1 addition on its atom."""
+    d = copy.deepcopy(base)
+    a = d["atoms"][0]
+    if what == "subject":
+        a["subject"] = "parent"
+    elif what == "anchor_text":
+        a["window"]["anchor_text"] = "start of the run-in period"
+    elif what == "bounds":
+        a["value"] = dict(BOUNDS)
+    else:
+        a["window"]["anchor"] = what
+    return d
+
+
+@pytest.mark.parametrize("what", ADDITIONS)
+def test_each_addition_needs_3_1_and_is_listed(what: str) -> None:
+    with pytest.raises(ValidationError, match="need ir_version 3.1.0"):
+        CriterionIRv3.model_validate(_with(_base(), what))
+    ir = CriterionIRv3.model_validate(_with(_v31(), what))
+    assert uses_3_1(ir.model_dump(mode="json", by_alias=True, exclude_none=True)) == [
+        USED.get(what, "a1.window.anchor")
+    ]
+
+
+def test_bounds_inside_value_if_count_as_3_1() -> None:
+    d = _v31()
+    d["atoms"].append({"id": "af", "domain": "condition", "valueset": "VS_AF"})
+    d["atoms"][0]["value_if"] = [{"if_atom": "af", "value": dict(BOUNDS)}]
+    d["logic"] = {"op": "and", "args": ["a1", "af"]}
+    ir = CriterionIRv3.model_validate(d)
+    assert uses_3_1(ir.model_dump(mode="json", by_alias=True, exclude_none=True)) == ["a1.value.bounds"]
+
+
+def test_additions_and_the_hash() -> None:
+    plain = canonical_hash(CriterionIRv3.model_validate(_base()))
+    patient = _v31()
+    patient["atoms"][0]["subject"] = "patient"
+    assert canonical_hash(CriterionIRv3.model_validate(patient)) == plain  # the default written out
+    assert normalise(CriterionIRv3.model_validate(patient))["ir_version"] == "3.0.0"
+    hashes = {w: canonical_hash(CriterionIRv3.model_validate(_with(_v31(), w))) for w in ADDITIONS}
+    assert plain not in hashes.values() and len(set(hashes.values())) == len(ADDITIONS)
+    other = _with(_v31(), "anchor_text")
+    other["atoms"][0]["window"]["anchor_text"] = "end of the run-in period"
+    assert canonical_hash(CriterionIRv3.model_validate(other)) != hashes["anchor_text"]  # anchor_text is semantic
+    between = _v31()
+    between["atoms"][0]["value"] = {"op": "between", "num": 10, "num2": 20, "unit": "U/L"}
+    assert canonical_hash(CriterionIRv3.model_validate(between)) != hashes["bounds"]
+
+
+@pytest.mark.parametrize(
+    ("value", "msg"),
+    [
+        ({"lo": 1}, "`lo` and `lo_incl` come together"),
+        ({"lo_incl": True}, "`lo` and `lo_incl` come together"),
+        ({"hi": 1}, "`hi` and `hi_incl` come together"),
+        ({"hi_incl": False}, "`hi` and `hi_incl` come together"),
+        ({"lo": 1, "lo_incl": True, "op": ">"}, "a bounded value has no op"),
+        ({"hi": 1, "hi_incl": True, "num": 1}, "a bounded value has no num"),
+        ({"hi": 1, "hi_incl": True, "num2": 1}, "a bounded value has no num2"),
+        ({"lo": 1, "lo_incl": True, "codes": ["x"]}, "a bounded value has no codes"),
+        ({"lo": 1, "lo_incl": True, "ref": {"kind": "uln", "multiple": 2}}, "a bounded value has no ref"),
+        ({"lo": float("inf"), "lo_incl": True}, "bounds must be finite"),
+        ({"lo": 3, "lo_incl": True, "hi": 2, "hi_incl": True}, "lo 3 is above hi 2"),
+        ({"lo": 2, "lo_incl": True, "hi": 2, "hi_incl": False}, "the interval is empty"),
+        ({"lo": 2, "lo_incl": False, "hi": 2, "hi_incl": True}, "the interval is empty"),
+    ],
+)
+def test_bounded_value_rejections(value: dict[str, Any], msg: str) -> None:
+    d = _v31()
+    d["atoms"][0]["value"] = value
+    with pytest.raises(ValidationError, match=msg):
+        CriterionIRv3.model_validate(d)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"lo": 10, "lo_incl": True, "hi": 20, "hi_incl": True},
+        {"lo": 10, "lo_incl": False, "hi": 20, "hi_incl": True},
+        {"lo": 2, "lo_incl": True, "hi": 2, "hi_incl": True},
+        {"hi": 20, "hi_incl": False, "unit": "U/L"},
+        {"lo": 10, "lo_incl": True},
+    ],
+)
+def test_bounded_value_accepted(value: dict[str, Any]) -> None:
+    d = _v31()
+    d["atoms"][0]["value"] = value
+    assert CriterionIRv3.model_validate(d).atoms[0].value is not None
+
+
+@pytest.mark.parametrize(
+    ("what", "msg"),
+    [
+        ("subject", "atom a1: subject have no v1 form"),
+        ("anchor_text", "atom a1: window.anchor_text has no v1 form"),
+        ("bounds", "atom a1: value.hi, value.hi_incl, value.lo, value.lo_incl have no v1 form"),
+        *((a, f"atom a1: window anchor {a} has no v1 form") for a in NEW_ANCHORS),
+    ],
+)
+def test_downgrade_names_each_addition(what: str, msg: str) -> None:
+    with pytest.raises(NotV1Expressible, match=msg):
+        downgrade_to_v1(CriterionIRv3.model_validate(_with(_v31(), what)))
+
+
+def test_schema_carries_the_additions() -> None:
+    crit = Draft202012Validator(json.loads((SCHEMA_DIR / "criterion_ir.schema.json").read_text("utf-8")))
+    doc = _v31()
+    a = doc["atoms"][0]
+    a.update(subject="donor", value=dict(BOUNDS))
+    a["window"].update(anchor="last_dose", anchor_text="last dose of the prior biologic")
+    assert not list(crit.iter_errors(doc))
+    for key, bad in (("subject", "sibling"), ("anchor", "visit_3"), ("anchor_text", "")):
+        wrong = copy.deepcopy(doc)
+        node = wrong["atoms"][0] if key == "subject" else wrong["atoms"][0]["window"]
+        node[key] = bad
+        assert list(crit.iter_errors(wrong)), key
