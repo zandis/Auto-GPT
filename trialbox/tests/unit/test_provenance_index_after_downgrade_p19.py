@@ -1758,9 +1758,9 @@ class _Killed(BaseException):
 def test_a_resumed_rebuild_reads_again_the_day_it_last_recorded(
     box: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Review P19-4 (PR 1584): a rebuild is killed after recording today's file as done and before its verified
-    marker; the drain appends to today's file meanwhile (no index write: required). The next rebuild reads that file
-    again, so the appended line is in the index it calls verified."""
+    """Review P19-4 (PR 1584): a rebuild is killed after recording the newest day file as done and before its
+    verified marker; the drain appends to that file meanwhile (a line of the same day: no index write, required).
+    The next rebuild reads that file again, so the appended line is in the index it calls verified."""
     chain = tmp_path / "audit"
     _ready(box, chain)
     _send(box, 20, "c1", PID_A)
@@ -1777,8 +1777,8 @@ def test_a_resumed_rebuild_reads_again_the_day_it_last_recorded(
     with pytest.raises(_Killed):
         _rebuild(box, chain)
     monkeypatch.setattr(idx, "_write_marker", real)
-    assert idx.read_marker(chain).done_through
-    _send(box, 21, "c2", PID_A)
+    assert idx.read_marker(chain).done_through == "2026-11-20.jsonl"
+    _send(box, 20, "c2", PID_A)  # the same day: appended to the file the rebuild recorded
     _drain(box, chain)
     _rebuild(box, chain)
     assert (_calls(box), _uses(box)) == (["c1", "c2"], ["c1", "c2"])
