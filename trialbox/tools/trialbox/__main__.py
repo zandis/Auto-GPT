@@ -98,6 +98,11 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
     )
     d.add_argument("--lang", default=None, help="--preflight: the language of the labels and actions (en, ja, zh-TW)")
     d.add_argument("--out", type=Path, default=None, help="--preflight: also write the first-run page's file here")
+    d.add_argument(
+        "--strict",
+        action="store_true",
+        help="G2: every readiness item must PASS (a WARN there is a FAIL); the proof row",
+    )
     pi = sub.add_parser("platform-images", help="the release-images component from release.json (D-211)")
     pi.add_argument("--release", type=Path, default=None)
     pi.add_argument("--check", action="store_true", help="exit 1 when the committed component differs")
@@ -290,8 +295,15 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
         return decommission.main(a.deploy, a.json)
     if a.cmd == "mail":
         from mail_gateway import admin as mail_admin
+        from tb_common.config import ConfigError
 
-        return mail_admin.main(a.action, a.key, a.decision, a.by, a.json)
+        try:
+            return mail_admin.main(a.action, a.key, a.decision, a.by, a.json)
+        except ConfigError as exc:  # E2E P-15: on the host (no settings file) the outbox is read in the mail-gateway
+            if os.environ.get("TB_SERVICE_NAME") == "mail-gateway":  # already in it (compose sets this): no second hop
+                print(f"mail: {exc}", file=sys.stderr)
+                return 2
+            return _in_mail_gateway(deploy, [*args, *([] if a.by else ["--by", mail_admin.actor(None)])])
     if a.cmd == "exports":
         return _exports_cmd(a)
     if a.cmd == "secrets":
@@ -388,7 +400,7 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
             # E2E P-18: the box's own file, which the launcher already reads as its settings; without it the
             # installed doctor judged some checks without the box's values (false FAILs the runbook form had not)
             a.env_file = launch.DEPLOY / ".env"
-        which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
+        which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live or a.strict else doctor.CHECKS)
         if a.weights:
             which = (doctor.LIVE if a.serving else ()) + doctor.WEIGHTS
         elif a.verify_all:
@@ -428,6 +440,8 @@ def main(argv: list[str] | None = None, *, installed: bool = False) -> int:
                 a.evidence.parent.mkdir(parents=True, exist_ok=True)
                 doc = pf.evidence(checks, pinp)
                 a.evidence.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        if a.strict:  # G2 (TRIAGE-1): the readiness contract, never a WARN
+            checks = doctor.strict(checks)
         if a.json:
             print(json.dumps([c.__dict__ for c in checks], indent=1, ensure_ascii=False))
         else:
@@ -498,6 +512,23 @@ def _platform_cmd(a: argparse.Namespace) -> int:
         print(f"platform-images: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _in_mail_gateway(deploy: Path, args: list[str]) -> int:
+    """The same ``trialbox mail`` command in the mail-gateway container (``TB_COMPOSE`` overrides the compose call)."""
+    import shlex
+    import subprocess
+
+    compose = shlex.split(
+        os.environ.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(deploy))}"
+    )
+    try:
+        return subprocess.run(
+            [*compose, "exec", "-T", "mail-gateway", "python", "-m", "tools.trialbox", *args], check=False
+        ).returncode
+    except FileNotFoundError as exc:
+        print(f"mail: no settings file here and no compose to reach the mail-gateway ({exc})", file=sys.stderr)
+        return 2
 
 
 def _exports_cmd(a: argparse.Namespace) -> int:

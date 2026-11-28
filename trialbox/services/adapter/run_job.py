@@ -39,12 +39,14 @@ def main(argv: list[str] | None = None) -> int:
     lock = runs.RunLock.adopt(int(args[0]), lake_dir)
     try:
         from lake.build import prefer_me_when_memory_runs_out
+        from lake.store import SnapshotBuilding
         from tb_common.logging import setup_logging
         from tb_contracts import dump
 
         from adapter import failure
         from adapter.cli import build_config
         from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
+        from adapter.publish import FhirRestoreOutstanding, NightRefused, RecoveryBusy
 
         setup_logging("adapter")
         prefer_me_when_memory_runs_out()  # a night can be run again; the service's requests cannot
@@ -64,7 +66,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             end = {"state": "done", "report": dump(report)}
         # T-612, D-679, U-5 (D-1280): refused before anything was read
-        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError) as exc:
+        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError, NightRefused) as exc:
+            end = {"state": "refused", "detail": f"night refused: {exc}"}
+        except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
+            end = {"state": "refused", "detail": str(exc)}
+        # P-03: another publish or recovery holds the FHIR store, or a killed publisher's lake build still runs
+        # (review M3): nothing is published
+        except (RecoveryBusy, SnapshotBuilding) as exc:
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except Exception as exc:
             failure.log_failure(log, f"ingest run {state.get('run')} failed", exc)

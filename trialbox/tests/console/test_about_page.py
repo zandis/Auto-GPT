@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from console import about
+from console.auth import ROLES
 from fastapi.testclient import TestClient
 
 from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
@@ -34,6 +35,21 @@ def test_about_shows_the_notice_without_a_sign_in(box: dict[str, Any]) -> None:
     t = c.get("/about/NOTICE.txt")
     assert t.status_code == 200 and t.headers["content-type"].startswith("text/plain")
     assert t.text == (ROOT / "NOTICE").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("role", ["anonymous", *ROLES])
+def test_about_answers_200_with_the_notice_for_every_role(box: dict[str, Any], role: str) -> None:
+    """P2-02: the installed box answered 503 on /about for every reader (no /app/NOTICE in the image)."""
+    if role == "anonymous":
+        c = TestClient(box["app"])
+    else:
+        box["users"].create("reader", role, "reader-password-0001", "reader@hospa.test")
+        c, _ = login(box["app"], "reader", "reader-password-0001")
+    page = c.get("/about", follow_redirects=False)
+    assert page.status_code == 200 and 'data-testid="about-missing"' not in page.text
+    assert "This material contains content from LOINC (http://loinc.org)" in html.unescape(page.text)
+    text = c.get("/about/NOTICE.txt", follow_redirects=False)
+    assert text.status_code == 200 and text.text == (ROOT / "NOTICE").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

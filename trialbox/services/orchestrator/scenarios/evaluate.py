@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, MutableSequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
@@ -605,7 +605,7 @@ def is_pair(judge: NoteJudge | None) -> bool:
 @dataclass
 class PatientVerdicts:
     pid: str
-    verdicts: list[CriterionVerdict]
+    verdicts: MutableSequence[CriterionVerdict]  # screen_cascade.Verdicts holds shared answers once (prof16)
     tier: str
     actions: list[str]
     n_unknown: int

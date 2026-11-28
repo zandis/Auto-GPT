@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 from console import totp
 from console.auth import UserStore, source_of
 from fastapi.testclient import TestClient
@@ -119,6 +120,7 @@ def test_thirty_wrong_tries_on_the_api_do_not_lock_a_named_tester_out_with_totp_
     assert r.status_code == 200, r.text
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_an_api_token_is_no_cookie_and_a_cookie_is_no_bearer_token(tmp_path: Path) -> None:
     clock = Clock()
     app, users, _ = _app(tmp_path, clock, **ON)  # TOTP off (TEST): the channel rule holds without it too

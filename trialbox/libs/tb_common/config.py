@@ -217,12 +217,19 @@ _ENV_MAP: dict[str, str] = {
 _BOOL_TRUE = {"1", "true", "yes", "on"}
 
 
-def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> Env:
-    """Build :class:`Env` from ``.env`` (optional) overlaid by ``environ`` (default ``os.environ``)."""
+def env_source(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> dict[str, str]:
+    """What :class:`Env` is built from: ``.env`` (``TB_DOTENV``, default ``.env``) overlaid by ``environ`` (default
+    ``os.environ``). A service that decides on a raw variable reads this, so it agrees with its config."""
     merged: dict[str, str] = {}
     dotenv_path = dotenv if dotenv is not None else Path(os.environ.get("TB_DOTENV", ".env"))
     merged.update(_read_dotenv(dotenv_path))
     merged.update(environ if environ is not None else dict(os.environ))
+    return merged
+
+
+def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> Env:
+    """Build :class:`Env` from ``.env`` (optional) overlaid by ``environ`` (default ``os.environ``)."""
+    merged = env_source(dotenv, environ)
     kwargs: dict[str, object] = {}
     defaults = Env()
     for var, attr in _ENV_MAP.items():
@@ -506,6 +513,17 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_DIR": Declared("path", "/data/console", "console: data folder"),
     "TB_CONSOLE_FORWARDED_ALLOW_IPS": Declared("str", "127.0.0.1", "console: proxies trusted for forwarded headers"),
     "TB_CONSOLE_HOST": Declared("str", "127.0.0.1", "console: listen address"),
+    "TB_CONSOLE_HELD_DIR": Declared(
+        "path",
+        "",
+        "console: tmpfs for one-time passwords and proposals; set by compose, unset keeps none (P2-11)",
+    ),
+    "TB_CONSOLE_USERS": Declared(
+        "int", "25", "install: the people using the console at the same time; sizes TB_CONSOLE_WORKERS (P2-11)"
+    ),
+    "TB_CONSOLE_WORKERS": Declared(
+        "int", "1", "console: worker processes, sized from TB_CONSOLE_USERS at install (P2-11)"
+    ),
     "TB_CONSOLE_ENROL_CODE_HOURS": Declared("int", "24", "console: hours an enrolment code is good for (1-72, D-719)"),
     "TB_CONSOLE_IDLE_MINUTES": Declared("int", "", "console: idle minutes before sign-out"),
     "TB_CONSOLE_MFA": Declared("str", "totp", "console: second factor (totp or off in DEV)"),
@@ -1108,6 +1126,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SITE_PUBLISH_BATCH_SECONDS": Declared(
         "int", "0", "site decisions on main wait this long and publish as one batch (0: at once; D-403)"
     ),
+    "TB_SITE_USERS": Declared(
+        "int", "", "install: the staff who use the console at once, sizing its memory cap (E2E P-06; empty: one)"
+    ),
     "TB_SKIP_AUDIT": Declared("bool", "", "update: skip the audit check (drills)"),
     "TB_SOURCE_DIR": Declared("path", "./site/feed", "compose: host folder of the site feed (settings wizard, T-632)"),
     "TB_SOURCE_DSN": Declared("str", "", "adapter: the read connection of a database source (secret; T-729, T-731)"),
@@ -1157,6 +1178,8 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_TLS_ROOT_CONFIRMED_BY": Declared("str", "", "internal CA: who in IT confirmed its root is on the PCs (D-1365)"),
     "TB_TLS_ROOT_CONFIRMED_ON": Declared("str", "", "internal CA: the day IT confirmed it, YYYY-MM-DD (D-1365)"),
+    "TB_NO_MAIL_ACCEPTED_BY": Declared("str", "", "no mail relay: who at the site accepted having none (RC3)"),
+    "TB_NO_MAIL_ACCEPTED_ON": Declared("str", "", "no mail relay: the day it was accepted, YYYY-MM-DD (RC3)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
     "TB_TO_PID_MAX_PER_HOUR": Declared(

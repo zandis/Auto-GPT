@@ -1099,6 +1099,26 @@ class OmopLoadSummary(BaseModel):
     """
 
 
+class OpenReason(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    criterion: str
+    """
+    the criterion id
+    """
+    reason: str
+    """
+    a tb_common.reasons code, or no_reason when an open answer carried none
+    """
+    where: str
+    """
+    the site view or field the reason names: notes, condition, observation, medication, procedure, encounter, demographic, claim, report, records; or product (a component of the box) or person (a person or a model decides)
+    """
+    count: int = Field(..., ge=1)
+
+
 class ParseRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2269,6 +2289,19 @@ class SiteSchema(BaseModel):
     """
 
 
+class StageTimes(BaseModel):
+    """
+    OPT-1 §6: one stage of the night: seconds spent in it (a stage entered twice adds up) and the process peak resident memory in MB when it last ended (a high-water mark, so it never falls from one stage to the next; null where the platform cannot say)
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    seconds: float = Field(..., ge=0.0)
+    peak_rss_mb: float | None = Field(..., ge=0.0)
+
+
 class StudyProtocol(BaseModel):
     """
     The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. The canonical form is written in D-1366. Schema version 1.0.0.
@@ -2822,7 +2855,7 @@ class IEBlock(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.6.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.7.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector; 1.7.0: stages).
     """
 
     model_config = ConfigDict(
@@ -2864,6 +2897,10 @@ class IngestReport(BaseModel):
     connector: ConnectorReport | None = None
     """
     10E-9 (review 13-10): how long the connector took per message (a CSV or SQL row, an SS-MIX2 message, a FHIR resource), per table and for the whole source: counts and times only, never a value of a row. Absent in a report written before 1.6.0
+    """
+    stages: dict[str, StageTimes] | None = None
+    """
+    OPT-1 §6: seconds per stage of the night and the process peak resident memory at each stage end (name: seconds, peak_rss_mb): counts and times only. Absent in a report written before 1.7.0
     """
     omop: OmopLoadSummary | None = None
     """
@@ -2911,26 +2948,6 @@ class JobCreate(BaseModel):
     inputs: list[JobFile] | None = None
 
 
-class JobMetrics(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    patients_scoped: int = 0
-    llm_calls: int = 0
-    tokens_in: int = 0
-    tokens_out: int = 0
-    wall_seconds: float = 0
-    step_seconds: dict[str, float] | None = None
-    """
-    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.
-    """
-    prefilter: PrefilterRecord | None = None
-    """
-    10E-12 (D-1259): a MICROBATCH job's pre-filter record, written when the job finishes: how many distinct patients the job had in scope and at which stage each left, each counted once at their last evaluation in the job. Counts only, never a patient id; the stages add up to in_scope. Optional: absent on other jobs.
-    """
-
-
 class NavRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2945,6 +2962,21 @@ class NavRow(BaseModel):
     draft_doc_key: str | None = None
     twpas_bundle_key: str | None = None
     precheck: Precheck | None = None
+
+
+class NightOpen(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    coded_complete: int = Field(..., ge=0)
+    """
+    of the evaluated patients past the coded filter (the pre-filter's no_model, model_not_listed and listed): those with at least one coded yes, no no, and only site-data gaps open (F17 5b). Reported, never a tier.
+    """
+    open_reasons: list[OpenReason]
+    """
+    of the same patients: for each criterion that stayed open, why, and which site view or field the reason names, with the number of patients
+    """
 
 
 class Pack(BaseModel):
@@ -3286,66 +3318,28 @@ class ExtractedBool2(BaseModel):
     args: list[ExtractedAtom | ExtractedBool3] = Field(..., min_length=1)
 
 
-class Job(BaseModel):
-    """
-    A job record (SPEC 3.5). Schema version 1.2.0 (1.1.0: run_date; 1.2.0: metrics.prefilter, D-1259).
-    """
-
+class JobMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
     )
-    job_id: str = Field(..., pattern="^[0-9A-HJKMNP-TV-Z]{26}$")
-    type: Literal[
-        "FEAS",
-        "SCREEN",
-        "COHORT",
-        "NAV",
-        "APPROVE",
-        "STATUS",
-        "MICROBATCH",
-        "INGEST",
-        "SUBMIT",
-        "FEEDBACK",
-        "CANCEL",
-        "RETENTION",
-        "CALIBRATION",
-        "CONSENT",
-        "RELEASE",
-        "CASE",
-    ] = Field(..., title="JobType")
-    ruleset: str | None = None
-    ruleset_version: str | None = None
-    requested_by: str
-    received_at: AwareDatetime
-    updated_at: AwareDatetime | None = None
-    state: Literal[
-        "received",
-        "parsing",
-        "compiling",
-        "awaiting_approval",
-        "running",
-        "reporting",
-        "done",
-        "failed",
-    ] = Field(..., title="JobState")
-    snapshot_date: date_aliased | None = None
-    run_date: date_aliased | None = None
+    patients_scoped: int = 0
+    llm_calls: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    wall_seconds: float = 0
+    step_seconds: dict[str, float] | None = None
     """
-    index/run date fixed when the job starts; reruns reuse it (reproducibility)
+    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.
     """
-    options: dict[str, str] | None = None
-    comment: str | None = None
-    message_id: str | None = None
+    prefilter: PrefilterRecord | None = None
     """
-    RFC 5322 Message-ID of the request mail
+    10E-12 (D-1259): a MICROBATCH job's pre-filter record, written when the job finishes: how many distinct patients the job had in scope and at which stage each left, each counted once at their last evaluation in the job. Counts only, never a patient id; the stages add up to in_scope. Optional: absent on other jobs.
     """
-    in_reply_to: str | None = None
-    parent_job_id: str | None = None
-    inputs: list[JobFile] | None = None
-    outputs: list[JobOutput] | None = None
-    error: JobError | None = None
-    metrics: JobMetrics | None = None
+    night_open: NightOpen | None = None
+    """
+    F17 5a, 5b: a MICROBATCH job's open criteria and coded-complete count, written beside the pre-filter record. Counts only, never a patient id. Optional: absent on other jobs and on a job from before it.
+    """
 
 
 class NavListSet(BaseModel):
@@ -3537,6 +3531,68 @@ class ExtractedCriterion(BaseModel):
     action: str | None = None
     suggested_order: str | None = None
     concept_candidates: list[ConceptCandidate]
+
+
+class Job(BaseModel):
+    """
+    A job record (SPEC 3.5). Schema version 1.3.0 (1.1.0: run_date; 1.2.0: metrics.prefilter, D-1259; 1.3.0: metrics.night_open, F17 5a/5b).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    job_id: str = Field(..., pattern="^[0-9A-HJKMNP-TV-Z]{26}$")
+    type: Literal[
+        "FEAS",
+        "SCREEN",
+        "COHORT",
+        "NAV",
+        "APPROVE",
+        "STATUS",
+        "MICROBATCH",
+        "INGEST",
+        "SUBMIT",
+        "FEEDBACK",
+        "CANCEL",
+        "RETENTION",
+        "CALIBRATION",
+        "CONSENT",
+        "RELEASE",
+        "CASE",
+    ] = Field(..., title="JobType")
+    ruleset: str | None = None
+    ruleset_version: str | None = None
+    requested_by: str
+    received_at: AwareDatetime
+    updated_at: AwareDatetime | None = None
+    state: Literal[
+        "received",
+        "parsing",
+        "compiling",
+        "awaiting_approval",
+        "running",
+        "reporting",
+        "done",
+        "failed",
+    ] = Field(..., title="JobState")
+    snapshot_date: date_aliased | None = None
+    run_date: date_aliased | None = None
+    """
+    index/run date fixed when the job starts; reruns reuse it (reproducibility)
+    """
+    options: dict[str, str] | None = None
+    comment: str | None = None
+    message_id: str | None = None
+    """
+    RFC 5322 Message-ID of the request mail
+    """
+    in_reply_to: str | None = None
+    parent_job_id: str | None = None
+    inputs: list[JobFile] | None = None
+    outputs: list[JobOutput] | None = None
+    error: JobError | None = None
+    metrics: JobMetrics | None = None
 
 
 class LlmExtractOutput(BaseModel):

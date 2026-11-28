@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response
 from tb_common.audit_writer import open_audit
-from tb_common.config import environment_name, get_config
+from tb_common.config import env_source, environment_name, get_config
 from tb_common.http import make_app
 from tb_common.objstore import from_config
 from tb_contracts import SendRequest, SendResult
@@ -63,10 +63,36 @@ def gateway() -> Gateway:
             # D-369 (OD-1): a password zip for patient files only on a synthetic box
             allow_phi_zip=environment_name(os.environ) in ("DEV", "TEST"),
             per_recipient_per_day=int(os.environ.get("TB_MAIL_PER_RECIPIENT_PER_DAY", "") or PER_RECIPIENT_PER_DAY),
+            # E2E P-10: no relay given, no send tried (Env says localhost then). Review Q-1, M-2, Q-3: from the source
+            # Env is built from (env_source: TB_DOTENV with its default, then the environment), as the IMAP gate.
+            # Review M-1: the page's answer reaches this process by a new start: needs_apply writes SMTP_HOST to
+            # deploy/.env (this service's env_file) and runs compose up -d
+            relay=relay_given(env_source()),
         )
-        # H-137: a start that speaks to a mail server without a verified certificate says so in the audit
-        tls.audit_modes(_gw.audit, env, imap_used=bool(env.imap_user))
+        # H-137: a start that speaks to a mail server without a verified certificate says so in the audit. Review
+        # D-2: the SMTP line says whether a relay was given (without one no send is tried)
+        tls.audit_modes(_gw.audit, env, imap_used=imap_polled(env, env_source()), relay=_gw.relay)
     return _gw
+
+
+def relay_given(environ: Any) -> bool:
+    """E2E P-10: SMTP_HOST was given. Unset, the config falls back to localhost, where nothing listens on a box."""
+    return bool((environ.get("SMTP_HOST") or "").strip())
+
+
+def imap_given(environ: Any) -> bool:
+    """E2E P-10: IMAP_HOST was given; without it (localhost then) every poll failed, once a minute."""
+    return bool((environ.get("IMAP_HOST") or "").strip())
+
+
+def poll_seconds() -> float:
+    return float(os.environ.get("TB_MAIL_POLL_SECONDS", "60"))
+
+
+def imap_polled(env: Any, environ: Any) -> bool:
+    """Review M-2: the mailbox is polled (the ``imap-poll`` thread runs, and the TLS audit names the IMAP server) only
+    with a poll interval, a user and a given host: one condition for the start and the audit."""
+    return poll_seconds() > 0 and bool(env.imap_user) and imap_given(environ)
 
 
 def outbox_loop(gw: Gateway, stop: threading.Event, interval: float) -> None:
@@ -83,9 +109,11 @@ def outbox_loop(gw: Gateway, stop: threading.Event, interval: float) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     stop = threading.Event()
-    interval = float(os.environ.get("TB_MAIL_POLL_SECONDS", "60"))
+    interval = poll_seconds()
     threads: list[threading.Thread] = []
-    if interval > 0 and gateway().cfg.env.imap_user:
+    gateway().wake()  # review M-1, L-1: a start with the relay sends the mail held for it on the next pass
+    # review M-2: the same source as the relay gate and Env (a mailbox given only in the dotenv file is polled)
+    if imap_polled(gateway().cfg.env, env_source()):
         threads.append(threading.Thread(target=gateway().loop, args=(stop, interval), name="imap-poll", daemon=True))
     if interval > 0:
         threads.append(

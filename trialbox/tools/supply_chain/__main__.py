@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.supply_chain import allowlist, image_scan, licences, lock, release, sbom, scanners, vulns
+from tools.supply_chain import allowlist, image_scan, licences, lock, release, sbom, scanners, standing_gates, vulns
 
 
 def _allow(args: argparse.Namespace) -> tuple[allowlist.Allowlist, list[str]]:
@@ -197,6 +197,26 @@ def cmd_image_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_standing_gates(args: argparse.Namespace) -> int:
+    """Release hygiene item 5: fails on a count above its baseline, a tool not run, and every finding of a tool from
+    its date (``standing_gates.BLOCKS_FROM``)."""
+    src = Path(args.src).resolve()
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    prepare_rules = standing_gates.pinned if args.no_fetch else standing_gates.fetch_rules
+    try:
+        record = standing_gates.scan(
+            src, lambda: prepare_rules(Path(args.rules)), Path(args.out), baseline=Path(args.baseline), today=today
+        )
+    except (standing_gates.OutputDirectoryError, standing_gates.BaselineError) as exc:
+        print(f"standing-gates: {exc}", file=sys.stderr)
+        return 2
+    print(standing_gates.summary(record))
+    for p in record["failures"]:
+        print(f"standing-gates: {p}", file=sys.stderr)
+    print(f"standing-gates: {'FAIL' if record['failures'] else 'PASS'} ({len(record['failures'])} problem(s))")
+    return 1 if record["failures"] else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.supply_chain", description=__doc__)
     ap.add_argument("--allowlist", default=str(allowlist.ALLOWLIST), help="allow-list YAML")
@@ -262,6 +282,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config-dir", action="append", default=[], help="a folder for `trivy config`")
     p.add_argument("--fail-at", choices=("none", "HIGH"), default="none", help="none: report-only (D-1343)")
     p.set_defaults(fn=cmd_image_scan)
+    p = sub.add_parser("standing-gates", help="the five standing scans of the tree (release hygiene item 5)")
+    p.add_argument("--out", default="build/standing-gates", help="parent directory for the fresh reports subdirectory")
+    p.add_argument("--src", default="..", help="the repository's root (mounted read-only)")
+    p.add_argument("--rules", default=".cache/code-rules", help="where the pinned rule set is fetched")
+    p.add_argument("--no-fetch", action="store_true", help="use the rule set already in --rules (checked by commit)")
+    p.add_argument("--baseline", default=str(standing_gates.BASELINE), help="counts by rule that may only go down")
+    p.add_argument("--today", help="YYYY-MM-DD (default: today), for the dates in BLOCKS_FROM")
+    p.set_defaults(fn=cmd_standing_gates)
 
     args = ap.parse_args(argv)
     try:

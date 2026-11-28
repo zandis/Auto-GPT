@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from console.backend import RulesetInfo
 
 from tests.console.test_console_app import box  # noqa: F401 - the fixture is used by name
@@ -61,6 +62,7 @@ def _propose(client: Any, text: str) -> Any:
     return client.post(f"/pilot/propose/{m.group(1)}/confirm", data={"csrf": _csrf(r.text)}, follow_redirects=False)
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_scoped_coordinator_cannot_ask_status_or_cancel_of_another_studys_job(box: dict[str, Any]) -> None:  # noqa: F811
     """The review of D-769 (F1): STATUS mails the named job's record; the job-id commands named no study, so the
     scope check never ran. Now the named job's study is checked."""

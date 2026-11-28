@@ -54,6 +54,9 @@ class Unavailable(RuntimeError):
 
 _CODE = re.compile(r"^[A-Z][A-Z0-9-]{1,30}$")
 
+#: the most pids one ``POST /patients/deceased`` takes (the orchestrator's ``DeceasedRequest``, E2E P-05)
+DECEASED_PAGE = 20_000
+
 
 def failed(exc: ServiceError) -> Unavailable:
     """A call to a service that failed, as the console keeps it (NEW-TRUST-3, D-555): the service and its status
@@ -534,12 +537,24 @@ class HttpBackend:
     def deceased(self, pids: list[str]) -> set[str]:
         """FIT-U04 (T-629, D-415): which of ``pids`` the lake's current snapshot records as dead (the orchestrator's
         ``POST /patients/deceased``). Raises :class:`Unavailable` when it cannot be asked: the caller then stops
-        contacts instead of reading "nobody died"."""
-        try:
-            data = self.orch.post_raw("/patients/deceased", {"pids": list(pids)}).json()
-        except ServiceError as exc:
-            raise failed(exc) from exc
-        return {str(p) for p in (data.get("deceased") or [])} if isinstance(data, dict) else set()
+        contacts instead of reading "nobody died". E2E P-05: asked in pages of :data:`DECEASED_PAGE`, the most pids
+        the orchestrator takes in one request; a study of 47,000 candidates was one request, refused (422), so every
+        contact waited."""
+        pids = list(pids)
+        dead: set[str] = set()
+        for i in range(0, len(pids), DECEASED_PAGE):
+            try:
+                data = self.orch.post_raw("/patients/deceased", {"pids": pids[i : i + DECEASED_PAGE]}).json()
+            except ServiceError as exc:
+                raise failed(exc) from exc  # one page not answered: nobody is called (never a partial "no deaths")
+            except ValueError as exc:
+                raise Unavailable("orchestrator answered the death check without JSON") from exc
+            # P05-1: a page answered 200 but not as {"deceased": [pid, ...]} is not "no deaths" on that page
+            found = data.get("deceased") if isinstance(data, dict) else None
+            if not isinstance(found, list) or not all(isinstance(p, str) for p in found):
+                raise Unavailable("orchestrator answered the death check in a shape the console does not read")
+            dead |= set(found)
+        return dead
 
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_call(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> Any:

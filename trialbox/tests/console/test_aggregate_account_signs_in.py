@@ -18,6 +18,7 @@ from tests.console.test_no_one_holds_both_factors import _add, _box, _signin
 
 
 @pytest.mark.parametrize("role", ["viewer", "cro"])
+@pytest.mark.usefixtures("held_dir")
 def test_an_account_made_on_users_signs_in_with_what_the_page_shows(tmp_path: Path, role: str) -> None:
     app, _users, audit_dir, clock = _box(tmp_path, steward=False, TB_CONSOLE_MFA="totp")  # as on an installed box
     admin, _key = _enrol(app, clock, "admin", ADMIN_PW)  # the administrator signs in with TOTP too
@@ -40,6 +41,7 @@ def test_an_account_made_on_users_signs_in_with_what_the_page_shows(tmp_path: Pa
     assert code.group(1) not in repr(events)  # the code is shown once, never written to the audit
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_without_totp_the_password_alone_is_handed_over(tmp_path: Path) -> None:
     app, _users, audit_dir, _ = _box(tmp_path, steward=False)  # a synthetic box: TOTP off
     admin, csrf = _signin(app, "admin", ADMIN_PW)

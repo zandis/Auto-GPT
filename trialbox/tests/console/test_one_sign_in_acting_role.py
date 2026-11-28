@@ -59,6 +59,7 @@ def test_with_the_flag_off_an_account_is_its_own_role_only(person: dict[str, Any
     assert c.get("/ops/users", follow_redirects=False).status_code == 403  # a viewer's answer
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_switch_is_one_audited_post_and_the_acting_role_decides(person: dict[str, Any]) -> None:
     _flag(person, "on")
     c, csrf = login(person["app"], "mei", PW)
@@ -90,6 +91,7 @@ def test_the_audit_trail_names_the_person_when_acting(person: dict[str, Any]) ->
     assert all("coordinator" not in str(e["actor"]) for e in _events(person, "role.acting") + denied)
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_flag_switched_off_ends_the_acting_role(person: dict[str, Any]) -> None:
     _flag(person, "on")
     c, csrf = login(person["app"], "mei", PW)
@@ -230,6 +232,7 @@ def test_the_delegation_logs_standing_follows_the_person_not_the_role(person: di
     assert kai.get(url, follow_redirects=False).status_code == 403
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_an_account_that_may_act_in_a_protected_role_is_held_as_protected(person: dict[str, Any]) -> None:
     """The review of D-877 (D-719): an account whose own role is a viewer's but that may act as an administrator or
     an investigator is a protected account: one administrator alone cannot reset its password and sign in as it."""
@@ -299,6 +302,7 @@ def test_the_sign_in_page_offers_the_boxs_roles_only_while_acting_is_on(person: 
     assert offered == ["admin", "coordinator", "investigator", "viewer", "steward"]  # the roles the box gave, in order
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_person_signs_in_already_acting_as_the_chosen_role(person: dict[str, Any]) -> None:
     _flag(person, "on")
     c, _csrf, _page = _sign_in(person["app"], "mei", PW, "admin")
@@ -342,6 +346,7 @@ def test_a_page_the_acting_role_may_not_open_offers_the_switch(person: dict[str,
     assert 'value="admin"' in r.text and 'name="back" value="/ops/flags"' in r.text
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_chosen_role_waits_for_the_second_factor(person: dict[str, Any]) -> None:
     """The review of D-1151 (1): with TOTP on, the role chosen on the sign-in page is neither remembered nor audited
     on the password alone; only once the code is right."""

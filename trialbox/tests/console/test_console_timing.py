@@ -204,6 +204,7 @@ def _fill(template: str) -> str:
 
 
 @pytest.mark.parametrize("profile", ["taipei", "japan"])
+@pytest.mark.usefixtures("held_dir")
 def test_no_route_outside_the_allow_list_ever_carries_the_header(request: pytest.FixtureRequest,
                                                                   monkeypatch: pytest.MonkeyPatch,
                                                                   profile: str) -> None:  # fmt: skip
