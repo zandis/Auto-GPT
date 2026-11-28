@@ -391,7 +391,7 @@ def test_a_missing_schema_probe_fails_the_schema_step(tmp_path: Path, monkeypatc
     probes.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
     monkeypatch.setattr(q, "PROBES", probes)
     s = q.qualify(_opts(), steps=("schema",))["steps"]["schema"]
-    assert s["status"] == "failed" and s["detail"]["probes"]["judge@5"] == "no_probe"
+    assert s["status"] == "failed" and s["detail"]["probes"]["judge@6"] == "no_probe"
 
 
 def test_a_schema_violation_fails_the_schema_step(tmp_path: Path) -> None:

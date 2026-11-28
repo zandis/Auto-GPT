@@ -10,16 +10,16 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 
 | Service | Port | On the host | Networks | Who may reach it | Runs |
 | --- | --- | --- | --- | --- | --- |
-| adapter | 8016 | not published | trialbox-net | with its own token, only: console, orchestrator; the administrator on the host (operator token) | always |
+| adapter | 8016 | not published | fhir-net, trialbox-net | with its own token, only: console, orchestrator; the administrator on the host (operator token) | always |
 | audit-writer | none (listens on no port) | not published | trialbox-net | - | always |
 | authelia | 9091 | not published | egress-net, trialbox-net | console and Caddy only (sign-in with the hospital account) | oidc (identity) |
 | caddy | 443 | 0.0.0.0:443:443 | edge-net, trialbox-net | clinic PCs on the hospital LAN, port 443 only (https://TB_TLS_HOSTNAME) | always |
 | console | 8090 | not published | console-net, trialbox-net | staff browsers: 127.0.0.1 by default; the hospital LAN only through the site's TLS proxy | always |
-| criteria-compiler | 8012 | not published | egress-net, trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
-| db | 5432 | not published | trialbox-net | TrialBox services and fhir-store, with a password | always |
+| criteria-compiler | 8012 | not published | egress-net, fhir-net, trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
+| db | 5432 | not published | fhir-net, trialbox-net | TrialBox services and fhir-store, with a password | always |
 | doc-parser | 8011 | not published | trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
 | embed-service | 8014 | not published | trialbox-net | with its own token, only: lake, orchestrator; the administrator on the host (operator token) | always |
-| fhir-store | 8080 | not published | trialbox-net | adapter, orchestrator, criteria-compiler (network only, no token yet) | always |
+| fhir-store | 8080 | not published | fhir-net | adapter, orchestrator, criteria-compiler, db (network only, no token yet) | always |
 | gateway | 8020 | not published | egress-net, model-net, trialbox-net | with its own token, only: console, criteria-compiler, doc-parser, orchestrator; the administrator on the host (operator token) | always |
 | judge-sleep-init | none (listens on no port) | not published | model-backend-net | - | GPU profile (rtx5090) |
 | judge-wake-init | none (listens on no port) | not published | model-backend-net | - | GPU profile (rtx5090) |
@@ -30,7 +30,7 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 | mail-gateway | 8015 | not published | egress-net, trialbox-net | with its own token, only: console, orchestrator; the administrator on the host (operator token) | always |
 | model-guard | 8000 | not published | model-backend-net, model-net | gateway only (model-net) | GPU profile |
 | model-swap-init | none (listens on no port) | not published | model-backend-net | - | GPU profile (rtx5090) |
-| orchestrator | 8010 | not published | egress-net, trialbox-net | with its own token, only: console, mail-gateway; the administrator on the host (operator token) | always |
+| orchestrator | 8010 | not published | egress-net, fhir-net, trialbox-net | with its own token, only: console, mail-gateway; the administrator on the host (operator token) | always |
 
 ## Networks
 
@@ -39,6 +39,7 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 | trialbox-console | the console's published port only: no NAT out, no outside names; nftables drop the rest (deploy/network.sh) |
 | trialbox-edge | out of the box only to the hosts below (nftables, deploy/network.sh) |
 | trialbox-egress | out of the box only to the hosts below (nftables, deploy/network.sh) |
+| trialbox-fhir | internal: no route out of the box |
 | trialbox-model-backend | internal: no route out of the box |
 | trialbox-model-net | internal: no route out of the box |
 | trialbox-net | internal: no route out of the box |
@@ -89,7 +90,7 @@ With no site settings the box reaches nothing outside. ClinicalTrials.gov is off
 | POSTGRES_WF_PASSWORD, TB_DB_URL (role trialbox) | deploy/.env (0600, root) | db; adapter, console, criteria-compiler, gateway, lake, mail-gateway, orchestrator |
 | TB_DB_PW_<SERVICE> (one role per service) | deploy/.env (0600, root) | db; each service its own only |
 | IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |
-| TB_KEK_PASSPHRASE | terminal / command environment (RUNBOOK §16) | the host only; never in a container's configuration or in a file |
+| KEK passphrase | a root-only file (--kek-passphrase-file, 0600) or stdin (RUNBOOK §16) | the host only; never in a container's configuration, the environment or a file other than the operator's root-only one (removed once used) |
 | TB_KMS_TOKEN | KMS token (RUNBOOK §17) | adapter, orchestrator |
 | CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |
 | site_hmac.key, pid_map.key, REDCap API tokens | volume tb-secrets (/run/secrets/trialbox) | adapter, orchestrator |

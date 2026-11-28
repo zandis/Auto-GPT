@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tb_common import ids
 from tb_common.http import kept_failure, trace_of
-from tb_common.ulid import new_ulid
 
 log = logging.getLogger("console.cascade")
 
@@ -117,7 +117,7 @@ class CascadeRuns:
         with self._lock:
             if any(r.state == "running" for r in self.list()):
                 raise RuntimeError("a cascade run is already running; wait for it to finish")
-            run = CascadeRun(new_ulid(), trial, user, "running", time.time())
+            run = CascadeRun(ids.log_safe_id(), trial, user, "running", time.time())  # H-147: logged whole
             self._save(run)
         source = self.source_dir
 
@@ -146,6 +146,17 @@ class CascadeRuns:
             return None
         path = self.root / run.run_id / "out" / rel.format(trial=run.trial)
         return path if path.is_file() else None
+
+    def made_sha(self, run: CascadeRun, name: str) -> str | None:
+        """The sha256 the run recorded when it built the served file ``name`` (``out/made.json``, 1523 ruling); None
+        when it recorded none (a run from before the record: its PDF and workbook are refused, run it again)."""
+        rel = SERVED.get(name)
+        try:
+            got = json.loads((self.root / run.run_id / "out" / "made.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        sha = got.get(rel.format(trial=run.trial)) if rel and isinstance(got, dict) else None
+        return sha if isinstance(sha, str) else None
 
     def summary(self, run: CascadeRun) -> dict[str, Any]:
         """Released (D1) numbers only: the DL-1 cascade block and headline, the certificate status and statement."""

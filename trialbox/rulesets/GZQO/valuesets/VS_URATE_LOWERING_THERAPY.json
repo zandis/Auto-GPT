@@ -5,15 +5,15 @@
     "concept": [
      {
       "code": "M04AA01",
-      "display": "allopurinol"
+      "display": "M04AA01"
      },
      {
       "code": "M04AA03",
-      "display": "febuxostat"
+      "display": "M04AA03"
      },
      {
       "code": "M04AB03",
-      "display": "benzbromarone"
+      "display": "M04AB03"
      }
     ],
     "system": "http://www.whocc.no/atc"
@@ -36,5 +36,5 @@
  "status": "active",
  "title": "urate-lowering therapy",
  "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-URATE-LOWERING-THERAPY",
- "version": "1.0.0-v6cea9eec"
+ "version": "1.0.0-v9ef32f4a"
 }

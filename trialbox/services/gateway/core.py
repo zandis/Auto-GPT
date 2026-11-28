@@ -67,13 +67,14 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeGuard
 
 import httpx
 from guard.guard import Guard
 from registry.registry import Registry, RegistryError, Resolved, check_served, provider_routing
+from tb_common import egress_edge
 from tb_common.audit import AuditLog, canonical
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_text
@@ -151,6 +152,35 @@ _TOO_LONG = ("maximum context length", "context length", "context_length", "too 
 # chat() and activate() called inside the gateway's own process (``trialbox doctor``'s judge-route check, tests): no
 # network boundary, so no service token to bind the caller to (D-437). The HTTP app always passes the verified service
 log = logging.getLogger("gateway")
+#: P-29: one line per answered call with its token counts, so the model's tokens can be measured from the service log
+#: on the box (the ledger's ``llm.gateway.call`` holds the same counts). Counts and labels only, never text.
+token_log = logging.getLogger("gateway.tokens")
+
+
+def _count(v: object) -> TypeGuard[int]:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+def _log_tokens(call: _Call) -> None:
+    token_log.info(
+        "call %s: %d tokens in, %d out",
+        call.call_id,
+        call.tokens_in,
+        call.tokens_out,
+        extra={
+            "call_id": call.call_id,
+            "alias": call.alias,
+            "build_id": call.build_id,
+            "cache": call.cache,
+            "tokens_in": call.tokens_in,
+            "tokens_out": call.tokens_out,
+            "tokens_reported": call.tokens_reported,
+            "tokens_estimated": call.tokens_estimated,
+            "latency_ms": call.latency_ms,
+        },
+    )
+
+
 IN_PROCESS = "<in-process>"
 REQUIRED = ("x-tb-caller", "x-tb-data-class", "x-tb-purpose", "x-tb-role", "x-tb-study", "x-tb-context-of-use")
 
@@ -234,6 +264,7 @@ class _Call:
     step_basis: str = ""  # D3/D4: "step" (confirmed), "intake" (FR-CONV-8) or "box_policy" (D-142)
     deadline: float = 0.0  # time.monotonic() by which this call ends (T-608, the call budget)
     tokens_estimated: bool = False  # the upstream said its token counts are estimates (the stub, LLM-046)
+    tokens_reported: bool = False  # P-29: the upstream gave both counts as whole numbers; else a zero is not a count
 
 
 def _content_text(messages: Any) -> str:
@@ -245,6 +276,24 @@ def _content_text(messages: Any) -> str:
         elif isinstance(c, list):
             parts.extend(str(x.get("text", "")) for x in c if isinstance(x, dict))
     return "\n".join(parts)
+
+
+def _leaves(v: Any) -> Iterator[str]:
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, dict | list):
+        for x in v.values() if isinstance(v, dict) else v:
+            yield from _leaves(x)
+
+
+def _body_text(body: Mapping[str, Any]) -> str:
+    """Every text of a call that would leave the box: its messages with their tool calls, the answer's schema, the
+    tools (OCR 1523-13). A part that is no text cannot be read: refused."""
+    for m in body.get("messages") or []:
+        parts = m.get("content") if isinstance(m, dict) else None
+        if isinstance(parts, list) and any(not isinstance(p, dict) or p.get("type", "text") != "text" for p in parts):
+            raise egress_edge.Refused("model.offbox", "unreadable")
+    return "\n".join(_leaves({k: v for k, v in body.items() if k != "model"}))
 
 
 def _schema_ok(content: str, response_format: Any) -> bool | None:
@@ -283,6 +332,8 @@ class Gateway:
         self.registry = registry
         self.audit = audit
         self.config = config or GatewayConfig()
+        if not self.config.phi_tripwire and self.config.environment.value == "PRODUCTION":  # M3: refused at start
+            raise ValueError("TB_GATEWAY_PHI_TRIPWIRE=off is refused on a PRODUCTION box: set it to on")
         if not self.config.phi_tripwire:  # D-792: the owner's setting; said once at start, and on every call's audit
             log.warning(
                 "the PHI tripwire is off (TB_GATEWAY_PHI_TRIPWIRE=off): D0-D2 calls may leave the box unchecked "
@@ -597,6 +648,7 @@ class Gateway:
         # 5-8 resolve, cache, dispatch, echo
         registry_refusals: list[RegistryError] = []
         upstream_errors: list[str] = []
+        stopped: Refusal | None = None
         for cand in candidates:
             try:
                 res = self.registry.resolve(
@@ -616,10 +668,21 @@ class Gateway:
                 registry_refusals.append(RegistryError("provider_unpinned", msg))
                 call.fallbacks += 1
                 continue
+            if ep.zone != "perimeter":  # M3: a call that leaves the box passes the egress edge
+                try:
+                    egress_edge.leave("model.offbox", ep.name, _body_text(body) if cfg.phi_tripwire else "",
+                                      audit=self.audit, actor=call.caller,
+                                      unchecked=not cfg.phi_tripwire)  # fmt: skip
+                except egress_edge.Refused as e:  # OCR 1523-13: a later candidate may be on the box
+                    stopped = Refusal("phi_tripwire", f"the call may not leave the box ({e.reason})")
+                    call.fallbacks += 1
+                    continue
             out = self._try(call, cand, res, label, body, free_form, upstream_errors)
             if out is not None:
                 return out
             call.fallbacks += 1
+        if stopped is not None and not upstream_errors:
+            raise stopped
         interactive = bool(self.policy.roles.get(call.role, {}).get("interactive"))
         if only_kinds(upstream_errors, {"busy"}):
             raise Refusal("model_busy", BUSY_MESSAGE, status=503)
@@ -826,10 +889,14 @@ class Gateway:
             check_served(res, payload.get("model"), payload.get("provider"))
         except RegistryError as e:
             raise Refusal(e.reason, str(e), status=502) from e
-        usage = payload.get("usage") or {}
+        raw = payload.get("usage")
+        usage = raw if isinstance(raw, dict) else {}  # P-29: a usage that is not an object holds no counts
         call.tokens_estimated = bool(usage.get("estimated"))  # LLM-046: the stub's counts are estimates
-        call.tokens_in = int(usage.get("prompt_tokens") or 0)
-        call.tokens_out = int(usage.get("completion_tokens") or 0)
+        raw_in, raw_out = usage.get("prompt_tokens"), usage.get("completion_tokens")
+        # P-29: each count is checked before use; one that is not a whole number reads as zero, marked unreported
+        call.tokens_in = raw_in if _count(raw_in) else 0
+        call.tokens_out = raw_out if _count(raw_out) else 0
+        call.tokens_reported = _count(raw_in) and _count(raw_out)
         c = ep.cost
         reported = usage.get("cost")
         if isinstance(reported, int | float) and not isinstance(reported, bool):
@@ -943,6 +1010,7 @@ class Gateway:
             call.tokens_in = call.tokens_out = 0
             call.cost = 0.0
         self._record("llm.gateway.call", call)  # LLM-5: the ledger first, then the response
+        _log_tokens(call)
         payload["tb"] = {
             "call_id": call.call_id,
             "alias": call.alias,
@@ -1033,6 +1101,7 @@ class Gateway:
             "expected_alias": call.expected_alias,
             "tokens_est": call.tokens_est,
             "tokens_estimated": call.tokens_estimated,
+            "tokens_reported": call.tokens_reported,
             "context": call.context,
             "topology": self.config.topology.value,
             "environment": self.config.environment.value,

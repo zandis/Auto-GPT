@@ -206,6 +206,10 @@ def test_an_upgraded_japanese_site_and_a_site_elsewhere_count_by_calendar_year_a
             return str(c.get(path).text)
 
     bk = study["backend"]
+    # H-139 (7158058588): the session's clock held still. Every signed-in page carries the idle warning's seconds left
+    # (data-idle-left, data-abs-left); the two renders compared here, on a slow worker, crossed a second
+    still = study["users"].clock()
+    monkeypatch.setattr(study["users"], "clock", lambda: still)
     for site in ({"tz": "Asia/Tokyo", "locale": "ja"}, {"tz": "Asia/Taipei", "locale": "zh-TW"}):
         _site(bk, monkeypatch, **site)
         for lang in LANGS:

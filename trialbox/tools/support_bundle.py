@@ -144,15 +144,17 @@ SECRET_SETTINGS = (
     "TB_DEMO_PASSWORD", "TB_EDC_EVENT_SECRET", "TB_EDC_INTERNAL_TOKEN", "TB_EDC_OIDC_CLIENT_SECRET",
     "TB_EDC_TOOL_TOKEN", "TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE", "TB_KMS_TOKEN", "TB_RC_CASSETTE_TOKEN",
     "TB_REDCAP_API_TOKEN", "TB_REDCAP_PROJECT_TOKENS", "TB_REDCAP_TOKEN_", "OPENROUTER_API_KEY",
-    "SPRING_DATASOURCE_PASSWORD", "TB_BAKEOFF_API_KEY", "VLLM_API_KEY",
+    "SPRING_DATASOURCE_PASSWORD", "TB_BAKEOFF_API_KEY", "VLLM_API_KEY", "TB_LLM_EVAL_KEY",
     "TB_SOURCE_DSN", "TB_PG_DSN", "RESTIC_PASSWORD",
 )  # fmt: skip
 #: secret-LOOKING names whose value is not a secret, with why: their line is still redacted by the name rule, but
 #: their value is not replaced in every file (that wrecked JSON, memory limits and host names)
 NOT_SECRETS = {
+    "PINNED_KEY": "the path of the vendor's public key, deploy/keys/vendor_ed25519.pub (install.sh, H-110)",
     "TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)",
     "TB_OIDC_CLIENT_SECRET": "the path of the client secret's file (its value is read from deploy/secrets/authelia)",
     "TB_VENDOR_KEY_SM_NAME": "the name of a Secret Manager secret (box run, R2), not key material",
+    "TB_VENDOR_KEYS": "the folder of the vendor's public keys (M2), not key material",
 }
 #: a setting not in the list whose name says it holds a secret's value: looked for too (a site's own setting)
 _SECRET_VALUE_NAME = re.compile(r"PASS|_PW_|SECRET|TOKEN|PHRASE|API_KEY|_DSN$|CREDENTIAL|PRIVATE_KEY", re.I)
@@ -651,6 +653,25 @@ def clean_lines(b: Bundle, say: Callable[[str], None]) -> None:
             say(f"removed {sum(removed.values())} line(s) from {name}: {', '.join(sorted(removed))}")
 
 
+def _leave(b: Bundle, deploy: Path) -> bool:
+    """M3: the bundle passes the egress edge; its line of the egress record is in the host's own audit chain
+    (``updates/audit``, as the updater's). A bundle that may not leave, or is not recorded, is not written. Whether the
+    edge still masked something in it."""
+    from tb_common.audit import AuditLog
+
+    files = [[n, t] for n, t in sorted(b.members.items())]
+    got = bs.egress_rules()(op="leave", route="support.bundle", destination="support", files=files,
+                            actor="support-bundle")  # fmt: skip
+    try:
+        AuditLog(deploy / "updates" / "audit").append(**got["line"])
+    except (OSError, TypeError) as exc:
+        raise BundleRefused(f"the bundle's departure was not recorded ({type(exc).__name__}): not written") from None
+    if got["refused"]:
+        raise BundleRefused(f"the bundle may not leave ({got['refused']}): not written")
+    b.members = {n: new for (n, _old), (_safe, new) in zip(files, got["files"], strict=True)}
+    return bool([t for _n, t in got["files"]] != [t for _n, t in files])
+
+
 def _write_tar(target: Path, members: Mapping[str, str], at: datetime, scrubber: bs.Scrubber) -> None:
     """The one function that writes into the archive (H-71, D-1354; a test finds every writer). A member the scrub
     would still change is refused before anything is written."""
@@ -736,6 +757,8 @@ def _build(deploy: Path, out_dir: Path, *, days: int, add: Iterable[Path], runne
         b.note(name, "secrets_hidden", k)
         hidden += k
     b.seal()  # H-71: the scrub once more, after every pass that changed a member in place
+    if _leave(b, deploy):
+        b.seal()
     manifest = {
         "made": now.isoformat(timespec="seconds"),
         "tool": "tools/support_bundle.py (T-209b, D-405)",

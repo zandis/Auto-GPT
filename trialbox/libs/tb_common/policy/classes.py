@@ -202,6 +202,8 @@ _D1 = {
     "HostFingerprint",
     "UpdateFile",
     "UpdateManifest",
+    "Pack",  # H-95: the manifest's pack and the model pack it names, release identities only
+    "RequiresModel",
     # release.json (T-110b, D-340): versions, digests and sums of the vendor's own build, no site or patient data
     "ReleaseRecord",
     "ReleaseImage",
@@ -235,6 +237,8 @@ _D1 = {
     "JobError",
     "JobMetrics",
     "PrefilterRecord",  # 10E-12 (D-1259): a nightly job's stage counts, no patient id; exact on internal pages only
+    "OpenReason",  # F17 5a: a criterion, a reason code, a site view and a patient count; no patient id
+    "NightOpen",  # F17 5a, 5b: the open reasons and the coded-complete count of a nightly job; counts only
     "IngestRequest",
     "RebuildRequest",
     "RebuildResult",
@@ -248,6 +252,7 @@ _D1 = {
     "OmopLoadSummary",  # T-106: counts and check names of a dual-write load, no patient data
     "ConnectorReport",  # 10E-9: a connector's read counts and times per table, no patient data
     "TableReadTimes",  # 10E-9: one table's read counts, seconds and histogram, no patient data
+    "StageTimes",  # OPT-1 §6: one stage's seconds and peak memory, no patient data
     "JobCreate",
     "Job",
     # aggregates released after small-cell suppression
@@ -284,6 +289,7 @@ _D3 = {
     "CodedValue",  # a coded record's value, unit, date and code behind an answer (T-514, D-362): as Evidence
     "LakeQuery",
     "LlmJudgeOutput",
+    "LlmJudgeOutputV2",  # judge v6's answer, with the three fields on the quote (R22-16 round 5): as LlmJudgeOutput
     "LlmDraftDocOutput",
     "NavLists",
     "NavListSet",

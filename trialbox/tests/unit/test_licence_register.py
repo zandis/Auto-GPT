@@ -47,7 +47,7 @@ def test_the_committed_register_passes_the_build_check() -> None:
 def test_the_detector_sees_the_known_data_files() -> None:
     files = set(lr.shipped_data_files())
     for f in (
-        "services/criteria_compiler/terminology/src/atc.csv",
+        "services/criteria_compiler/terminology/src/nhi_drug.csv",  # V-18b (D-1183): src/atc.csv no longer ships
         "services/criteria_compiler/terminology/loinc_tw.parquet",
         "services/adapter/mapping/mimic/tables/icu_item_to_icd10pcs.csv",
         "rulesets/GZQO/valuesets/VS_GOUT.json",

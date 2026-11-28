@@ -69,6 +69,7 @@ services:
       - --max-num-seqs=${JUDGE_MAX_SEQS:-16}
       - --enforce-eager
       - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.40}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
 
   llm-verifier:
@@ -85,6 +86,7 @@ services:
       - --max-num-seqs=${VERIFIER_MAX_SEQS:-16}
       - --enforce-eager
       - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.20}
+      - --${TB_LLM_PREFIX_CACHING:-no-enable}-prefix-caching   # H-146 (D-1462): off unless chosen
       - --limit-mm-per-prompt={"image":0,"video":0}
       - --default-chat-template-kwargs={"enable_thinking":false}
     depends_on:
@@ -96,6 +98,10 @@ services:
       TB_PROFILE: P-PRO6000
 
   orchestrator:
+    # the base file's 4g is at the edge here: a 48,000-patient SCREEN peaked near 4.0 GiB (the machine-profile
+    # finding); memcaps (install.sh --overlay) writes TB_MEM_ORCH only above this, for a larger hospital
+    # measured 50k peak: 3,973 MiB (the SCREEN of 50,000 synthetic patients, before the orchestrator result-memory fix)
+    mem_limit: ${TB_MEM_ORCH:-6g}
     environment:
       TB_MODEL_SWAP: "off"   # one pass per run with both models (orchestrator/twophase.py)
       TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-16}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)

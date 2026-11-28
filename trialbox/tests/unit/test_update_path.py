@@ -12,11 +12,13 @@ import hashlib
 import json
 import shutil
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from tests import pg_client
 from tools.trialbox import update as up
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -137,6 +139,9 @@ class FakeRun:
         self.envs: list[dict[str, str]] = []
         self.fail_on = fail_on
         self.images = images or {}
+        # OCR 1469-7: the engine's data root is a folder of the test's own, never the host's /var/lib/docker (an
+        # empty answer to `docker info` falls back to it: CI's runner has it, 0710 root, train 167)
+        self.docker_root = Path(tempfile.mkdtemp(prefix="docker-root-"))
 
     def __call__(self, argv: list[str], stdin_file: Path | None = None, stdout_file: Path | None = None,
                  env: dict[str, str] | None = None, timeout: float | None = None) -> str:  # fmt: skip
@@ -159,6 +164,10 @@ class FakeRun:
             return "true\n"
         if "FROM orch.jobs" in line:  # T-695: no job running, so the update may stop the services
             return "0\n"
+        if argv[:2] == ["docker", "info"]:
+            return f"{self.docker_root}\n"
+        if "pg_database_size" in line:  # H-121: the size check reads a size (an empty answer stops the update)
+            return "1000\n"
         return ""
 
 
@@ -211,7 +220,7 @@ def test_compose_box_rolls_back_images_models_and_database(tmp_path: Path, deplo
     lines = [" ".join(c) for c in run.calls]
     assert "docker tag trialbox-py:rollback-B1 trialbox-py:1.0.0" in lines
     restores = [ln for ln in lines if "pg_restore" in ln]
-    assert len(restores) == 2 and all("--clean" in ln for ln in restores)
+    assert len(restores) == 2 and not any("--clean" in ln for ln in restores) and all("_tbrb" in ln for ln in restores)
     assert (tmp_path / "models/judge/config.json").read_text() == "old"
     assert not (tmp_path / "models/judge/new.bin").exists()
 
@@ -261,7 +270,11 @@ def test_first_install_only_loads_and_defers_the_audit(
     assert json.loads((deploy / "updates/installed.json").read_text())["release_seq"] == 1  # D-210
 
 
-def test_in_process_box_migrates_and_rolls_back_the_database(tmp_path: Path, db_url: str) -> None:
+def test_in_process_box_migrates_and_rolls_back_the_database(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for var, cmd in pg_client.env().items():  # H-139: the box's backup takes the process environment's client tools
+        monkeypatch.setenv(var, cmd)
     work = tmp_path / "box-run"
     (work / "box").mkdir(parents=True)
     (work / "box/file.txt").write_text("data")

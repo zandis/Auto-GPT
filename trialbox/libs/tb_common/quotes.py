@@ -44,4 +44,26 @@ def quote_in(quote: str, text: str) -> bool:
     return bool(q) and any(q in quote_key(r) for r in runs(text))
 
 
-__all__ = ["CUT", "quote_in", "quote_key", "runs"]
+#: one pair of marks a model may wrap its whole quote in (#639 7113069462, #1327 7094287787)
+_WRAP = {"「": "」", '"': '"', "“": "”"}
+
+
+def unwrap(quote: str) -> str:
+    """``quote`` without one pair of 「」 or "" around the whole of it; unchanged when there is none, or when the mark
+    also occurs inside (「A」と「B」 is not one quote in marks)."""
+    s = quote.strip()
+    if len(s) > 2 and s[0] in _WRAP and s[-1] == _WRAP[s[0]] and s[0] not in s[1:-1] and s[-1] not in s[1:-1]:
+        return s[1:-1].strip()
+    return quote
+
+
+def as_in(quote: str, text: str) -> str | None:
+    """The quote as ``text`` holds it: ``quote`` itself when :func:`quote_in`, else the quote without its enclosing
+    marks (:func:`unwrap`) when that is in it, else None. A Japanese answer often wraps its quote in 「」."""
+    if quote_in(quote, text):
+        return quote
+    bare = unwrap(quote)
+    return bare if bare != quote and quote_in(bare, text) else None
+
+
+__all__ = ["CUT", "as_in", "quote_in", "quote_key", "runs", "unwrap"]

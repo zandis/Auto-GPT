@@ -15,11 +15,13 @@ JSON + feasprofile JSON, SCREEN / MICROBATCH candidate list), the candidate regi
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import re
+import threading
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
@@ -225,13 +227,16 @@ class Helpers:
         tz = site_zone(self.bk)
         return GoneOn({p: local_date(first[p], tz) if p in first else "" for p in self.gone()})
 
-    def delegated(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
+    def delegated(
+        self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",), key: str = "forbidden"
+    ) -> None:
         """D-273 (PV-3): D-147's delegation rule on every page that shows one study's patients, not only the week,
         patient, candidate and SAE pages. Once the study's delegation log names a PI, an investigator sees them only
-        as the PI or as a sub-investigator ticked for one of ``tasks``; a refusal is audited."""
+        as the PI or as a sub-investigator ticked for one of ``tasks``; a refusal is audited. ``key`` names the refusal
+        page (it keeps the 403; the week page says why, E2E P-35)."""
         if not self.delegated_ok(sess.user, rid, tasks):
             self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
-            raise self.problem(403, "forbidden")
+            raise self.problem(403, key, **({} if key == "forbidden" else {"rs": rid}))
 
     def need_rows(self, sess: Session, rid: str, path: str) -> None:
         """ROLE-017 (T-102c, D-425): who reads one study's patient-level rows. A page, its XLSX and its ``/api/v1``
@@ -411,12 +416,56 @@ def register(app: FastAPI, h: Helpers) -> None:
         ]
         return rep
 
+    lists_of: dict[str, tuple[tuple[str, str], dict[str, Any]]] = {}  # study -> (its run's list object, parsed)
+    parsing = threading.Lock()  # people opening pages together after a run share one parse (E2E P-06: memory)
+
+    def freeze() -> None:
+        """MVP-B: the kept list and fits are millions of objects; each full collection walked them all (2.4 s a view
+        at 100,000 rows, measured). Frozen, the collector skips them; a list let go is still freed by its count. The
+        garbage of the moment is collected first, so none of it is frozen.
+        ponytail: a reference cycle still in use by another request at this moment is never collected once it is
+        garbage (once per new run's list); per-process, not per-study."""
+        gc.collect()
+        gc.freeze()
+
+    def candidate_list(rs: str, job: Job) -> dict[str, Any] | None:
+        """MVP-B: a run's stored candidate list never changes, so it is read and parsed once per study and run, not at
+        every view (a 100,000-row list took seconds a view). Every reader copies before it changes (``{**cl, ...}``).
+        ponytail: one parsed list per study stays in memory; bound it (an LRU) if many large studies are open."""
+        out = st.output(job, "candidate_list_", ".json")
+        if out is None:
+            return None
+        key = (out.minio_key, out.sha256)
+        got = lists_of.get(rs)
+        if got is None or got[0] != key:
+            with parsing:
+                got = lists_of.get(rs)
+                if got is None or got[0] != key:
+                    cl = load(job, "candidate_list_", ".json")
+                    if cl is None:
+                        return None  # not kept: the next view asks again
+                    for k in [k for k in fits_of if k[0] == rs]:
+                        del fits_of[k]  # the old list's fits (every language) go with it
+                    got = lists_of[rs] = (key, cl)
+                    freeze()
+        return got[1]
+
+    fits_of: dict[tuple[str, str], tuple[Any, Any, dict[str, Any]]] = {}  # (study, language) -> (list, criteria, fits)
+
+    def kept_fits(rs: str, lang: str, cl: Any, crit: Any) -> dict[str, Any]:
+        """MVP-B: each row's fit of the study's kept list (:func:`studies.kept_fit`), anew when the list or the
+        criteria's words change."""
+        got = fits_of.get((rs, lang))
+        if got is None or got[0] is not cl or got[1] != crit:
+            got = fits_of[(rs, lang)] = (cl, crit, {})
+        return got[2]
+
     def week_bundle(sess: Session, rs: str) -> dict[str, Any] | None:
         jobs = bk.list_jobs(limit=500)
         job = st.latest_job(jobs, rs, SCREEN_TYPES)
         if job is None:
             return None
-        cl = load(job, "candidate_list_", ".json")
+        cl = kept = candidate_list(rs, job)
         if h.recorded:  # T-515 (D-323): recorded first and second checks on a DEV demo, each with its source
             cl = h.recorded.apply(cl, rs)
         # T-310a (D-446, CR-014): a not-matched patient sent back is on the PI's list again, until the PI marks them
@@ -434,16 +483,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         names = (summary or {}).get("practitioner_names") or {}
         pids = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
         seen = store.seen(rs, pids, job.job_id, (job.updated_at or job.received_at).isoformat())
+        lang = sess.lang if sess else "en"
+        crit = crit_of(rs, lang)
+        fits = kept_fits(rs, lang, kept, crit)
+        made = len(fits)
         rows = st.weekly_rows(
-            cl,
-            crit_of(rs, sess.lang if sess else "en"),
-            registry_map(rs),
-            store.latest_marks(rs),
-            seen,
-            job.job_id,
-            names,
-            today=h.today(),
+            cl, crit, registry_map(rs), store.latest_marks(rs), seen, job.job_id, names, today=h.today(), fits=fits
         )
+        if len(fits) != made:
+            freeze()  # the fits just made are kept with the list, so frozen with it
         others_of(sess, rs, rows)
         people = ps.read(h, rs)  # D-1221: the one state of each person, the same on every list
         for r in rows:
@@ -452,7 +500,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
                 "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked,
-                "people": people}  # fmt: skip
+                "people": people, "fits": fits, "crit": crit}  # fmt: skip
 
     def deceased_now(cl: dict[str, Any] | None) -> tuple[set[str], bool]:
         """FIT-U04 (T-629, D-415): the listed patients whose record in the lake now says they died (T-616's
@@ -489,7 +537,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         for r in rows:
             r["elsewhere"] = found.get(str(r["pid"]), [])
             if any(o["state"] == "enrolled" for o in r["elsewhere"]):
-                r["fit"].open.append(translate(lang, "elsewhere.open"))
+                r["fit"] = replace(r["fit"], open=[*r["fit"].open, translate(lang, "elsewhere.open")])  # shared
 
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
@@ -900,7 +948,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
-        screen_or_403(sess, rid, request.url.path)
+        h.delegated(sess, rid, request.url.path, key="week.no_log")  # E2E P-35: says why, still 403
         if settings_of(rid).study_type == "registry":
             return RedirectResponse(f"/studies/{rid}/cohort", status_code=303)
         wk = week_bundle(sess, rid)
@@ -931,12 +979,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             try:
                 # D-133 (review F-03): after a mark the patient may have left this list; the panel still shows that
                 # patient's real state (and Undo), never the next patient's
-                sel = patient_ctx(sess, rid, pid)
+                sel = patient_ctx(sess, rid, pid, wk)
             except Exception as exc:  # h.problem(404): a pid not on this run's list opens the first row instead
                 if getattr(exc, "status", 0) != 404:
                     raise
                 pid, opened = rows[0]["pid"], False
-                sel = patient_ctx(sess, rid, pid)
+                sel = patient_ctx(sess, rid, pid, wk)
             nxt = order.index(pid) + 1 if pid in order else 0
             sel["next_pid"] = order[nxt] if nxt < len(order) and order[nxt] != pid else None
             sel["next_page"] = nxt // st.PAGE_SIZE + 1
@@ -1003,10 +1051,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             unread_of.update(job=job.job_id, said=said)
         return bool(unread_of["said"])
 
-    def patient_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
+    def patient_ctx(sess: Session, rid: str, pid: str, wk: dict[str, Any] | None = None) -> dict[str, Any]:
+        """``wk``: the study's week bundle when the caller built it for this request (MVP-B: built once a view)."""
         if not _PID.match(pid):
             raise h.problem(404, "notfound")
-        wk = week_bundle(sess, rid)
+        wk = wk or week_bundle(sess, rid)
         if wk is None:
             raise h.problem(404, "notfound")
         row = next((r for r in (wk["cl"] or {}).get("rows") or [] if str(r.get("pid")) == pid), None)
@@ -1290,14 +1339,21 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def contact_or_refuse(sess: Session, rid: str, wk: dict[str, Any] | None, pid: str, action: str) -> None:
         """FIT-U04 (T-629, D-415): nothing is recorded for a patient whose record now says they died (the page and
-        ``/api/v1`` alike); while the death records cannot be read, no Approach and no contact outcome. Audited."""
-        if wk is None:
-            return
+        ``/api/v1`` alike); while the death records cannot be read, no Approach and no contact outcome. Audited.
+        SAFE-1 A6: an Approach or a contact outcome asks the death records for this one patient now (one pid), so a
+        list whose own check was not answered never holds the patient being approached; not answered: refused."""
         why = ""
-        if pid in (wk.get("deceased") or ()):
+        fn = getattr(bk, "deceased", None)
+        if wk is not None and pid in (wk.get("deceased") or ()):
             why, key, status = "deceased", "patient.deceased", 409
-        elif wk.get("dead_unchecked") and (action == "approach" or action in OUTCOMES):
-            why, key, status = "death records unreadable", "patient.death_unchecked", 503
+        elif fn is not None and (action == "approach" or action in OUTCOMES):
+            try:
+                died = pid in set(fn([pid]))
+            except Exception:  # the lake did not answer: never a quiet "no deaths"
+                why, key, status = "death records unreadable", "patient.death_unchecked", 503
+            else:
+                if died:
+                    why, key, status = "deceased", "patient.deceased", 409
         if why:
             au.append("console.refused", ruleset=rid, actor=h.actor(sess),
                       detail={"pid": pid, "action": action, "reason": why})  # fmt: skip

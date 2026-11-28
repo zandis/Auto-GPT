@@ -201,6 +201,7 @@ def _box(tmp: Path, *, tpm_only: bool = False, plain: bool = False, crypt: bool 
     (sec / "kek.json").write_text('{"backend": "file"}', encoding="utf-8")
     for k in ("site_hmac.key", "pid_map.key"):
         (sec / (k if plain else f"{k}.wrapped")).write_text("x", encoding="utf-8")
+        (sec / (k if plain else f"{k}.wrapped")).chmod(0o600)  # H-110 (f): root's alone, as the install writes them
     envf = tmp / ".env"
     envf.write_text(f"TB_ENV={env_name}\n", encoding="utf-8")
     envf.chmod(0o600)
@@ -286,6 +287,8 @@ def test_seal_keys_wraps_the_plain_keys_under_a_tpm_sealed_kek(tmp_path: Path) -
     assert kek.stat().st_mode & 0o777 == 0o600 and len(kek.read_bytes()) == 32
     cred = host / "etc/credstore.encrypted/trialbox-kek"
     assert cred.read_bytes().startswith(b"SEALED") and not (host / "run/trialbox/kek.new").exists()
+    # H-118 (ruling 7138516776): the twin, kek.new's own folder
+    assert not (host / "run/trialbox-seal/kek.new").exists()
     unit = (tmp_path / "units/trialbox-unseal.service").read_text(encoding="utf-8")
     assert f"--secrets {sec}" in unit and "LoadCredentialEncrypted=trialbox-kek" in unit
     # again: idempotent (the KEK exists, nothing is plain)
@@ -470,24 +473,59 @@ SECRET_PP = "correct-horse-battery-staple-h89"
 
 
 @pytest.mark.parametrize(
-    ("extra", "kek", "status"),
+    ("extra", "kek", "env_name", "status"),
     [
-        ({}, "file", "FAIL"),  # no passphrase back end: as before
-        ({"TB_KEK_BACKEND": "passphrase"}, "file", "FAIL"),  # the back end named without a passphrase
-        ({"TB_KEK_PASSPHRASE": SECRET_PP}, "file", "FAIL"),  # a passphrase without the back end
-        ({"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": SECRET_PP}, "file", "WARN"),  # the install's way out
-        ({}, "passphrase", "WARN"),  # the site keys already sealed under it
+        ({}, "file", "PRODUCTION", "FAIL"),  # no passphrase back end: as before
+        # H-96 (the integrator's rulings 7094934985 and 7102655419, L-3): the back end only named, nothing sealed
+        # under it: a FAIL on PRODUCTION; on a PoC box a WARN and one line of the PoC list (D-1091)
+        ({"TB_KEK_BACKEND": "passphrase"}, "file", "PRODUCTION", "FAIL"),
+        ({"TB_KEK_BACKEND": "passphrase"}, "file", "TEST", "WARN"),
+        ({"TB_KEK_PASSPHRASE": SECRET_PP}, "file", "PRODUCTION", "FAIL"),  # a passphrase without the back end
+        ({"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": SECRET_PP}, "file", "PRODUCTION", "FAIL"),
+        # H-97 (the integrator's ruling 7104745003): the site keys already sealed under it follow the same rule: a
+        # FAIL on PRODUCTION that names the action (a WARN before), a listed WARN on a PoC box
+        ({}, "passphrase", "PRODUCTION", "FAIL"),
+        ({}, "passphrase", "TEST", "WARN"),
+        ({"TB_ENV": "TEST"}, "passphrase", "PRODUCTION", "FAIL"),  # a caller's variable does not make it a PoC box
+        # the review of #1429, F7 (D-1091): no caller's TB_ENV makes a PRODUCTION box a PoC box, for either line
+        ({"TB_ENV": "DEV"}, "passphrase", "PRODUCTION", "FAIL"),
+        ({"TB_ENV": "VALIDATION"}, "passphrase", "PRODUCTION", "FAIL"),
+        ({"TB_ENV": "DEV", "TB_KEK_BACKEND": "passphrase"}, "file", "PRODUCTION", "FAIL"),
     ],
 )
 def test_no_tpm_fails_unless_the_passphrase_back_end_is_chosen(
-    tmp_path: Path, extra: dict[str, str], kek: str, status: str
+    tmp_path: Path, extra: dict[str, str], kek: str, env_name: str, status: str
 ) -> None:
-    args, env = _box(tmp_path)
+    args, env = _box(tmp_path, env_name=env_name)
     (tmp_path / "host" / "dev" / "tpmrm0").unlink()
     (tmp_path / "secrets" / "kek.json").write_text(f'{{"backend": "{kek}"}}', encoding="utf-8")
     r = _sh(args, {**env, **extra})
     line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
     assert line.startswith(status), r.stdout
     if status == "WARN":
-        assert "passphrase back end (TB_KEK_BACKEND=passphrase)" in line
+        assert "passphrase back end" in line
+    listed = tmp_path / "site" / "poc-stops.jsonl"
+    if env_name != "PRODUCTION" and (kek == "passphrase" or extra.get("TB_KEK_BACKEND")):
+        key = "check_host.sh/no-tpm-sealed" if kek == "passphrase" else "check_host.sh/no-tpm"
+        assert [json.loads(x)["key"] for x in listed.read_text(encoding="utf-8").splitlines()] == [key]
+    else:
+        assert not listed.exists()  # never listed on PRODUCTION
+    if kek == "passphrase":  # the action: on the FAIL line, or on the doctor's line of the PoC list
+        from tools.trialbox import stops
+
+        said = line if status == "FAIL" else " ".join(d for _, d in stops.doctor_lines(tmp_path))
+        assert "reseal the site keys under a TPM" in said, said
     assert SECRET_PP not in r.stdout + r.stderr
+
+
+def test_sealed_keys_without_a_tpm_say_when_the_poc_list_line_was_not_written(tmp_path: Path) -> None:
+    """H-97 part D, in H-96's form (R2-2): on a TEST box whose list cannot be written (a folder there), keys already
+    sealed under the passphrase are a WARN that says it was NOT listed and names the action; never a FAIL."""
+    args, env = _box(tmp_path, env_name="TEST")
+    (tmp_path / "host" / "dev" / "tpmrm0").unlink()
+    (tmp_path / "secrets" / "kek.json").write_text('{"backend": "passphrase"}', encoding="utf-8")
+    (tmp_path / "site" / "poc-stops.jsonl").mkdir(parents=True)
+    r = _sh(args, env)
+    line = next(ln for ln in r.stdout.splitlines() if "no TPM device" in ln)
+    assert line.startswith("WARN") and "NOT listed, deploy/site/poc-stops.jsonl cannot be written" in line, r.stdout
+    assert "reseal the site keys under a TPM" in line

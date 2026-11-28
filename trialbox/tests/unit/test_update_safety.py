@@ -420,6 +420,10 @@ def test_compose_box_starts_the_services_again_when_the_rollback_point_fails(tmp
             raise up.UpdateFailed("docker broke")
         if "FROM orch.jobs" in line:  # T-695: no job running
             return "0\n"
+        if "pg_database_size" in line:  # H-121: the size check reads a size (an empty answer stops the update)
+            return "1000\n"
+        if argv[:2] == ["docker", "info"]:  # OCR 1469-7: the engine's data root is the test's own, never the host's
+            return f"{tmp_path / 'docker-root'}\n"
         return ""
 
     stage = tmp_path / "stage"
@@ -549,7 +553,10 @@ def _shims(tmp_path: Path, restore_rc: int) -> dict[str, str]:
         '#!/bin/sh\nwhile [ $# -gt 1 ]; do [ "$1" = -f ] && out=$2; shift; done\n'
         f'cat >/dev/null; echo "SELECT 1;" > "$out"; echo "$out" > {tmp_path}/script_path; exit {restore_rc}\n'
     )
-    (bin_ / "psql").write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/psql_args; cat > {tmp_path}/psql_in\n')
+    # every call, in order (H-151: the superuser's calls come before and after the load): its arguments, then its input
+    (bin_ / "psql").write_text(
+        f'#!/bin/sh\n{{ echo "== $*"; cat; }} >> {tmp_path}/psql_calls; echo "$@" > {tmp_path}/psql_args\n'
+    )
     for f in bin_.iterdir():
         f.chmod(0o755)
     (tmp_path / "pgdata").mkdir()  # 10G-1 (H10G1-05): the script's folder is on the db volume, under PGDATA
@@ -582,10 +589,15 @@ def test_compose_rollback_restore_resets_the_role_first_and_never_runs_a_cut_off
         assert res.returncode != 0 and not (tmp_path / "psql_args").exists()  # psql never saw a cut-off script
         return
     assert res.returncode == 0, res.stderr
-    args = (tmp_path / "psql_args").read_text()
+    calls = [c.split("\n", 1) for c in (tmp_path / "psql_calls").read_text().split("== ")[1:]]
+    loads = [i for i, (a, _b) in enumerate(calls) if "-U trialbox -d trialbox_wf_tbrb" in a]
+    assert len(loads) == 1, calls  # H-151: the role loads the dump into the fresh database, once
+    args, body = calls[loads[0]]
     assert "--single-transaction" in args and "ON_ERROR_STOP=1" in args and "-U trialbox -d trialbox_wf" in args
-    body = (tmp_path / "psql_in").read_text()
     assert body.startswith("DO $tb$") and body.rstrip().endswith("SELECT 1;")
+    made = [i for i, (_a, b) in enumerate(calls) if "CREATE DATABASE" in b]
+    swapped = [i for i, (_a, b) in enumerate(calls) if 'RENAME TO :"db"' in b]
+    assert made and swapped and made[-1] < loads[0] < swapped[0]  # made before the load, the names swapped after
     assert "DROP SCHEMA %I CASCADE" in up.RESET_SQL and "deptype = 'e'" in up.RESET_SQL
 
 

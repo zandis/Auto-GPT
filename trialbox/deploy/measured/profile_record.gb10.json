@@ -1,0 +1,40 @@
+{
+ "schema": "tb-profile-record/1",
+ "profile": "gb10",
+ "class": "128 GB unified",
+ "status": "unmeasured",
+ "hardware_seen": {
+  "card": "NVIDIA GB10",
+  "memory_total_mib": null,
+  "driver": null,
+  "source": "deploy/gb10-profile.yaml (no Spark on the bench; VERIFIER_GPU_MEM_UTIL and TB_MEM_VERIFIER from a run on a B200 with GB10-like limits, the rest planning values)"
+ },
+ "models": {
+  "judge": {"registry_id": "j-workhorse", "endpoint": "serving"},
+  "verifier": {"registry_id": "v-verifier", "endpoint": "verifier"},
+  "redistribution_terms": "OWNER"
+ },
+ "concurrency": {"judge_max_seqs": 8, "verifier_max_seqs": 8, "context_tokens": 16384},
+ "caps": {
+  "TB_MEM_VERIFIER": "27g",
+  "JUDGE_GPU_MEM_UTIL": "0.30",
+  "VERIFIER_GPU_MEM_UTIL": "0.12",
+  "JUDGE_MAX_SEQS": "8",
+  "VERIFIER_MAX_SEQS": "8",
+  "TB_LLM_PREFIX_CACHING": "no-enable"
+ },
+ "fixed_in_overlay": {"llm_service_mem_limit": "42g (not a setting: docker-compose.gb10.yml)"},
+ "serving": {
+  "prefix_cache": "off",
+  "cuda_graphs": "off (enforce-eager)",
+  "structured_output": "not enabled by the profile; turning it on is a Track-2 decision (it can change verdicts)"
+ },
+ "measured": {
+  "seconds_per_1000_patients": null,
+  "patients_per_night": null,
+  "note": "NOT MEASURED: no run on a Spark yet; never filled by hand"
+ },
+ "real_machine": "OWNER",
+ "date": "2026-11-26",
+ "commit": null
+}

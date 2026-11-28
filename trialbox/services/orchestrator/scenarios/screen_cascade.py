@@ -18,11 +18,13 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
+import json
 import logging
 import os
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, MutableSequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -118,6 +120,8 @@ class OrchestratorJudge(NoteJudge):
             tokens_out=r.tokens_out,
             opinions=list(r.opinions),
             calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
+            sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
+            affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
         )
 
 
@@ -130,6 +134,47 @@ def vec_s2b_on() -> bool:
     from tb_common.flags import read
 
     return read(VEC_FLAG) == "on"
+
+
+TIMING_ENV = "TB_SCREEN_TIMING"  # M8: the same switch for a run that has no flag store (tools/speed_50k.sh)
+TIMING_FLAG = "screen.timing"  # R1-P2 (lane DB): each stage's wall time, published with the run (tools.chart_times)
+
+
+def screen_timing_on() -> bool:
+    """The flag ``screen.timing`` as stored (``/ops/flags``); off when it has no row or the store cannot be read."""
+    from tb_common.flags import read
+
+    return os.environ.get(TIMING_ENV) == "on" or read(TIMING_FLAG) == "on"
+
+
+def merged_timing(rounds: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """R1-P2: one run's timing from its rounds (the judge pass and the verifier pass when one card is time-shared,
+    ``two_phase``): each stage's seconds and the wall seconds summed, the counts of the last round. None for none."""
+    if not rounds:
+        return None
+    stages: dict[str, dict[str, Any]] = {}
+    for r in rounds:
+        for name, row in r["stages"].items():
+            cur = stages.setdefault(name, {"seconds": 0.0})
+            cur.update({k: v for k, v in row.items() if k != "seconds"})
+            cur["seconds"] = round(cur["seconds"] + float(row["seconds"]), 3)
+    wall = round(sum(float(r["wall_seconds"]) for r in rounds), 3)
+    return {**rounds[-1], "stages": stages, "wall_seconds": wall, "rounds": len(rounds)}
+
+
+def publish_timing(ctx: Any, rs: Ruleset, snapshot: str, rounds: list[dict[str, Any]]) -> str | None:
+    """R1-P2: the run's timing as the job file ``cascade_timing_<study>_v<version>.json`` (label ``aggregate``, as the
+    ingest report: counts and seconds only, no patient); nothing when the flag ``screen.timing`` was off (no rounds).
+    Returns the file's name, or None."""
+    timing = merged_timing(rounds)
+    if timing is None:
+        return None
+    name = f"cascade_timing_{rs.id}_v{rs.version}.json"
+    body = json.dumps(
+        {"ruleset": rs.id, "version": rs.version, "snapshot": snapshot, **timing}, indent=1, sort_keys=True
+    )
+    ctx.publish(name, (body + "\n").encode("utf-8"), "aggregate", [])
+    return name
 
 
 VEC_OPTION = "vec_s2b"  # the job record's copy of the flag, written at the job's first S2b (D-449, review LOW 4)
@@ -374,7 +419,12 @@ def _final(o: Outcome, status: str) -> bool | None:
 def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     """One cascade outcome as the candidate-list verdict: the verified span (document, quote, date), the lake records
     of a coded answer, the judge's confidence and the stage's reason. ``pair``: the run's judge is two different
-    models (the basis of its note answers, D-478)."""
+    models (the basis of its note answers, D-478). Always the caller's own object."""
+    return _own(_row_of(o, pair))
+
+
+def _row_of(o: Outcome, pair: bool) -> CriterionVerdict | _Shared:
+    """:func:`verdict_of` as a patient's row holds it: an answer with no record, quote, opinion or call is shared."""
     refs: list[str] = []
     quote: str | None = None
     quote_date: str | None = None
@@ -396,6 +446,10 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     status = o.status
     if status == "pass" and o.unknown_kind == "data_gap":
         status = "unknown"  # S1 kept the patient on a null exclusion value; the list says "unknown" as v1 did
+    if not (refs or quote or quote_date or opinions or prov) and confidence is None:
+        affirmed = o.affirmed if status == "fail" else None
+        return _bare(o.criterion_id, status, code_of(o.reason, status, False), _final(o, status),
+                     basis_of(o, status, pair), affirmed)  # fmt: skip
     return CriterionVerdict(
         id=o.criterion_id,
         verdict=status,
@@ -409,7 +463,84 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
         ),
         final=_final(o, status),
         basis=basis_of(o, status, pair),
+        affirmed=o.affirmed if status == "fail" else None,  # round 5: both models affirmed this note exclusion
         prov=list(dict.fromkeys(prov)),
+    )
+
+
+# prof16 (CODED-PROFILE §4; ruling of 2026-11-27): verdict assembly kept one CriterionVerdict and one Evidence per
+# patient and criterion: 22.7 M objects, 4.4 GB at 100,000 patients, 98 % of them excluded. An answer with no record,
+# quote, opinion or call is the same for every patient who has it, so they share one object (the same fields set, so
+# the same bytes in every output). The shared object is never handed out (review of #1594, R1): each read of a row
+# builds the patient's own verdict with its own lists, so a caller that changes one cannot reach another patient.
+# ponytail: shared by value, bounded by criteria x answers; the full compact store of excluded rows is a later item
+@dataclass(frozen=True, slots=True)
+class _Shared:
+    """One answer every patient who has it holds; read only through :func:`_own`."""
+
+    proto: CriterionVerdict
+
+
+def _own(row: CriterionVerdict | _Shared) -> CriterionVerdict:
+    """A row as its patient's own verdict: a shared answer is copied with fresh lists (its only mutable fields; the
+    opinions and coded values of a shared answer are None), so the fields set and the bytes are the shared one's."""
+    if not isinstance(row, _Shared):
+        return row
+    v = row.proto
+    assert v.evidence is not None  # every shared answer has one
+    return v.model_copy(update={"evidence": v.evidence.model_copy(update={"resource_refs": []}), "prov": []})
+
+
+class Verdicts(MutableSequence[CriterionVerdict]):
+    """A patient's verdict rows. A shared answer is held once; reading it gives the patient's own copy, and a row
+    written back (coded_values.attach puts a copy in the list) is the patient's own."""
+
+    def __init__(self, rows: Iterable[CriterionVerdict | _Shared] = ()) -> None:
+        self._rows = list(rows)
+
+    def __len__(self) -> int:
+        return len(self._rows)
+
+    def __getitem__(self, i: Any) -> Any:
+        if isinstance(i, slice):
+            return [_own(r) for r in self._rows[i]]
+        return _own(self._rows[i])
+
+    def __setitem__(self, i: Any, v: Any) -> None:
+        self._rows[i] = v
+
+    def __delitem__(self, i: Any) -> None:
+        del self._rows[i]
+
+    def insert(self, i: int, v: CriterionVerdict) -> None:
+        self._rows.insert(i, v)
+
+
+@functools.lru_cache(maxsize=8192)
+def _bare(cid: str, status: Any, reason: str, final: bool | None, basis: Any, affirmed: bool | None) -> _Shared:
+    """:func:`verdict_of`'s answer that carries no record, quote, confidence, opinion or call."""
+    return _Shared(
+        CriterionVerdict(
+            id=cid,
+            verdict=status,
+            evidence=Evidence(
+                resource_refs=[], quote=None, quote_date=None, confidence=None, reason=reason, opinions=None
+            ),
+            final=final,
+            basis=basis,
+            affirmed=affirmed,
+            prov=[],
+        )
+    )
+
+
+@functools.lru_cache(maxsize=4096)
+def _not_evaluated(cid: str) -> _Shared:
+    """A criterion the cascade stopped before (a hard fail came first): the same row for every such patient."""
+    return _Shared(
+        CriterionVerdict(
+            id=cid, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value), prov=[]
+        )
     )
 
 
@@ -428,24 +559,17 @@ def verdicts_of(
     The tier is the one status function's (:func:`matching.decision.status_of`, T-709, D-478) over the verdict rows
     under the run's ``policy``, not a mapping of the cascade's own label: a "met" below the confidence threshold is
     a person's check here as on every other path (review M1a)."""
-    vs: list[CriterionVerdict] = []
+    vs = Verdicts()
     judged_rows: list[CriterionVerdict] = []  # the criteria the cascade has an outcome for: what the status reads
     for c in rs.active():
         if c.kind not in ("inclusion", "exclusion"):
             continue
         o = t.outcomes.get(c.id)
         if o is None:
-            vs.append(
-                CriterionVerdict(
-                    id=c.id,
-                    verdict="unknown",
-                    evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value),
-                    prov=[],
-                )
-            )
+            vs._rows.append(_not_evaluated(c.id))
             continue
-        vs.append(verdict_of(o, pair))
-        judged_rows.append(vs[-1])
+        vs._rows.append(_row_of(o, pair))
+        judged_rows.append(vs[-1])  # the patient's own copy, read by the status only
     if not t.in_scope and t.scope_reason == NOT_AT_INDEX:
         # no base row: never "excluded" with the engine's words; a person looks (D-142, review B-02)
         return not_in_snapshot(rs, t.pid, reason=Reason.CHECK_DATES if dated else Reason.NOT_IN_SNAPSHOT)
@@ -645,6 +769,7 @@ def screen_with_cascade(
         llm_concurrency=in_flight,
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
         registry=lambda: dctx.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
+        timing=screen_timing_on(),  # R1-P2: read once when the run starts; off, nothing is timed
     )
     # D-908 (D-519): the judged-pair store below the job's model clients; its end-of-job step (the opt-outs of the
     # run, the snapshots' retention) runs however the job ends
@@ -664,16 +789,20 @@ def _screen(ctx: Ctx, rs: Ruleset, cfg: CascadeConfig, judge: Any, note_judge: A
             max_pairs: int | None, pairs: Any) -> CascadeScreen:  # fmt: skip
     from orchestrator.judged_store import JudgedPairs
 
+    rounds: list[dict[str, Any]] = []  # R1-P2: each round's timing, when the flag screen.timing is on
+
+    def one_round(j: Any) -> CascadeResult:
+        r = run_cascade(ctx.services.lake, rs, cfg, judge=j, embedder=embedder, reviewer=None, s2b_source=source)
+        if r.timing is not None:
+            rounds.append(r.timing)
+        return r
+
     try:
-        res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
-            judge,
-            lambda j: run_cascade(
-                ctx.services.lake, rs, cfg, judge=j, embedder=embedder, reviewer=None, s2b_source=source
-            ),
-        )
+        res = two_phase(judge, one_round)  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass
     except CascadeError as exc:
         raise StepFailed("running", f"The screening cascade could not run for {rs.id} v{rs.version}: {exc}") from exc
     check_failures(judge)
+    publish_timing(ctx, rs, snapshot, rounds)
     dropped = [pid for pid, t in res.traces.items() if t.scope_reason == NOT_AT_INDEX]
     held = held_in_snapshot(ctx, dropped, snapshot)
     policy = decision.Policy(confidence_floor, may_block)  # the job's, from its decision context (D-477)

@@ -1,0 +1,28 @@
+# One bench CI runner slot (card H-105; docs/runbook/13-bench-ci-runner.md): %i is cpu-N, engine-N or gpu-N.
+# Each start is one job's life; the service manager starts the next. Three steps, two users (the review's F2):
+#   ExecStartPre (root, "+"): mint: the long-lived token (root's file, 0600) asks the code host for one job's runner
+#                configuration; only that one-job configuration reaches the jobs' user, in the slot's scratch folder
+#   ExecStart    (tb-bench):  run: the slot's network and the job's container; a stop stops both (TERM)
+#   ExecStopPost (root, "+"): cleanup: the registration and the scratch folder go, after a job, a failure or a stop
+[Unit]
+Description=TrialBox bench CI runner %i
+After=network-online.target tb-bench-proxy.service
+Wants=network-online.target
+Requires=tb-bench-proxy.service
+
+[Service]
+Type=simple
+User=tb-bench
+Group=tb-bench
+WorkingDirectory=/opt/tb-bench-ci
+ExecStartPre=+/usr/bin/python3 -s -E -m tools.bench_ci.launcher mint --settings /etc/tb-bench-ci/settings.env --slot %i
+ExecStart=/usr/bin/python3 -s -E -m tools.bench_ci.launcher run --settings /etc/tb-bench-ci/settings.env --slot %i
+ExecStopPost=+/usr/bin/python3 -s -E -m tools.bench_ci.launcher cleanup --settings /etc/tb-bench-ci/settings.env --slot %i
+KillMode=mixed
+TimeoutStopSec=60
+Restart=always
+RestartSec=30
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

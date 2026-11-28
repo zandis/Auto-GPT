@@ -79,7 +79,7 @@ def test_new_versions_are_refused_in_production_until_qualified_and_old_ones_sti
 
 
 def test_loaders_take_the_new_versions() -> None:
-    assert load_prompt("judge").meta.version == 5 and load_prompt("judge_v4").meta.version == 4
+    assert load_prompt("judge").meta.version == 6 and load_prompt("judge_v4").meta.version == 4
     assert load_prompt("ie_locate").meta.version == 2 and load_prompt("chart_facts").meta.version == 2
 
 
@@ -338,7 +338,7 @@ _JUDGE_VARS = {"criterion_text": "x", "note_question": "q", "index_date": "2026-
 def test_the_client_follows_a_production_gateway_to_the_qualified_prompt_and_audits_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """D-359: a DEV-configured caller in front of a PRODUCTION gateway sends judge@5 once; on ``prompt_unqualified``
+    """D-359: a DEV-configured caller in front of a PRODUCTION gateway sends judge@6 once; on ``prompt_unqualified``
     it sends the served (qualified) judge@4, keeps to it, and writes one audit line naming both versions."""
     from tb_common.audit import AuditLog
     from tb_common.llm import LlmClient
@@ -349,11 +349,11 @@ def test_the_client_follows_a_production_gateway_to_the_qualified_prompt_and_aud
     c = LlmClient("", "", gateway=gw, audit=audit)
     for _ in range(2):
         c.chat_json("judge", _JUDGE_VARS, job_id="J-1")
-    assert gw.sent == ["judge@5", "judge@4", "judge@4"]
+    assert gw.sent == ["judge@6", "judge@4", "judge@4"]
     rows = [r for r in _audit_rows(tmp_path / "audit") if r["event"] == "llm.prompt_fallback"]
     assert len(rows) == 1
     d = rows[0]["detail"]
-    assert (d["refused"], d["used"], d["reason"]) == ("judge@5", "judge@4", "prompt_unqualified")
+    assert (d["refused"], d["used"], d["reason"]) == ("judge@6", "judge@4", "prompt_unqualified")
     assert rows[0]["job_id"] == "J-1" and d["refused_sha"] != d["used_sha"]
 
 
@@ -376,10 +376,10 @@ def test_the_client_never_falls_back_to_an_unqualified_version(tmp_path: Path, m
     audit = AuditLog(tmp_path / "audit")
     with pytest.raises(LlmError, match="prompt_unqualified"):
         LlmClient("", "", gateway=gw, audit=audit).chat_json("judge", _JUDGE_VARS)
-    assert gw.sent == ["judge@5"]
+    assert gw.sent == ["judge@6"]
     assert not [r for r in _audit_rows(tmp_path / "audit") if r["event"] == "llm.prompt_fallback"]
     monkeypatch.setattr(llm, "load_prompt", real)
     gw = _ProdGateway()
     with pytest.raises(llm.LlmPromptUnqualified):  # no audit log: no fallback
         LlmClient("", "", gateway=gw).chat_json("judge", _JUDGE_VARS)
-    assert gw.sent == ["judge@5"]
+    assert gw.sent == ["judge@6"]

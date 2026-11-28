@@ -32,12 +32,13 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 import tarfile
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path, PurePosixPath
 from typing import IO, Any
 
@@ -310,29 +311,52 @@ def _back_links(release: Path, base: Path) -> None:
         p.symlink_to(os.path.relpath(base / s, p.parent))
 
 
-def install(tar: Path, base: Path, release_id: str) -> dict[str, Any]:
+def install(tar: Path, base: Path, release_id: str, into: dict[str, Any] | None = None,
+            on_record: Callable[[], None] | None = None) -> dict[str, Any]:  # fmt: skip
     """Unpack a checked host tree to ``base/releases/<release_id>`` (kept when it is already there exactly as
-    signed), switch ``current`` to it and refresh the links. Returns what :func:`restore` needs."""
+    signed), switch ``current`` to it and refresh the links. Returns what :func:`restore` needs; ``into`` (the
+    caller's rollback record) is filled as each file moves, so an install stopped part way is still undone; H-114c:
+    ``on_record`` (the caller's save of that record) is called before each move, so a SIGKILL part way leaves a
+    record of every file moved."""
+    previous = current(base)
+    fresh = stage(tar, base, release_id)
+    info: dict[str, Any] = into if into is not None else {}
+    info.update(previous=previous, release=release_id, fresh=fresh)
+    switch(base, release_id, into=info, on_record=on_record)
+    return info
+
+
+def stage(tar: Path, base: Path, release_id: str) -> bool:
+    """Unpack a checked host tree to ``base/releases/<release_id>`` (kept when it is already there exactly as
+    signed) with its links back to the site's files, and switch nothing: ``current`` and the box's links stay as
+    they are (LR-18: the bootstrap stages the release; only the update path, with its rollback point, switches).
+    True when the release was unpacked here."""
     if PurePosixPath(release_id).name != release_id or release_id.startswith("."):
         raise HostTreeError(f"bad release id {release_id!r}")
     check_tar(tar)
     rels = base / "releases"
     rels.mkdir(parents=True, exist_ok=True)
     dest = rels / release_id
-    previous = current(base)
     fresh = False
     if dest.exists() and check_dir(dest):  # left over and changed: set aside, unpack again
+        cur = base / "current"
+        if cur.is_dir() and os.path.realpath(cur) == os.path.realpath(dest):
+            # review 7186452446 R2: the release the box runs is never moved from under it; the update path's rollback
+            # point and the box's links name it
+            raise HostTreeError(
+                f"{dest} is the release the box runs ({cur}) and it is not as signed: it is not "
+                "replaced here. Run the update step for this release, or move the box to another first"
+            )
         dest.rename(rels / f".changed-{release_id}-{int(time.time())}")
     if not dest.exists():
         _unpack(tar, dest)
         fresh = True
     _back_links(dest, base)
-    info: dict[str, Any] = {"previous": previous, "release": release_id, "fresh": fresh}
-    info.update(switch(base, release_id))
-    return info
+    return fresh
 
 
-def switch(base: Path, release_id: str) -> dict[str, Any]:
+def switch(base: Path, release_id: str, into: dict[str, Any] | None = None,
+           on_record: Callable[[], None] | None = None) -> dict[str, Any]:  # fmt: skip
     """``current`` -> ``releases/<release_id>`` in one rename, then the links refreshed."""
     if not (base / "releases" / release_id).is_dir():
         raise HostTreeError(f"no release {release_id} in {base / 'releases'}")
@@ -341,19 +365,22 @@ def switch(base: Path, release_id: str) -> dict[str, Any]:
         tmp.unlink()
     tmp.symlink_to(f"releases/{release_id}")
     os.replace(tmp, base / "current")
-    return sync(base)
+    return sync(base, into, on_record)
 
 
-def sync(base: Path) -> dict[str, Any]:
+def sync(base: Path, into: dict[str, Any] | None = None, on_record: Callable[[], None] | None = None) -> dict[str, Any]:
     """Make every release path under ``base`` a link through ``current``: a real file or folder of a copied install
     in its place is moved to ``releases/.replaced-<time>/``; a link to a path the release no longer has is removed.
     STATE paths are never touched; their parent folders stay real folders."""
     cur = base / "current"
     if not cur.is_dir():
         raise HostTreeError(f"{cur} names no release")
-    moved: list[str] = []
-    made: list[str] = []
+    out: dict[str, Any] = into if into is not None else {}
     aside = base / "releases" / f".replaced-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
+    # recorded before anything moves: a stop part way is undone
+    out.update(moved=_Saved(on_record) if on_record is not None else [], linked=[], aside=str(aside))
+    moved: list[str] = out["moved"]
+    made: list[str] = out["linked"]
 
     def walk(rel: PurePosixPath) -> None:
         here = base / rel
@@ -364,35 +391,64 @@ def sync(base: Path) -> dict[str, Any]:
                 continue
             p = here / child.name
             if r in ANCESTORS:  # holds site files below it: a real folder
-                if p.is_symlink():
-                    p.unlink()
-                elif p.exists() and not p.is_dir():
+                if p.is_symlink() or (p.exists() and not p.is_dir()):  # a site's own link too (review 1461-7)
                     _aside(p, aside / r, moved, r)
                 p.mkdir(exist_ok=True)
                 walk(PurePosixPath(r))
                 continue
             target = os.path.relpath(cur / r, here)
-            if p.is_symlink():
-                if os.readlink(p) == target:
-                    continue
-                p.unlink()
-            elif p.exists():
+            if p.is_symlink() and os.readlink(p) == target:
+                continue
+            if p.is_symlink() or p.exists():  # a link of the site's own is set aside as a file is (review 1461-7)
                 _aside(p, aside / r, moved, r)
-            p.symlink_to(target)
             made.append(r)
+            p.symlink_to(target)
         for p in sorted(here.iterdir()):  # links into current whose target the release dropped
             r = (rel / p.name).as_posix() if str(rel) != "." else p.name
             if p.is_symlink() and not p.exists() and os.readlink(p) == os.path.relpath(cur / r, here):
                 p.unlink()
 
     walk(PurePosixPath("."))
-    return {"moved": moved, "aside": str(aside) if moved else None, "linked": made}
+    if not moved:
+        out["aside"] = None
+    return out
 
 
 def _aside(p: Path, to: Path, moved: list[str], rel: str) -> None:
     to.parent.mkdir(parents=True, exist_ok=True)
+    moved.append(rel)  # first: restore puts back only what is in the aside folder (H-114c: and it is saved)
     p.rename(to)
-    moved.append(rel)
+
+
+class _Saved(list[str]):
+    """H-114c: the list of moved files, saved (``on_record``) at each name added, before that file moves: a SIGKILL
+    part way leaves a record of every file moved."""
+
+    def __init__(self, on_record: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_record = on_record
+
+    def append(self, rel: str) -> None:
+        super().append(rel)
+        self._on_record()
+
+
+def _unlink_through_current(base: Path, release: str | None) -> None:
+    """H-114c: each path the release holds that is, under ``base``, a link through ``base/current`` (only a switch
+    makes them): undoing the first host tree of a copied install removes them, recorded or not (a switch cut short by
+    a SIGKILL made some it never recorded). Only the release's own paths are looked at."""
+    rel_dir = base / "releases" / str(release or "")
+    if not release or not rel_dir.is_dir():
+        return
+    cur = os.path.normpath(base / "current")
+    for root, dirs, files in os.walk(rel_dir):
+        for name in [*dirs, *files]:
+            r = (Path(root) / name).relative_to(rel_dir)
+            p = base / r
+            if p.is_symlink():
+                target = os.path.normpath(os.path.join(p.parent, os.readlink(p)))
+                if target == cur or target.startswith(cur + os.sep):
+                    p.unlink()
 
 
 def restore(base: Path, info: dict[str, Any]) -> None:
@@ -401,12 +457,19 @@ def restore(base: Path, info: dict[str, Any]) -> None:
     prev, rel = info.get("previous"), info.get("release")
     if prev:
         switch(base, prev)
+        for r in info.get("moved") or []:  # review 1461-7: a site file a path of the new release had displaced
+            src, dst = Path(str(info.get("aside"))) / r, base / r
+            if (src.exists() or src.is_symlink()) and not (dst.exists() or dst.is_symlink()):
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                src.rename(dst)
     else:
         cur = base / "current"
         for r in sorted(info.get("linked") or [], reverse=True):
             p = base / r
             if p.is_symlink():
                 p.unlink()
+        # H-114c: and the links a switch cut short (SIGKILL) made but never recorded
+        _unlink_through_current(base, info.get("release"))
         if cur.is_symlink():
             cur.unlink()
         aside = info.get("aside")
@@ -414,6 +477,8 @@ def restore(base: Path, info: dict[str, Any]) -> None:
             src = Path(str(aside)) / r
             if src.exists() or src.is_symlink():
                 (base / r).parent.mkdir(parents=True, exist_ok=True)
+                if (base / r).is_symlink():  # a link made before the stop
+                    (base / r).unlink()
                 src.rename(base / r)
     if info.get("fresh") and rel and rel != prev:
         shutil.rmtree(base / "releases" / str(rel), ignore_errors=True)
@@ -425,6 +490,38 @@ def status(base: Path) -> dict[str, Any]:
     if cur:
         out["problems"] = check_dir(base / "releases" / cur)
     return out
+
+
+#: H-144 (the integrator's 7159322336): the folders of the source tree that the box image carries
+#: (deploy/docker/python.Dockerfile copies them to /app) and the host tree does not. An update neither replaces nor
+#: checks a copy of them in the install folder: such a copy is not the release's (one left from an install before the
+#: signed host tree). It is named, never removed: it may hold an operator's own change (the lead's ruling on #1504).
+IMAGE_ONLY = ("services", "models", "rulesets", "catalogue", "eval")
+
+
+def install_folder(release: Path) -> Path | None:
+    """The install folder of an installed release tree (``BASE/releases/<id>`` holding its ``HOST-SHA256SUMS``);
+    None for anything else (a source checkout, the box image's /app)."""
+    release = release.resolve()
+    if (release / SUMS).is_file() and release.parent.name == "releases":
+        return release.parent.parent
+    return None
+
+
+def loose(base: Path) -> list[Path]:
+    """The image-only folders (``IMAGE_ONLY``) found in the install folder ``base``: none is the release's."""
+    return [base / n for n in IMAGE_ONLY if (base / n).is_symlink() or (base / n).exists()]
+
+
+def loose_note(base: Path) -> str | None:
+    """One line naming the loose folders of ``base`` and the command that removes them; None when there are none."""
+    found = loose(base)
+    if not found:
+        return None
+    rm = " ".join(shlex.quote(str(p)) for p in found)
+    return (f"{', '.join(str(p) for p in found)}: not the release's (an update neither replaces nor checks it; this "
+            f"release's services and models are the box image's, a copy here is from before the signed host tree). "
+            f"Look in it for a change of your own first, then remove it: sudo rm -rf -- {rm} (RUNBOOK §5)")  # fmt: skip
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -26,6 +26,7 @@ import pytest
 import yaml
 from tb_common.box_answers import parse
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tools import settings_wizard
 from tools.backup_drill import DEPLOY
 from tools.box import plan as bp
@@ -121,7 +122,9 @@ def _wiz_run(**var: str) -> subprocess.CompletedProcess[str]:
         "set -euo pipefail\n"
         'die() { printf "install: %s\\n" "$*" >&2; exit 1; }\n'
         f"ENVIRONMENT={var.get('ENVIRONMENT', '')!r}\nREHEARSAL={var.get('REHEARSAL', '0')}\n"
-        f"PRE_ENV={var.get('PRE_ENV', '')!r}\n{_wiz_block()}\n"
+        f"PRE_ENV={var.get('PRE_ENV', '')!r}\n"
+        + stop_prelude(environment='"$ENVIRONMENT"', rehearsal='"$REHEARSAL"')
+        + f"{_wiz_block()}\n"
         'printf "%s" "${WIZ_ARGS[*]-}"\n'
     )
     env = {k: v for k, v in os.environ.items() if k != "TB_BOX"}

@@ -28,6 +28,7 @@ import re
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from tb_common.authz import BEST_STANDING, NO_STANDING, permit
@@ -228,6 +229,7 @@ def parse(text: str) -> dict[tuple[str, str], dict[str, str]]:
     return out
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_generated_matrix_equals_the_design_table(box: dict[str, Any]) -> None:  # noqa: F811
     walked = walk(box)
     got = render(walked)

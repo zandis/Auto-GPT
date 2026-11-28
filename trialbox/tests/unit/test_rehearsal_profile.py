@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tests.unit.test_release_bundle import BACKUP, HAPI, OWN, VLLM, _gate_record, _make, kit  # noqa: F401
 from tests.unit.test_release_dirty_refused import EnvBox, _release, _upd, _with
 from tools.trialbox import doctor
@@ -46,7 +47,8 @@ def _sh(
         "set -euo pipefail\n"
         f'ROOT="{tmp}"\ncd "$ROOT"\nREHEARSAL={rehearsal}\n'
         'die() { echo "install: $*" >&2; exit 1; }\n'
-        'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
+        + stop_prelude(deploy='"$ROOT/deploy"', rehearsal='"$REHEARSAL"')
+        + 'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n'
         'envset() { sed -i "/^$1=/d" deploy/.env && printf \'%s=%s\\n\' "$1" "$2" >> deploy/.env; }\n'
         f'docker() {{ printf "%s" "{volumes}"; return {docker_rc}; }}\n'
         f"{body}\n"
@@ -133,8 +135,15 @@ def test_the_box_is_test_before_the_bundle_is_loaded(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("env", ["PRODUCTION", "VALIDATION"])
 def test_answers_that_make_a_site_box_are_refused_after_the_settings(tmp_path: Path, env: str) -> None:
+    """PRODUCTION: kept refusal 3. VALIDATION with no mark (H-94, ruling 7092087958): a PoC box, so a warning and a
+    line of the list, and the box is written VALIDATION with TB_REHEARSAL=1 (the real install wrote the mark before
+    the bundle loaded, so this is not reached there)."""
     r = _sh(tmp_path, _block(SETTINGS), env_lines=f"TB_ENV={env}\n")
-    assert r.returncode == 1 and env in r.stderr
+    if env == "PRODUCTION":
+        assert r.returncode == 1 and env in r.stderr
+        return
+    assert r.returncode == 0 and "warning (PoC box, H-94)" in r.stderr and env in r.stderr, r.stderr
+    assert "TB_REHEARSAL=1" in (tmp_path / "deploy" / ".env").read_text(encoding="utf-8").splitlines()
 
 
 def test_after_the_settings_the_box_says_validation_and_rehearsal(tmp_path: Path) -> None:
@@ -152,27 +161,37 @@ def _only_on_test(tmp: Path, env: str, what: str, marked: bool = True) -> subpro
     start = INSTALL.index("rehearsal_only() {")
     fn = INSTALL[start : INSTALL.index("\n}\n", start) + 3]
     lines = f"TB_ENV={env}\n" + ("TB_REHEARSAL=1\n" if marked else "")
-    return _sh(tmp, f'TB_ENV_SITE={env}\n{fn}\nrehearsal_only "{what}"\necho through', env_lines=lines)
+    return _sh(tmp, f'TB_ENV_SITE={env}\n{fn}\nrehearsal_only a-key "{what}"\necho through', env_lines=lines)
 
 
 def test_a_test_box_that_is_no_rehearsal_box_is_refused_too(tmp_path: Path) -> None:
-    """A hospital's own TEST box (review F5): TEST alone is not a rehearsal box."""
+    """A hospital's own TEST box (review F5): TEST alone is not a rehearsal box. H-94 (the owner's ruling
+    7092087958): a TEST box is a PoC box, so it is a warning and a line of the list, and the step goes on; on
+    PRODUCTION it stops (test_a_rehearsal_thing_is_refused_off_a_test_box[PRODUCTION-False])."""
     r = _only_on_test(tmp_path, "TEST", "the model stand-ins", marked=False)
-    assert r.returncode == 1 and "--rehearsal" in r.stderr
+    assert r.returncode == 0 and "through" in r.stdout and "warning (PoC box, H-94)" in r.stderr
+    assert "--rehearsal" in r.stderr and "install.sh/a-key" in (tmp_path / "deploy/site/poc-stops.jsonl").read_text()
 
 
 @pytest.mark.parametrize(("env", "ok"), [("TEST", True), ("DEV", False), ("PRODUCTION", False), ("VALIDATION", False)])
 def test_a_rehearsal_thing_is_refused_off_a_test_box(tmp_path: Path, env: str, ok: bool) -> None:
+    """H-94 (ruling 7092087958): off a rehearsal box it stops on PRODUCTION only; on a DEV or VALIDATION box (a PoC
+    box) it is a warning and a line of the list, and the step goes on."""
     r = _only_on_test(tmp_path, env, "TB_ACCEPT_UNMEASURED_GPU=1")
-    assert (r.returncode == 0 and "through" in r.stdout) is ok, r.stderr
+    poc = env != "PRODUCTION"
+    assert (r.returncode == 0 and "through" in r.stdout) is (ok or poc), r.stderr
     if not ok:
         assert "TB_ACCEPT_UNMEASURED_GPU=1" in r.stderr and "TEST" in r.stderr and "--rehearsal" in r.stderr
+        assert ("warning (PoC box, H-94)" in r.stderr) is poc
+        assert (tmp_path / "deploy/site/poc-stops.jsonl").exists() is poc
 
 
 def test_both_rehearsal_things_go_through_that_rule() -> None:
-    assert 'rehearsal_only "TB_ACCEPT_UNMEASURED_GPU=1' in INSTALL
-    assert 'rehearsal_only "the model stand-ins' in INSTALL
-    assert INSTALL.index("rehearsal_only() {") < INSTALL.index('rehearsal_only "TB_ACCEPT_UNMEASURED_GPU=1')
+    assert 'rehearsal_only unmeasured-card "TB_ACCEPT_UNMEASURED_GPU=1' in INSTALL  # H-94: a key for the list
+    assert 'rehearsal_only standins "the model stand-ins' in INSTALL
+    assert INSTALL.index("rehearsal_only() {") < INSTALL.index(
+        'rehearsal_only unmeasured-card "TB_ACCEPT_UNMEASURED_GPU=1'
+    )
 
 
 # ----------------------------------------------------------------------------------- 4. doctor says so
@@ -205,7 +224,7 @@ def test_a_bundle_built_for_a_rehearsal_says_so(kit: dict[str, Any]) -> None:  #
     gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom), "--rehearsal")
     assert res.returncode == 0, res.stdout + res.stderr
-    with tarfile.open(kit["tmp"] / "out.tar") as tf:
+    with tarfile.open(kit["tmp"] / "release" / "out.tar") as tf:
         rel = json.loads(tf.extractfile("release.json").read())  # type: ignore[union-attr]
     assert rel["rehearsal"] is True
 
@@ -214,7 +233,7 @@ def test_a_bundle_built_for_a_site_does_not(kit: dict[str, Any]) -> None:  # noq
     gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 0, res.stdout + res.stderr
-    with tarfile.open(kit["tmp"] / "out.tar") as tf:
+    with tarfile.open(kit["tmp"] / "release" / "out.tar") as tf:
         rel = json.loads(tf.extractfile("release.json").read())  # type: ignore[union-attr]
     assert "rehearsal" not in rel
 
@@ -253,7 +272,7 @@ def test_the_stand_ins_are_known_by_their_content_wherever_they_lie(tmp_path: Pa
     other.write_text("services: {}\n", encoding="utf-8")
     r = _sh(tmp_path, f'{fn}\nis_standins "{copy}" && echo copy-is\nis_standins "{other}" || echo other-not')
     assert "copy-is" in r.stdout and "other-not" in r.stdout, r.stderr
-    assert 'is_standins "$OVR" && rehearsal_only "the model stand-ins' in INSTALL
+    assert 'is_standins "$OVR" && rehearsal_only standins "the model stand-ins' in INSTALL
 
 
 def test_doctor_fails_the_stand_ins_in_the_compose_files_of_a_site_box(tmp_path: Path) -> None:
@@ -278,7 +297,22 @@ def test_a_site_install_on_a_box_left_a_rehearsal_is_refused(tmp_path: Path, whe
     if where == "mark":
         (tmp_path / "deploy" / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
     r = _sh(tmp_path, _block(EARLY), rehearsal=0, env_lines="TB_REHEARSAL=1\n" if where == "env" else None)
-    assert r.returncode == 1 and "rehearsal" in r.stderr and "RUNBOOK" in r.stderr
+    if where == "env":  # nothing says what the box is (no TB_ENV, no mark, no argument): PRODUCTION, it stops
+        assert r.returncode == 1 and "rehearsal" in r.stderr and "RUNBOOK" in r.stderr
+        return
+    # H-94 (ruling 7092087958): the mark alone makes a VALIDATION box, a PoC box: a warning, a line of the list, and
+    # the install goes on as the rehearsal box it is (as with --rehearsal); never as a site box
+    assert r.returncode == 0 and "warning (PoC box, H-94): this box was a rehearsal box" in r.stderr, r.stderr
+    assert f"override={tmp_path / STANDINS}" in r.stdout and "unmeasured=1" in r.stdout
+
+
+def test_a_production_box_left_a_rehearsal_mark_is_refused(tmp_path: Path) -> None:
+    """H-94's PRODUCTION twin: the mark on a box that records PRODUCTION stops (kept refusal 3)."""
+    (tmp_path / "deploy" / "site").mkdir(parents=True)
+    (tmp_path / "deploy" / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    r = _sh(tmp_path, _block(EARLY), rehearsal=0, env_lines="TB_ENV=PRODUCTION\n")
+    assert r.returncode == 1 and r.stderr.startswith("install: this box was a rehearsal box") and "RUNBOOK" in r.stderr
+    assert not (tmp_path / "deploy/site/poc-stops.jsonl").exists()
 
 
 def test_a_site_install_on_a_box_never_rehearsed_goes_on(tmp_path: Path) -> None:
@@ -292,6 +326,9 @@ def test_a_site_install_on_a_box_never_rehearsed_goes_on(tmp_path: Path) -> None
 def test_any_spelling_of_a_site_environment_is_refused(tmp_path: Path, value: str, block: str) -> None:
     """F3: only DEV, TEST or nothing; the name as Python reads it (stripped, unquoted, upper case)."""
     r = _sh(tmp_path, _block(block), env_lines=f"TB_ENV={value}\n")
+    if block == SETTINGS and value.strip() == "VALIDATION":  # H-94 (ruling 7092087958): see the test above
+        assert r.returncode == 0 and "warning (PoC box, H-94)" in r.stderr, r.stdout + r.stderr
+        return
     assert r.returncode == 1 and "rehearsal" in r.stderr, r.stdout + r.stderr
 
 

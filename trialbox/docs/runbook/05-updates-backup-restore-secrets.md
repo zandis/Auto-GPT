@@ -210,8 +210,8 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    stands: after a restore that is not complete (this step or the next), that failed part-way, or that was run a
    second time, the box stays held. While held, the timer starts no list job (SCREEN, MICROBATCH, COHORT, NAV), a
    list a person asks for fails with a message that says so, and the weekly not-matched sample is not drawn. The
-   ingest and retention run. `trialbox doctor` shows the hold (`restore_hold`). When every listed event is re-applied, the data steward (or the administrator) sets the flag to `released` on
-   `/ops/flags`, with the reason (who re-applied what); the change is in the audit. If the restore prints that the
+   ingest and retention run. `sudo trialbox doctor --env-file deploy/.env` on the host shows the hold (`restore_hold`: HELD, released or UNREADABLE; see "The hold after a restore" below). When every listed event is re-applied, the data steward (or the administrator) sets the flag to `released` on
+   `/ops/flags`, with the reason (who re-applied what), and confirms it on the next page ("Yes, do it"); the change is in the audit. If the restore prints that the
    hold could not be set, keep the services stopped until the events are re-applied.
 5. **Opt-outs recorded after the backup (D-493).** Before the restore empties the trial database it reads the
    box's opt-out register. After the restored rows are checked it **puts back every opt-out** the register held
@@ -309,6 +309,132 @@ signing leaves at most one day open. On an installed box the `audit-writer` serv
 there the nightly check is the one that finds a cut below a signed head, within a day.
 
 
+**Restore over the live stack, one command (H-100).** In a root shell on the box, from the install folder. The
+private key from the envelope must be a file owned by root and readable by root alone (mode 0600), not a link: a
+key on a removable stick cannot carry that mode, so copy it first and remove the copy afterwards:
+
+    sudo install -m 0600 -o root -g root /media/usb/trialbox-backup.key /root/trialbox-backup.key
+    sudo trialbox restore --last --key /root/trialbox-backup.key --yes --restart
+    sudo rm /root/trialbox-backup.key
+
+Before anything is stopped: `--last` names the newest backup `backup-nightly` recorded good
+(`deploy/site/backup-last.json`), or name a file instead; the file itself is read and its sha256 must equal its
+`.sha256` sidecar and the nightly's record (the restore is given that hash and refuses any other file); the key is
+checked; and the space the restore needs is checked in `deploy/` (the backup unpacked, about four times the file,
+and a copy of each database it replaces, up to the databases' own size). Any of these refused: exit 2, nothing
+changed. `--restart` never stands for `--yes`; without `--restart` nothing is stopped and step 2's refusal applies.
+
+`--restart` stops every service but `db` (the restore still asks compose afterwards and refuses while any other
+runs). The restore runs in one container of the release's backup image (`TB_BACKUP_IMAGE`), which carries the
+database client tools: the database URLs, the database superuser and the service roles' passwords come from the box's
+own `deploy/.env`, as the nightly's job gets them, and travel by name only. Compose and the container engine get only
+their own needs (PATH, HOME) and the engine settings `deploy/.env` names: a `COMPOSE_*` or `DOCKER_*` exported in the
+shell never points the restore at another project or engine. Each data volume's folder is given to the restore so its
+contents move aside within the volume, the copy of the box goes to `deploy/pre-restore`, and the service-role script
+runs inside it after the trial database is restored (the paragraph "Database roles after a restore", above, is then
+done). Every guard of the steps above holds: the site, the age, the copy of a box that holds data, the rows checked
+before any folder moves, the hold.
+
+**All or nothing.** The restore first copies each database it replaces. If anything fails, is interrupted (Ctrl-C) or
+is stopped by a signal after the first change, it puts the databases and the folders back as they were (each folder
+with its own owner and mode), holds the list jobs (`screening.after_restore`, step 4) and writes
+`backup.restore_failed` with `state: rolled_back`. While it puts them back, further Ctrl-C, SIGTERM or SIGHUP are
+ignored, and the host's step waits for it to the end whatever it receives. If the putting back itself fails, it says
+`NOT as it was` and keeps the copy of the databases it took first (`deploy/pre-restore/pre-restore-dumps-<time>`,
+readable by root alone) and names it: do not start the services; `pg_restore` that copy, or restore the kept copy of
+the box. `--no-copy` on the host needs `--yes-really`: without the kept copy a failed restore whose putting back also
+fails leaves nothing to go back to. One restore runs at a time (`deploy/site/restore.lock`); a scratch folder
+(`deploy/.restore-*`) left by a restore that was killed is removed by the next one.
+
+**The hold after a restore (step 4).** `sudo trialbox doctor --env-file deploy/.env`, typed on the box's host, shows
+the hold (`restore_hold`, H-136). It reads it through the box (`docker compose exec db`, as the backup asks the job
+count), never with the host's own Python or a database address on the host, so it reads it right after a restore.
+Its line is one of three:
+
+- `WARN restore_hold HELD since <time> by <who>: ...` with the reason the restore gave: the box is held;
+- `PASS restore_hold released ...`: no restore is waiting (or the hold was never set on this box);
+- `FAIL restore_hold UNREADABLE: ... (<cause>)`: the hold could not be read (the `db` service does not run, the
+  box file cannot be trusted, the container engine does not start). Treat the box as held: read the flag on
+  `/ops/flags` and run the doctor again once the cause is fixed. It is never a pass.
+
+The same line shows on every kind of box (PoC or PRODUCTION) and in the host check (`deploy/check_host.sh`, whose
+doctor runs in the box image: the host reads the hold through the box and hands it in). The doctor is a check,
+not an install stop (D-1091): a held or unreadable hold stops no install, start or update. On a PoC box the host
+check's FAIL lines warn and the step goes on; on a PRODUCTION box they are the install's FAIL lines, as before.
+
+**Releasing the hold.** When every listed event is re-applied, the data steward (or the administrator) opens
+`/ops/flags` in the console, chooses `released` for `screening.after_restore`, types the reason (who re-applied
+what) and presses Change. That opens a second page, "Please confirm", that names the flag, its old and its new
+value: the change is made only by its button "Yes, do it" (the form alone changes nothing). The page then shows
+`held → released`, by whom and when, with the reason; the change is in the audit. There is no release command:
+`trialbox model release` is for the models' flag (page 19). Run `trialbox doctor` again: it says `released`.
+
+**What it says.** Every end says the box in one line: `restore: the box now: <what compose says runs>; the data:
+<restored | not changed | put back as it was | NOT as it was>; next: <the command>`. With `--restart` every service
+the box's compose defines starts again and is waited for until healthy (`docker compose up -d --pull never --wait`:
+every image from the bundle, as an update starts the box, unless deploy/.env says `TB_INSTALL_PULL=missing`), whatever an
+earlier run left stopped, when the restore ended complete (exit 0) or held (exit 4 with `hold: held`). A restore
+refused inside before any change starts again only the services this run stopped (`--no-deps`), and names the ones
+it found stopped without starting them: an earlier run may have left them stopped on data that is not as it was.
+After a put-back the next step is to read the error and start them as they were; otherwise they stay stopped. After the start the whole expected set is checked (the services compose defines, less the
+one-shot ones; after a refused restore, what this run stopped and `db`, and a run that stopped nothing starts
+nothing and never prints a start of the whole project): `the services run again and are healthy: 16 of 16`, or `did not all come back healthy: 13 of 16`
+with the names and exit 1 (a restore that ended 4, NOT complete, keeps 4). A second Ctrl-C while the command says
+the box's state ends the asking, not the line: it then says `the box now: not asked (interrupted again)`. Then the hold is said: released by the restore, or held until a person releases it (step
+4). **A restore that was interrupted (Ctrl-C, a closed session) is run again with the same command:** the re-run
+stops what runs, restores, starts every service and checks them all; a second restore leaves the box held (step 4). A stop that
+fails, an interrupt or an error on the host is said the same way and kept as an audit event
+(`deploy/site/backup-audit-pending.jsonl` while the orchestrator is down). Compare the `rows` the restore prints with
+`databases` of `trialbox backup-verify <file> --key <private key>`: they are equal. The steps above are the same
+restore by hand.
+
+**A box whose nightly sends the lake to restic (H-132).** Its backup file holds the databases and every folder but the
+lake, which is in the restic repository beside it (`trialbox-restic`). `backup-verify` and `restore` (both forms
+above) then need one more option to open that repository: `--restic-from-box` on the box itself (the box's restic
+key under its unsealed KEK), or `--restic-share <file>` once per custodian's share on a new box. Without one, both
+refuse and name the two options. The file's folder is read as a whole (the sidecar, the repository and its escrow
+file), read-only.
+
+**A rerun of the same restore takes off its own hold (INT-M5, ruling 7178128292).** This narrows "run a second time,
+the box stays held" in step 4 and "a second restore leaves the box held" above, for one case only. The restore writes
+its id first in the hold's reason: `[restore <the backup's sha256>@<the run's start, UTC>]`. A rerun of the same
+command takes the hold off only when all four of these are true:
+
+- it restores the same backup file;
+- the hold carries an earlier restore's id for that backup;
+- nothing changed the hold since: its last change on `/ops/flags` is that restore's own setting of it;
+- the rerun ends complete.
+
+The release is in the audit: `flag.set` names both restore ids and the backup's sha256, and `backup.restored` carries
+`restore_id` and `rerun_of`. This holds whether the first run was ended by Ctrl-C or SIGTERM (put back, held), by
+SIGKILL, or by a power loss (held on the restored database). Every other hold stays for a person, as above: one a
+person set or changed, one of another backup, one of a restore that did not end complete, and one with an earlier
+restore's set-aside audit chain on the box. Read `trialbox doctor` (`restore_hold`) after the rerun.
+
+**Restoring into a second, empty box.** A box newly installed beside the first (new hardware, a stand-by) takes the
+first box's backup with the one command above, given four things. Each one missing is refused before anything
+changes:
+
+1. **The backup file, by name.** `--last` reads this box's own nightly record, and a new box has none. Copy the first
+   box's backup file and its `.sha256` sidecar into one folder on this box and name the file; the sidecar must match.
+2. **The key, owned by root, mode 0600.** `--key` names a file owned by root and readable by root alone, not a link:
+   copy it from the stick first, as above.
+3. **`--no-copy` with `--yes-really`, or a target for the copy.** A box that holds data is kept as an encrypted copy
+   first, which needs this box's public key and a folder (`--public <key> --keep-to <folder>`). On a box that has no
+   backup key yet, `--no-copy --yes-really` goes on without the copy.
+4. **The same site.** The backup's site must be this box's `TB_SITE_ID`. A box installed by the four questions takes
+   its site id from the hospital's name: give it the first box's name on "Information still needed" first, then
+   compare `grep '^TB_SITE_ID=' deploy/.env` on both boxes. The id is set once, from the first name given: a later
+   name changes the display name only. A backup taken while the box still ran on the stand-in name carries the
+   stand-in id (`TRIALBOX-SITE-NAME-NEEDE`): once the name is given, it restores, on this box or another, only with
+   `--other-site`. Otherwise `--other-site` is for moving a site to new hardware only.
+
+The command, from the install folder of the second box:
+
+    sudo install -m 0600 -o root -g root /media/usb/trialbox-backup.key /root/trialbox-backup.key
+    sudo trialbox restore /srv/restore/trialbox-<site id>-<time>.tbbak --key /root/trialbox-backup.key --yes --restart --no-copy --yes-really
+    sudo rm /root/trialbox-backup.key
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |
@@ -368,3 +494,34 @@ and removes `/etc/cron.d/trialbox-backup`; elsewhere the cron file stays and nee
 (D-1090). An existing box moves with `python3 -m tools.trialbox backup-install --deploy deploy --no-first-run`.
 `trialbox doctor` (`backup`) and `backup-status` name the schedule in use and the one action when none fires or both
 would.
+
+## What an update replaces, and a loose services/ or models/ (H-144, D-1463)
+
+An update replaces the signed host tree only: `deploy/`, `tools/`, `libs/` and `schemas/` in the install folder. The
+services' code and `models/` come with the box image, never from the install folder. A `services/`, `models/`, `rulesets/`, `catalogue/` or `eval/`
+folder found in the install folder (one left from an install before the signed host tree) is not the release's: no
+update replaces or checks it, and nothing reads it. The update names it at its end ("update: note (H-144): ...") and
+leaves it; `sudo trialbox doctor --env-file deploy/.env` WARNs `release_tree` while it is there, naming each folder
+and the command that removes it (a FAIL when the command's own PYTHONPATH holds the folder: run that way, a host
+command would import it). Look in the folder for a change of your own first, then, for example:
+
+    sudo rm -rf -- /opt/trialbox/services /opt/trialbox/models
+
+The doctor's checks that need the box image's libraries, the services' code or `models/` (`doctor.IMAGE_CHECKS`) run
+in a one-off container of the box's own image when `trialbox doctor` is typed on the host; a check that cannot run
+there is a FAIL that says why, never a pass.
+
+**The update's networks (H-150).** Before the database starts, an update's database step (`python3 -m tools.trialbox
+db-up`, run by the release being installed) puts the box's networks on that release's settings with the box's own
+compose, then recreates through compose every container that does not answer to its service's name on one of its
+networks; the line says so ("db, orchestrator recreated through compose (no service name on a network)"). A container
+still without its name stops the update, which is then rolled back. Before H-150, a release that changed a network's
+settings (H-137's address range behind Caddy) left `db` with no name on trialbox-net, and the services could not find
+it ("failed to resolve host 'db'").
+
+**The rollback's database restore (H-151).** A release that carries H-151 puts each database back by loading the
+dump into a database made fresh beside the one in place (`<db>_tbrb`, with its owner, encoding, collation and grants),
+and swaps the two names in one transaction only when the whole load is in; the replaced database (`<db>_tbold`) is
+then dropped. A restore that fails or is stopped leaves the database in place as it was and the marker in place: run
+the rollback again. The volume needs room for the largest database twice while it runs; the update's space check
+counts it.

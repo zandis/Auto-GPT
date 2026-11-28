@@ -18,7 +18,24 @@ from tests.stack import ensure_ingested, url
 
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).resolve().parents[2]
-PARSER, COMPILER, LAKE, FHIR = url("PARSER"), url("COMPILER"), url("LAKE"), url("FHIR", "/fhir")
+
+
+# H-139: each address is read from the running test stack when a test runs, not at import (a collection asks
+# no engine)
+def _parser() -> str:
+    return url("PARSER")
+
+
+def _compiler() -> str:
+    return url("COMPILER")
+
+
+def _lake() -> str:
+    return url("LAKE")
+
+
+def _fhir() -> str:
+    return url("FHIR", "/fhir")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -37,12 +54,14 @@ def test_compile_and_approve_round_trip(minio: FsStore) -> None:
     job = "01JITCOMPILE00000000000000"
     pdf = (ROOT / "tests/fixtures/protocols/GZQO_protocol_v3.pdf").read_bytes()
     minio.put(f"attachments/{job}/GZQO_protocol_v3.pdf", pdf)
-    parsed = httpx.post(f"{PARSER}/parse", json={"minio_key": f"attachments/{job}/GZQO_protocol_v3.pdf"}, timeout=120)
+    parsed = httpx.post(
+        f"{_parser()}/parse", json={"minio_key": f"attachments/{job}/GZQO_protocol_v3.pdf"}, timeout=120
+    )
     assert parsed.status_code == 200, parsed.text
     minio.put(f"attachments/{job}/parsed.json", parsed.content)
     ruleset = f"GZQO-IT{os.getpid() % 1000}"
     resp = httpx.post(
-        f"{COMPILER}/compile",
+        f"{_compiler()}/compile",
         timeout=1800,
         json={
             "job_id": job,
@@ -62,7 +81,7 @@ def test_compile_and_approve_round_trip(minio: FsStore) -> None:
     rows = list(wb["review"].iter_rows(min_row=2, values_only=True))
     decisions = [{"id": r[0], "status": r[8]} for r in rows]
     out = httpx.post(
-        f"{COMPILER}/approve",
+        f"{_compiler()}/approve",
         timeout=1800,
         json={"ruleset": ruleset, "version": res["version"], "by": "crc1@hospa.test", "decisions": decisions},
     )
@@ -87,7 +106,7 @@ def test_atoms_gate_on_hapi() -> None:
     gen = CqlGenerator("ATOMS", "1.0.0", vsi)
     cql = gen.render(crit)
     tr = Translator().translate({"FHIRHelpers": fhirhelpers_source(), "TB_Common": render_common(), gen.library: cql})
-    fh = FhirEvaluator(FHIR)
+    fh = FhirEvaluator(_fhir())
     fh.load(
         [
             library_resource("FHIRHelpers", "4.0.1", fhirhelpers_source(), tr.elm["FHIRHelpers"]),
@@ -100,7 +119,7 @@ def test_atoms_gate_on_hapi() -> None:
         crit,
         SqlGenerator("ATOMS", "1.0.0", vsi).render(crit),
         gen.library,
-        LakeHttp(LAKE),
+        LakeHttp(_lake()),
         fh,
         date(2026, 10, 5),
         "ATOMS|1.0.0",
@@ -129,7 +148,7 @@ def test_offlist_gate_on_hapi(tmp_path: Path) -> None:
     gen = CqlGenerator("OFFL", "1.0.0", vsi)
     cql = gen.render(crit)
     tr = Translator().translate({"FHIRHelpers": fhirhelpers_source(), "TB_Common": render_common(), gen.library: cql})
-    fh = FhirEvaluator(FHIR)
+    fh = FhirEvaluator(_fhir())
     fh.load(
         [
             library_resource("FHIRHelpers", "4.0.1", fhirhelpers_source(), tr.elm["FHIRHelpers"]),

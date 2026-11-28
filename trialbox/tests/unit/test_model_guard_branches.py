@@ -40,26 +40,23 @@ def test_head_is_not_found(guard: int) -> None:  # noqa: F811
     c.close()
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
 def test_a_model_server_that_is_not_there_is_a_502_with_its_kind_only() -> None:
-    g = mg.Guard(KEY, {"llm-service": ("127.0.0.1", _free_port())}, timeout=5)
     from http.server import ThreadingHTTPServer
 
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), mg.make_handler(g))
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    try:
-        c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
-        c.request("GET", "/v1/models", headers={"Host": "llm-service", "Authorization": f"Bearer {KEY}"})
-        r = c.getresponse()
-        body = r.read().decode()
-        c.close()
-    finally:
-        srv.shutdown()
+    # the port stays bound and never listens for the whole test: it refuses, and no other test (xdist) can take it
+    with socket.socket() as held:
+        held.bind(("127.0.0.1", 0))
+        g = mg.Guard(KEY, {"llm-service": ("127.0.0.1", int(held.getsockname()[1]))}, timeout=5)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), mg.make_handler(g))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+            c.request("GET", "/v1/models", headers={"Host": "llm-service", "Authorization": f"Bearer {KEY}"})
+            r = c.getresponse()
+            body = r.read().decode()
+            c.close()
+        finally:
+            srv.shutdown()
     assert r.status == 502
     assert "model server not reachable: ConnectionRefusedError" in body
     assert "127.0.0.1" not in body  # the kind of the error, never where it went

@@ -31,6 +31,7 @@ import pytest
 
 from tests.unit import test_host_commands_own_environment as h88
 from tests.unit.test_host_commands_own_environment import DSN, PY_IMAGE, _no_import_fault, bare, calls
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
 from tools.trialbox import backup_schedule as bs
 from tools.trialbox import doctor, launch
 from tools.trialbox.__main__ import main as cli
@@ -435,7 +436,11 @@ def _install_sh_cron_part(tmp_path: Path, systemd: bool, env: str) -> subprocess
     for name, body in (("id", "echo 0"), ("systemctl", "exit 0"), ("python3", "exit 0")):
         (stub / name).write_text(f"#!/bin/sh\n{body}\n")
         (stub / name).chmod(0o755)
-    script = (f'die() {{ echo "DIE: $*"; exit 3; }}\nROOT={tmp_path}\n' + INSTALL[a:b] + INSTALL[c:d]
+    (
+        tmp_path / "units"
+    ).mkdir()  # the units folder a systemd host has (OCR 1455-8: a timer not installed stops PRODUCTION)
+    script = (f'die() {{ echo "DIE: $*"; exit 3; }}\nROOT={tmp_path}\nSYSTEMD_DIR={tmp_path / "units"}\n' + stop_prelude()
+              + INSTALL[a:b] + INSTALL[c:d]
               + 'echo "CAN_CRON=$CAN_CRON"\n').replace("/run/systemd/system", str(run))  # fmt: skip
     return subprocess.run(
         ["bash", "-c", script],
@@ -454,7 +459,8 @@ def test_install_sh_production_on_a_systemd_host_without_cron_goes_on_to_the_tim
     assert "the log retention cron is not installed" in r.stderr
     (tmp_path / "neither").mkdir()
     r = _install_sh_cron_part(tmp_path / "neither", systemd=False, env="PRODUCTION")
-    assert r.returncode == 3 and "DIE: the cron files cannot be installed" in r.stdout, (r.stdout, r.stderr)
+    # H-94 (ruling 7092087958): the helper, which on PRODUCTION stops with install's own words and exit 1
+    assert r.returncode == 1 and "install: the cron files cannot be installed" in r.stderr, (r.stdout, r.stderr)
 
 
 def test_install_sh_hands_its_systemd_folder_to_backup_install() -> None:

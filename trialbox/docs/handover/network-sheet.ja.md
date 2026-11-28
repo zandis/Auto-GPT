@@ -10,16 +10,16 @@
 
 | サービス | ポート | ホスト側 | ネットワーク | 接続できるもの | 起動条件 |
 | --- | --- | --- | --- | --- | --- |
-| adapter | 8016 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: console, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
+| adapter | 8016 | 公開なし | fhir-net, trialbox-net | 自身のトークンを持つ次のみ: console, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | audit-writer | なし（待ち受けなし） | 公開なし | trialbox-net | - | 常時 |
 | authelia | 9091 | 公開なし | egress-net, trialbox-net | コンソールと Caddy のみ（病院アカウントでのサインイン） | oidc (identity) |
 | caddy | 443 | 0.0.0.0:443:443 | edge-net, trialbox-net | 院内 LAN の端末、443 番のみ（https://TB_TLS_HOSTNAME） | 常時 |
 | console | 8090 | 公開なし | console-net, trialbox-net | 職員のブラウザ: 既定は 127.0.0.1 のみ。院内 LAN からは施設の TLS プロキシ経由のみ | 常時 |
-| criteria-compiler | 8012 | 公開なし | egress-net, trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
-| db | 5432 | 公開なし | trialbox-net | TrialBox の各サービスと fhir-store（パスワード） | 常時 |
+| criteria-compiler | 8012 | 公開なし | egress-net, fhir-net, trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
+| db | 5432 | 公開なし | fhir-net, trialbox-net | TrialBox の各サービスと fhir-store（パスワード） | 常時 |
 | doc-parser | 8011 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | embed-service | 8014 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: lake, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
-| fhir-store | 8080 | 公開なし | trialbox-net | adapter、orchestrator、criteria-compiler（ネットワーク分離のみ、トークンなし） | 常時 |
+| fhir-store | 8080 | 公開なし | fhir-net | adapter、orchestrator、criteria-compiler、db（ネットワーク分離のみ、トークンなし） | 常時 |
 | gateway | 8020 | 公開なし | egress-net, model-net, trialbox-net | 自身のトークンを持つ次のみ: console, criteria-compiler, doc-parser, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | judge-sleep-init | なし（待ち受けなし） | 公開なし | model-backend-net | - | GPU プロファイル (rtx5090) |
 | judge-wake-init | なし（待ち受けなし） | 公開なし | model-backend-net | - | GPU プロファイル (rtx5090) |
@@ -30,7 +30,7 @@
 | mail-gateway | 8015 | 公開なし | egress-net, trialbox-net | 自身のトークンを持つ次のみ: console, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | model-guard | 8000 | 公開なし | model-backend-net, model-net | gateway のみ（model-net） | GPU プロファイル |
 | model-swap-init | なし（待ち受けなし） | 公開なし | model-backend-net | - | GPU プロファイル (rtx5090) |
-| orchestrator | 8010 | 公開なし | egress-net, trialbox-net | 自身のトークンを持つ次のみ: console, mail-gateway; ホスト上の管理者（operator トークン） | 常時 |
+| orchestrator | 8010 | 公開なし | egress-net, fhir-net, trialbox-net | 自身のトークンを持つ次のみ: console, mail-gateway; ホスト上の管理者（operator トークン） | 常時 |
 
 ## ネットワーク
 
@@ -39,6 +39,7 @@
 | trialbox-console | コンソールの公開ポート専用: 外部への NAT なし、外部の名前解決なし、それ以外は nftables で遮断（deploy/network.sh） |
 | trialbox-edge | 外部へは下表の宛先のみ（nftables、deploy/network.sh） |
 | trialbox-egress | 外部へは下表の宛先のみ（nftables、deploy/network.sh） |
+| trialbox-fhir | 内部専用: 外部への経路なし |
 | trialbox-model-backend | 内部専用: 外部への経路なし |
 | trialbox-model-net | 内部専用: 外部への経路なし |
 | trialbox-net | 内部専用: 外部への経路なし |
@@ -89,7 +90,7 @@
 | POSTGRES_WF_PASSWORD, TB_DB_URL (role trialbox) | deploy/.env (0600, root) | db; adapter, console, criteria-compiler, gateway, lake, mail-gateway, orchestrator |
 | TB_DB_PW_<SERVICE> (one role per service) | deploy/.env (0600, root) | db; each service its own only |
 | IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |
-| TB_KEK_PASSPHRASE | terminal / command environment (RUNBOOK §16) | ホストのみ（コンテナの設定やファイルには残さない） |
+| KEK passphrase | a root-only file (--kek-passphrase-file, 0600) or stdin (RUNBOOK §16) | ホストのみ（コンテナの設定、環境変数、操作者の root 専用ファイル以外のファイルには残さない。そのファイルも使用後に削除） |
 | TB_KMS_TOKEN | KMS token (RUNBOOK §17) | adapter, orchestrator |
 | CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |
 | site_hmac.key, pid_map.key, REDCap API tokens | volume tb-secrets (/run/secrets/trialbox) | adapter, orchestrator |

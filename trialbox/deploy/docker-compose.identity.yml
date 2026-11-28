@@ -60,6 +60,8 @@ services:
       trialbox-net:
         # the console reaches Authelia's token endpoint at https://TB_AUTH_HOSTNAME through Caddy
         aliases: ["${TB_AUTH_HOSTNAME:-auth.invalid}"]
+        # H-137 (the owner's decision, #639 7156806411 item 7): a fixed address, the one proxy the console trusts
+        ipv4_address: "${TB_PROXY_ADDR:-172.31.252.250}"
     depends_on:
       console: {condition: service_healthy}
 
@@ -105,7 +107,11 @@ services:
   console:
     # behind Caddy only; Secure cookies; the identity settings from deploy/.env
     ports: !reset []
+    # H-137: forwarded headers trusted from Caddy's fixed address only (the installer writes it into deploy/.env)
+    command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
+              "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-172.31.252.250}"]
     environment:
+      TB_CONSOLE_FORWARDED_ALLOW_IPS: "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-172.31.252.250}"
       TB_CONSOLE_SECURE_COOKIE: "1"
       TB_CONSOLE_SSO_HEADER: ""   # never behind Caddy: the hospital account comes through OIDC (review H1)
       TB_CONSOLE_MFA: "${TB_CONSOLE_MFA:-totp}"
@@ -132,7 +138,12 @@ secrets:
 
 networks:
   edge-net:
-    name: trialbox-edge   # the one network with a published port (443)
+    name: ${COMPOSE_PROJECT_NAME:-trialbox}-edge   # the one network with a published port (443); H-106: the project's
+  trialbox-net:
+    # H-137: a fixed range behind Caddy, so Caddy's address is fixed too; the install check (preflight name_cert) fails
+    # when it clashes with a range this host is on. Another range: TB_NET_SUBNET and TB_PROXY_ADDR in deploy/.env
+    ipam:
+      config: [{subnet: "${TB_NET_SUBNET:-172.31.252.0/24}"}]
 
 volumes:
   caddy-data:

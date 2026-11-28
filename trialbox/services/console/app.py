@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import errno
+import fcntl
 import hashlib
 import io
 import ipaddress
@@ -30,7 +32,7 @@ import time
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
@@ -42,7 +44,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
+from tb_common import egress_edge, trusted_proxy
+from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditFull, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
@@ -90,6 +93,7 @@ from console.auth import (
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
+from console.held import Held, HeldUnset
 from console.i18n import CATALOGUES, LANGS, lookup, pick_language, translate
 from console.identity import (
     MUST_CHANGE_OPEN,
@@ -106,6 +110,11 @@ from console.refusals import localize as localize_refusal
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
+#: F0: the system modules' page files (framework section 4), one registration line each in create_app. Each has
+#: register(app, helpers, env) for its own routes and joins its own i18n_<module>.py there, as instruments_page does. A
+#: file that is not there yet is logged and passed over, so the console starts; tests/unit/test_framework_f0.py stops on
+#: one missing that no module still owes
+MODULE_PAGES = ("still_needed", "egress_page", "health_page", "data_step", "support_page", "screen_now")
 #: D-1245: how far back a protocol's audit rows are read while it is compiled (the model answers since its start)
 COMPILE_ROWS = 5000
 COOKIE = "tb_console"
@@ -170,6 +179,9 @@ def environment_banner(env: Mapping[str, str]) -> str:
     deploy/install.sh --rehearsal only, on TEST or VALIDATION) says REHEARSAL, so it is never taken for a validation
     box."""
     name = environment_name(env)
+    box = (env.get("TB_TEST_BOX") or "").strip()  # H-106: one of several test boxes on a host says which, every page
+    if box and name in ("DEV", "TEST"):
+        return f"{name} TEST BOX {box}: one of several boxes on this host; synthetic data only"
     rehearsal = (env.get("TB_REHEARSAL") or "").strip() == "1" and name in ("TEST", "VALIDATION")
     if rehearsal and (env.get("TB_REHEARSAL_REAL_SERVERS") or "").strip() == "1":  # H-89: the real model servers
         return f"{name} REHEARSAL: rehearsal: driver below the minimum, not this profile's card, not valid for a site"
@@ -213,6 +225,9 @@ class ConsoleSettings:
     studies: tuple[str, ...] = ()
     # D-192: the second factor, session timeouts and the optional OIDC sign-in (console.identity)
     identity: IdentitySettings = field(default_factory=IdentitySettings)
+    # P2-11 (D7): what one request leaves for the next, across the worker processes (console.held); a tmpfs.
+    # None: unset, the console runs and that store refuses
+    held_dir: Path | None = None
 
     @property
     def sso(self) -> bool:
@@ -264,7 +279,12 @@ class ConsoleSettings:
             ),
             studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
             identity=IdentitySettings.from_env(env, environment, Path(env.get("TB_CONSOLE_DIR") or "/data/console")),
+            held_dir=Path(held) if (held := env.get("TB_CONSOLE_HELD_DIR")) else None,
         )
+        # H-137 (the owner's decision, #639 7156806411 item 7): "all" trusted proxies are refused in PRODUCTION
+        why = trusted_proxy.refusal(env, environment)
+        if why:
+            raise PilotRefused(why)
         if obj.sso_header and not obj.sso_trusted:
             raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
         if obj.sso_default_role not in ROLES:
@@ -422,6 +442,13 @@ def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
     return dict(env if env is not None else os.environ)
 
 
+def _module_page(name: str) -> bool:
+    """Whether a system module has brought its page file (``MODULE_PAGES``); said in the log when not."""
+    if not (there := (HERE / f"{name}.py").is_file()):
+        logging.getLogger(__name__).warning("declared page file not in this tree, its pages are off: console.%s", name)
+    return there
+
+
 def _provenance_db(env: Mapping[str, str]) -> Callable[[], Any] | None:
     """D-1155: a connection to the trial database for D-989's provenance index, as the console's role, or None when
     the box has no trial database (the search says it is off). One short-lived connection per search."""
@@ -547,7 +574,12 @@ def create_app(
     users.idle, users.absolute = settings.identity.idle, settings.identity.absolute  # D-192
     ident = Identity(settings.identity, users, audit, settings.secure_cookie)
     if settings.admin_password_file is not None:
-        made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
+        # P2-11 (D7): every worker process runs this at its start; one at a time, so the second finds the first's
+        # administrator instead of failing on the same name
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        with (settings.data_dir / "bootstrap.lock").open("a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
         if made is not None:
             audit.append("console.user", actor="console:bootstrap", detail={"action": "create", "role": "admin"})
     if settings.pilot and classify is None and settings.gateway_url:
@@ -559,7 +591,8 @@ def create_app(
         )
     if settings.pilot and cascades is None:
         cascades = CascadeRuns(settings.data_dir / "cascade", settings.source_dir)
-    pending: dict[str, _Pending] = {}
+    # P2-11 (D7): seen by every worker process (console.held), as the next request may reach another one
+    pending = Held("proposal", PROPOSAL_TTL, settings.held_dir)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
@@ -1003,6 +1036,25 @@ def create_app(
         detail = str(exc)[:300] if lang_of(request, sess) not in ("ja", "zh-TW") else ""
         return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": detail})
 
+    @app.exception_handler(HeldUnset)
+    async def _held_unset(request: Request, exc: HeldUnset) -> Response:
+        """P2-11 (TB-06 ruling): no TB_CONSOLE_HELD_DIR, so a page that keeps or shows a one-time password, code or
+        proposal answers a plain page naming the setting for IT, not 500 Internal Server Error."""
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON
+            return JSONResponse({"error": "heldunset", "detail": {}}, status_code=503)
+        return page(request, "problem.html", session_of(request), status=503, key="heldunset", values={})
+
+    @app.exception_handler(OSError)
+    async def _disk_full(request: Request, exc: OSError) -> Response:
+        """E2E P-34: a write the full disk refused (the audit's own refusal, or the system's ENOSPC) answers a plain
+        page that says so, not 500 Internal Server Error; any other OSError stays the server error it was."""
+        if not (isinstance(exc, AuditFull) or exc.errno == errno.ENOSPC):
+            raise exc
+        logging.getLogger(__name__).error("a write was refused: the disk is full (%s)", type(exc).__name__)
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON
+            return JSONResponse({"error": "diskfull", "detail": {}}, status_code=507)
+        return page(request, "problem.html", session_of(request), status=507, key="diskfull", values={})
+
     def actor(sess: Session) -> str:
         return f"console:{sess.user.username}"
 
@@ -1310,20 +1362,21 @@ def create_app(
     # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
     # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
     # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
-    one_time: dict[str, tuple[str, str, float]] = {}
+    # P2-11 (D7): in a memory tmpfs (TB_CONSOLE_HELD_DIR), seen by every worker process (console.held); unread for 10
+    # minutes: never shown, removed at the next keep or read
+    one_time = Held("once", 600.0, settings.held_dir)
 
     def keep_once(sess: Session, username: str, password: str) -> None:
-        now = time.monotonic()
-        for k in [k for k, v in one_time.items() if now - v[2] > 600]:  # unread for 10 minutes: gone
-            one_time.pop(k, None)
-        one_time[sess.token_sha] = (username, password, now)
+        one_time.put(sess.token_sha, (username, password, time.monotonic()))
 
     @app.get("/ops/users", response_class=HTMLResponse)
     def users_view(request: Request, undo: str = "", done: str = "") -> Response:
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
-        made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
+        # P2-11: unset (TB_CONSOLE_HELD_DIR), nothing was kept, so the page shows none and still serves
+        made, pw, _ = (None if one_time.unset else one_time.pop(sess.token_sha)) or ("", "", 0.0)
+        pw, _, pw_code = pw.partition("\ncode:")  # E2E P-17: with the password, the code for the authenticator
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
@@ -1344,6 +1397,7 @@ def create_app(
             made=made,
             pw=pw,
             pw_groups=pw.split("-") if pw else [],
+            pw_code=pw_code,
             sso=settings.sso,
         )
 
@@ -1368,6 +1422,8 @@ def create_app(
         if perm and not admin_allowed(sess.user.role, perm):  # D-178: the one role table (tb_common.authz)
             au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
             raise _Problem(403, "forbidden")
+        if action in ("add", "reset"):
+            one_time.ready()  # P2-11: no password or code is made that could not be shown (TB_CONSOLE_HELD_DIR unset)
         try:
             me = sess.user.username
             if action == "add":
@@ -1407,7 +1463,11 @@ def create_app(
                         "expires": made_user.expires or "",
                     },
                 )
-                keep_once(sess, name, password)
+                code = ""
+                if ident.needs_code(made_user):  # E2E P-17: without a code the new account could never enrol (D-192)
+                    code = us.issue_enrol_code(name)
+                    au.append("console.enrol_code", actor=actor(sess), detail={"user": name})
+                keep_once(sess, name, password + (f"\ncode:{code}" if code else ""))  # shown once, as the password
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "reset":
                 if us.is_sso(name):
@@ -1611,6 +1671,30 @@ def create_app(
 
     twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
     people_lists.register(app, helpers, templates.env)  # J-5 (D-1223): Candidates and Participants, behind a flag
+    if _module_page("still_needed"):
+        from console.still_needed import register as still_needed
+
+        still_needed(app, helpers, raw_env)  # M1: "Information still needed"
+    if _module_page("egress_page"):
+        from console.egress_page import register as egress_page
+
+        egress_page(app, helpers, raw_env)  # M3: "What left this box"
+    if _module_page("health_page"):
+        from console.health_page import register as health_page
+
+        health_page(app, helpers, raw_env)  # M5: the health page
+    if _module_page("data_step"):
+        from console.data_step import register as data_step
+
+        data_step(app, helpers, raw_env)  # M5: the data step
+    if _module_page("support_page"):
+        from console.support_page import register as support_page
+
+        support_page(app, helpers, raw_env)  # M5: the support session
+    if _module_page("screen_now"):
+        from console.screen_now import register as screen_now
+
+        screen_now(app, helpers, raw_env)  # M8: "Screen now"
     from console import rc1_guard
 
     # R22-34 (D-1072): the last middleware added, so the outermost: it reads the address before any rewrite
@@ -1618,7 +1702,8 @@ def create_app(
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
-    boot.append(lambda: timers.start(helpers, raw_env, site_tz))
+    # P2-11 (D7): with several worker processes, the timers run in the one that holds the lock
+    boot.append(lambda: timers.start(helpers, raw_env, site_tz, lock=settings.data_dir / "timers.lock"))
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):
@@ -2258,20 +2343,21 @@ def create_app(
         except ProposalError as exc:
             return _request_page(request, sess, 422, error=str(exc))
         now = time.time()
-        for pid in [p for p, v in pending.items() if now - v.created > PROPOSAL_TTL]:
-            pending.pop(pid, None)
         pid = secrets.token_urlsafe(12)
-        pending[pid] = _Pending(prop, sess.token_sha, now)
+        pending.put(pid, {"proposal": asdict(prop), "session_sha": sess.token_sha, "created": now})
         au.append("console.proposal", actor=actor(sess), detail={"action": "proposed", "line": prop.line})
         return _request_page(request, sess, proposal=prop, proposal_id=pid)
 
     @app.post("/pilot/propose/{pid}/confirm")
     def propose_confirm(request: Request, pid: str, csrf: str = Form("")) -> Response:
         sess = need_requester(request, csrf)
-        item = pending.get(pid)
+        raw = pending.get(pid)
+        prop = None if raw is None else Proposal(**{**raw["proposal"], "notes": tuple(raw["proposal"]["notes"])})
+        item = None if prop is None else _Pending(prop, raw["session_sha"], raw["created"])
         if item is None or item.session_sha != sess.token_sha or time.time() - item.created > PROPOSAL_TTL:
             raise _Problem(410, "request.refused", reason="the proposal expired; propose again")
-        pending.pop(pid, None)
+        if pending.pop(pid) is None:  # another worker confirmed it first: one job per proposal
+            raise _Problem(410, "request.refused", reason="the proposal expired; propose again")
         job = submit(sess, item.proposal.line)
         return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
 
@@ -2607,11 +2693,16 @@ def create_app(
             raise _Problem(404, "notfound")
         if job.type != "FEAS" or job.state != "done":
             raise _Problem(404, "notfound")
-        files = [(o.filename, bk.get_object(o.minio_key)) for o in job.outputs or [] if o.tag == "aggregate"]
+        outs = [o for o in job.outputs or [] if o.tag == "aggregate"]
+        files = [(o.filename, bk.get_object(o.minio_key)) for o in outs]
+        if any(sha256_bytes(d) != o.sha256 for o, (_n, d) in zip(outs, files, strict=True)):  # review round 3, M3
+            raise _Problem(
+                409, "request.refused", reason="a file of the job is not what the job recorded when it built it"
+            )
         if not files:
             raise _Problem(404, "notfound")
         detail = bk.ruleset_detail(job.ruleset or "") or {}
-        data = build_sponsor_pack(job, files, detail, bk.models())
+        data = egress_edge.made(build_sponsor_pack(job, files, detail, bk.models()))  # built here (1523 ruling)
         au.append(
             "console.export",
             job_id=job_id,
@@ -2747,7 +2838,10 @@ def create_app(
                       approval=f"released (D1) cascade numbers of run {run.run_id}; console role {sess.user.role}",
                       actor=actor(sess), ruleset=run.trial)  # fmt: skip
         media = {".pdf": "application/pdf", ".json": "application/json"}.get(path.suffix, "application/octet-stream")
-        return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{path.name}"'})
+        headers = {"Content-Disposition": f'attachment; filename="{path.name}"'}
+        if (sha := runs.made_sha(run, name)) is not None:  # the run's record of the file it built (1523 ruling)
+            headers["x-tb-made-sha256"] = sha
+        return Response(data, media_type=media, headers=headers)
 
     @app.get("/pilot/mailbox", response_class=HTMLResponse)
     def mailbox_form(request: Request) -> Response:

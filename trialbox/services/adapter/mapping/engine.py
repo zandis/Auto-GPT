@@ -60,7 +60,7 @@ import yaml
 from tb_common import dates as tb_dates
 from tb_common import labvalue
 from tb_common.codekey import HALF_WIDTH, fold_key
-from tb_common.crypto import pid_for_mrn
+from tb_common.crypto import pid_for_mrn, with_a_letter
 
 Row = dict[str, Any]
 Resource = dict[str, Any]
@@ -251,8 +251,9 @@ def _zone(path: Path, name: object) -> ZoneInfo:
 
 
 def resource_id(site_key: bytes, rtype: str, value: str) -> str:
-    """Stable pseudonymous id for a non-patient resource (no source keys leave the adapter)."""
-    return hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
+    """Stable pseudonymous id for a non-patient resource (no source keys leave the adapter), with a letter: the FHIR
+    store refuses an id of digits only (:func:`tb_common.crypto.with_a_letter`)."""
+    return with_a_letter(hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32])
 
 
 _HALF_WIDTH = HALF_WIDTH  # tb_common.codekey: the one fold of a code (10B-6)
@@ -578,7 +579,10 @@ class Mapping:
             base = cls._read(base_path)
             if base.get("extends"):
                 raise MappingError(f"{base_path}: a base mapping cannot extend another one")
-            site_tables = doc.get("tables") or {}
+            # a site mapping with no tables key at all is the shipped mapping with the site zone (the installer writes
+            # one until the source has its own mapping step, T-731): it maps the shipped tables (E2E P-09). A site that
+            # declares tables, even none, gets those only.
+            site_tables = (doc.get("tables") or {}) if "tables" in doc else (base.get("tables") or {})
             merged = {**base, **{k: v for k, v in doc.items() if k != "extends"}}
             merged["systems"] = {**(base.get("systems") or {}), **(doc.get("systems") or {})}
             merged["params"] = {**(base.get("params") or {}), **(doc.get("params") or {})}

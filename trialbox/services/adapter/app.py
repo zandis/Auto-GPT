@@ -32,13 +32,15 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from tb_common import ids
 from tb_common import service_auth as sa
 from tb_common.http import make_app
 from tb_contracts import IngestRequest, dump
 
 from adapter import failure, runs
 from adapter.cli import build_config
-from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
+from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
+from adapter.publish import FhirRestoreOutstanding, NightRefused, RecoveryBusy
 
 log = logging.getLogger("adapter")
 
@@ -110,6 +112,28 @@ def _child_env() -> dict[str, str]:
     return {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
 
 
+def _undo_killed_load() -> str:
+    """E2E P-03: the ingest's process ended badly (killed for memory, say) and may have left the FHIR store ahead of
+    the lake: it is put back now, while this service still holds the run gate, not only when the next night runs
+    (``adapter.publish.recover_all``: a killed re-run's swap first, review N3). Never raised: the next ingest or
+    publish tries again. Returns the words of a put-back that is still owed ("" when none is), a recovery that failed
+    on its way included (review F7: the store is then still owed)."""
+    try:
+        from adapter.publish import FhirRestoreOutstanding, RecoveryBusy, recover_all
+
+        try:
+            recover_all(build_config()[0])
+        except RecoveryBusy:
+            log.warning("a killed FHIR load is left to the publish or recovery that holds the FHIR store now")
+        except FhirRestoreOutstanding as exc:
+            log.error("%s", exc)
+            return str(exc)
+    except Exception as exc:
+        log.error("a killed FHIR load could not be undone after the ingest's process ended (%s)", type(exc).__name__)
+        return f"fhir_restore_outstanding: recovery failed ({type(exc).__name__}); the store is still owed"
+    return ""
+
+
 def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, Any]) -> None:
     """Run one ingest as ``python -m adapter.run_job`` and wait for it (called in the service's waiting thread, which
     holds ``_running``). The child inherits the run lock's open file; this process closes its end and never
@@ -138,6 +162,7 @@ def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, An
             lock.hand_over()  # closed, never unlocked: an unlock would take the lock from the child
         _children[rid] = proc
         code = proc.wait()
+        owed = _undo_killed_load() if code != 0 else ""
         end = runs.read(lake_dir, rid)
         if end is None:  # the record cannot be read now: say so, and do not write over what the child wrote
             state.update(state="failed", detail="the run's record could not be read when the ingest's process ended")
@@ -146,6 +171,8 @@ def _run_in_process(state: dict[str, Any], lake_dir: Path, request: dict[str, An
         if end.get("state") == "failed" and end.get("detail") == runs.ENDED_WITHOUT_ANSWER and code > 0:
             end = {**end, "detail": f"the ingest's process ended with exit code {code} and no answer (the adapter's "
                                     "log has its error)"}  # fmt: skip
+        if owed:
+            end = {**end, "detail": "; ".join(d for d in (str(end.get("detail") or ""), owed) if d)}
         state.update(end)
     except Exception as exc:
         log.exception("ingest run %s could not be run as a process", rid)
@@ -191,7 +218,7 @@ def run(req: IngestRequest) -> JSONResponse:
         if not waits:
             gate.release()
         raise
-    rid = os.urandom(8).hex()
+    rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
     state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None,
                              "detail": "waiting for a publish to end" if waits else ""}  # fmt: skip
     _runs[rid] = state
@@ -214,6 +241,8 @@ def run(req: IngestRequest) -> JSONResponse:
                 gate.release()
                 state.update(end)
             return
+        from lake.store import SnapshotBuilding
+
         try:
             report = run_ingest(
                 ac,
@@ -226,7 +255,14 @@ def run(req: IngestRequest) -> JSONResponse:
                 validate=req.validate_,
             )
             end.update(state="done", report=dump(report))
-        except (SiteKeyError, NoRoomForNight, LakeBudgetError) as exc:  # T-612, D-679: refused before anything was read
+        # T-612, D-679, U-5 (D-1280): refused before anything was read
+        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError, NightRefused) as exc:
+            end.update(state="refused", detail=f"night refused: {exc}")
+        except FhirRestoreOutstanding as exc:  # P-03 (review R5): before any store was touched, by its name
+            end.update(state="refused", detail=str(exc))
+        # P-03: another publish or recovery holds the FHIR store, or a killed publisher's lake build still runs
+        # (review M3): nothing is published
+        except (RecoveryBusy, SnapshotBuilding) as exc:
             end.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)
@@ -264,6 +300,12 @@ def latest_run() -> dict[str, Any]:
     return {"state": "none"}
 
 
+def _plain_snapshot(snap: str) -> None:
+    """H-137: a snapshot is named by a plain folder name under the lake, never a path that leaves it (400)."""
+    if snap in (".", "..") or any(c in snap for c in "/\\\x00"):
+        raise HTTPException(status_code=400, detail="a snapshot is a plain folder name")
+
+
 class PublishBody(BaseModel):
     snapshot: str
     source: str = ""
@@ -284,6 +326,7 @@ def publish(body: PublishBody) -> JSONResponse:
 
     from adapter.publish import NothingToPublish, held_folder, publish_held, published
 
+    _plain_snapshot(body.snapshot)
     if not _running.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
     _accepting.set()  # second review (L1): from here a night's run waits, also while the accept is still checked
@@ -297,7 +340,7 @@ def publish(body: PublishBody) -> JSONResponse:
             if published(ac, body.snapshot):
                 _accepting.clear()
                 _running.release()
-                rid = os.urandom(8).hex()
+                rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
                 _publishes[rid] = {"run": rid, "state": "done", "started": _now(), "ended": _now(), "detail":
                                    "published already", "snapshot": body.snapshot, "steps": {},
                                    "promoted": True}  # fmt: skip
@@ -320,7 +363,7 @@ def publish(body: PublishBody) -> JSONResponse:
         _accepting.clear()
         _running.release()
         raise
-    rid = os.urandom(8).hex()
+    rid = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole
     state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None, "detail": "",
                              "snapshot": body.snapshot, "steps": {}}  # fmt: skip
     _publishes[rid] = state
@@ -329,7 +372,7 @@ def publish(body: PublishBody) -> JSONResponse:
         end: dict[str, Any] = {}  # NEW-B-56: shown only once the gate is given back (the steps are shown as they go)
         try:
             out = publish_held(ac, body.snapshot, on_step=lambda _s, steps: state.update(steps=steps))
-            end.update(steps=dict(out.steps), promoted=out.promoted)
+            end.update(steps=dict(out.steps), promoted=out.promoted, fhir_outstanding=out.fhir_outstanding)
             if out.ok and out.promoted:  # review HIGH-1: "done" is a night that is served, nothing less
                 end.update(state="done")
             else:
@@ -381,6 +424,7 @@ def validate(body: ValidateBody) -> dict[str, Any]:
             return {"ok": one.ok, "resource": one.resource, "profile": one.profile, "outcome": one.operation_outcome()}
         rep = v.validate(sample_per_type(body.resources, body.per_type))
     else:
+        _plain_snapshot(body.snapshot)
         lake = Path(os.environ.get("TB_LAKE_DIR") or build_config()[0].lake_dir)
         snap = body.snapshot or (list_snapshots(lake) or [""])[-1]
         if not snap or not snapshot_dir(lake, snap).is_dir():

@@ -219,6 +219,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.data_resolve": ("Data difference resolved", "データ差異の解決", "解決資料差異"),
     "console.data_source": ("Data source changed", "データソースの変更", "資料來源變更"),
     "console.data_sync": ("Study data synchronised", "研究データの同期", "同步研究資料"),
+    "console.screen_now": (
+        "Screen now: started, queued, joined or refused",
+        "今すぐスクリーニング(開始・待機・合流・拒否)",
+        "立即篩選(開始、排隊、併入或拒絕)",
+    ),
     "console.conflict_resolved": ("Clinical conflict resolved", "臨床データ矛盾の解決", "解決臨床資料衝突"),
     "console.site_check": ("Site check recorded", "施設確認の記録", "記錄院內確認"),
     "console.site_fact": ("Site fact recorded", "施設情報の記録", "記錄院內事實"),
@@ -228,6 +233,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.site_remote": ("Remote site source changed", "遠隔施設ソースの変更", "遠端院內來源變更"),
     "console.site_resolve": ("Site question resolved", "施設の確認事項の解決", "解決院內問題"),
     "console.site_sheet": ("Site sheet read", "施設シートの読込", "讀取院內試算表"),
+    "console.site_needs": ("Site information filled in", "まだ必要な情報の入力", "填寫尚需的資料"),
     "console.ops": ("Operations action", "運用操作", "維運操作"),
     # services: data, EDC, set-up, mail, model gateway, operations
     "data.entry": ("Study data entered (service)", "研究データの入力（サービス）", "輸入研究資料（服務）"),
@@ -356,6 +362,12 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "mail.sent": ("Mail sent", "メールの送信", "寄出郵件"),
     "mail.duplicate_suppressed": ("Duplicate mail held back", "重複メールの抑止", "攔下重複郵件"),
     "mail.resolved": ("Uncertain mail resolved", "不確定メールの解決", "解決不確定郵件"),
+    "mail.tls_unverified": (
+        "Mail server certificate not checked",
+        "メールサーバー証明書の検証なし",
+        "未驗證郵件伺服器憑證",
+    ),
+    "mail.plaintext": ("Mail server spoken to without TLS", "TLS なしのメールサーバー接続", "未以 TLS 連線郵件伺服器"),
     "mail.deferred": ("Mail delivery deferred", "メール配信の延期", "郵件延後寄送"),
     "mail.failed": ("Mail delivery failed", "メール配信の失敗", "郵件寄送失敗"),
     "mail.uncertain": ("Mail delivery uncertain", "メール配信の不確定", "郵件寄送狀態不確定"),
@@ -409,6 +421,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "復元：バックアップ後の操作の再適用が必要",
         "還原：備份之後的操作需重新套用",
     ),
+    "backup.restore_failed": ("Restore failed", "復元の失敗", "還原失敗"),
     # 10K-13 (D-1379): the backup-key ceremony on the host, recorded before backup.pub is made
     "backup.key_ceremony": (
         "Backup key ceremony: the key file and the sheet file on the stick read back; witness named",
@@ -419,6 +432,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.backup_skipped": ("Update without a backup", "バックアップなしの更新", "未備份即更新"),
     "update.rolled_back": ("Update rolled back", "更新の差し戻し", "更新已還原"),
+    "update.finish_failed": (
+        "Update not finished (nothing rolled back)",
+        "更新を完了できず（差し戻しなし）",
+        "更新未能完成（未還原）",
+    ),
     "case.opt_out_refused": (
         "Case run refused: the patient opted out",
         "症例処理の拒否：利用拒否の患者",

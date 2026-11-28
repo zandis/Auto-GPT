@@ -245,6 +245,7 @@ def test_a_contact_outcome_sent_twice_is_one_outcome(lb: dict[str, Any]) -> None
     assert len(store.outcomes(STUDY, A)) == 1 and ev.count("console.contact_outcome") == 1
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_an_account_added_twice_is_one_account(box: dict[str, Any]) -> None:
     c, csrf = login(box["app"])
     form = {"csrf": csrf, "action": "add", "username": "Nurse.Twice", "role": "viewer", "mailbox": "tw@hospa.test"}
@@ -346,6 +347,7 @@ def test_two_send_now_at_once_send_one_mail(lb: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------------------------- two approvers
+@pytest.mark.usefixtures("held_dir")
 def test_two_confirmers_at_once_open_one_account(tmp_path: Path) -> None:
     """D-719 (c): a protected account waits for a second person. Two second persons confirm at once (threads against
     the in-process app), ten times: one account, one confirmation, the other told plainly."""
@@ -713,6 +715,7 @@ def test_a_request_sent_twice_asks_for_one_job(box: dict[str, Any]) -> None:
     assert row["jobs"][1] == 0
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_account_reset_twice(box: dict[str, Any]) -> None:
     c, csrf = login(box["app"])
     row = twice(box, "account_reset", c, "/ops/users", {"csrf": csrf, "action": "reset", "username": "viewer",

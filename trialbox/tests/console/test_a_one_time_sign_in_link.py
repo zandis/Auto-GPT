@@ -20,6 +20,8 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
+
 from tests.console.test_console_app import ADMIN_PW
 from tests.console.test_no_one_holds_both_factors import (
     CRC_PW,
@@ -46,6 +48,7 @@ def _parts(link: str) -> tuple[str, dict[str, str]]:
     return u.path, {k: v[0] for k, v in parse_qs(u.fragment).items()}
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_administrators_page_shows_the_link_beside_the_code(tmp_path: Path) -> None:
     app, _users, _audit, _clock = _box(tmp_path, steward=False, TB_CONSOLE_PUBLIC_URL=PUBLIC)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -60,6 +63,7 @@ def test_the_administrators_page_shows_the_link_beside_the_code(tmp_path: Path) 
     assert "?" not in _link(r.text).split("#")[0]  # nothing of the code before the '#': the server never gets it
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_confirming_persons_page_shows_the_link(tmp_path: Path) -> None:
     app, _users, _audit, _clock = _box(tmp_path, steward=True, TB_CONSOLE_PUBLIC_URL=PUBLIC)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -73,6 +77,7 @@ def test_the_confirming_persons_page_shows_the_link(tmp_path: Path) -> None:
     assert frag == {"u": "shadow", "c": secret.group(1)}
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_the_link_works_once_like_the_code(tmp_path: Path) -> None:
     app, _users, _audit, _clock = _box(tmp_path, steward=False, TB_CONSOLE_PUBLIC_URL=PUBLIC)
     admin, csrf = _signin(app, "admin", ADMIN_PW)
@@ -95,6 +100,7 @@ def test_the_first_sign_in_page_takes_the_link(tmp_path: Path) -> None:
     assert "data-enrol-link" in CONSOLE_JS and "location.hash" in CONSOLE_JS and "replaceState" in CONSOLE_JS
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_a_password_reset_is_never_a_link(tmp_path: Path) -> None:
     """A reset password is typed at the sign-in page, never given as a link."""
     app, users, _audit, _clock = _box(tmp_path, steward=True, TB_CONSOLE_PUBLIC_URL=PUBLIC)
@@ -108,6 +114,7 @@ def test_a_password_reset_is_never_a_link(tmp_path: Path) -> None:
     assert 'data-testid="request-secret"' in page and 'data-testid="enrol-link"' not in page
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_without_the_boxs_public_address_no_link_is_made(tmp_path: Path) -> None:
     """A link to the request's own Host could point anywhere (a tunnel, a forged header): no address, no link."""
     app, _users, _audit, _clock = _box(tmp_path, steward=False)

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -105,6 +106,10 @@ class Env:
     smtp_user: str = ""
     smtp_pass: str = ""
     smtp_starttls: bool = True
+    # H-137 (the owner's decision, #639 7156806411 item 6): the mail servers' certificates are verified unless the
+    # server's switch is off; every start with a switch off is audited (mail_gateway.tls)
+    smtp_tls_verify: bool = True
+    imap_tls_verify: bool = True
     mail_intake_addr: str = "trialbox@localhost"
     mail_from_addr: str = "trialbox@localhost"
     fhir_base_url: str = "http://fhir-store:8080/fhir"
@@ -176,6 +181,8 @@ _ENV_MAP: dict[str, str] = {
     "SMTP_USER": "smtp_user",
     "SMTP_PASS": "smtp_pass",
     "SMTP_STARTTLS": "smtp_starttls",
+    "SMTP_TLS_VERIFY": "smtp_tls_verify",
+    "IMAP_TLS_VERIFY": "imap_tls_verify",
     "MAIL_INTAKE_ADDR": "mail_intake_addr",
     "MAIL_FROM_ADDR": "mail_from_addr",
     "FHIR_BASE_URL": "fhir_base_url",
@@ -210,12 +217,19 @@ _ENV_MAP: dict[str, str] = {
 _BOOL_TRUE = {"1", "true", "yes", "on"}
 
 
-def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> Env:
-    """Build :class:`Env` from ``.env`` (optional) overlaid by ``environ`` (default ``os.environ``)."""
+def env_source(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> dict[str, str]:
+    """What :class:`Env` is built from: ``.env`` (``TB_DOTENV``, default ``.env``) overlaid by ``environ`` (default
+    ``os.environ``). A service that decides on a raw variable reads this, so it agrees with its config."""
     merged: dict[str, str] = {}
     dotenv_path = dotenv if dotenv is not None else Path(os.environ.get("TB_DOTENV", ".env"))
     merged.update(_read_dotenv(dotenv_path))
     merged.update(environ if environ is not None else dict(os.environ))
+    return merged
+
+
+def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) -> Env:
+    """Build :class:`Env` from ``.env`` (optional) overlaid by ``environ`` (default ``os.environ``)."""
+    merged = env_source(dotenv, environ)
     kwargs: dict[str, object] = {}
     defaults = Env()
     for var, attr in _ENV_MAP.items():
@@ -248,7 +262,21 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
         raise ConfigError("TB_LLM_MODE must be vllm, llamacpp, openai or stub")
+    _check_module_keys(env.extra)
     return env
+
+
+def _check_module_keys(extra: Mapping[str, str]) -> None:
+    """F0: the keys of the system modules; unset or empty is the default, another form stops the start."""
+    for var in ("TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK"):
+        if any(not part.startswith("/") for part in re.split(r"[:\s]+", extra.get(var, "")) if part):
+            raise ConfigError(f"{var} must be empty or absolute folders, got {extra[var]!r}")
+    keys = extra.get("TB_VENDOR_KEYS", "")
+    if keys not in ("", DECLARED["TB_VENDOR_KEYS"].default) and not keys.startswith("/"):
+        raise ConfigError(f"TB_VENDOR_KEYS must be an absolute folder, got {keys!r}")
+    night = extra.get("TB_TERMINOLOGY_NIGHT", "")
+    if night and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d", night):
+        raise ConfigError(f"TB_TERMINOLOGY_NIGHT must be HH:MM-HH:MM or empty, got {night!r}")
 
 
 def load_settings(path: Path) -> Settings:
@@ -449,6 +477,7 @@ DECLARED: dict[str, Declared] = {
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
     "TB_DOCTOR_PIDMAP_ROW": Declared("str", "", "doctor: the pid map row the host check read (fingerprint|rule)"),
     "TB_DOCTOR_RUNNING_INSPECT": Declared("str", "", "doctor: `stdin` when the host check pipes docker inspect in"),
+    "TB_DOCTOR_RESTORE_HOLD": Declared("str", "", "doctor in the image: the hold the host read through the box (JSON)"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number rule (tb_common.chartno), written at installation"),
     "TB_CHARTNO_RULE_ANSWERED": Declared("str", "", "yes: a person chose TB_CHARTNO_RULE, asis included (D-1365)"),
     "TB_SSMIX2_ORDER_NUMBERS": Declared(
@@ -484,6 +513,17 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_DIR": Declared("path", "/data/console", "console: data folder"),
     "TB_CONSOLE_FORWARDED_ALLOW_IPS": Declared("str", "127.0.0.1", "console: proxies trusted for forwarded headers"),
     "TB_CONSOLE_HOST": Declared("str", "127.0.0.1", "console: listen address"),
+    "TB_CONSOLE_HELD_DIR": Declared(
+        "path",
+        "",
+        "console: tmpfs for one-time passwords and proposals; set by compose, unset keeps none (P2-11)",
+    ),
+    "TB_CONSOLE_USERS": Declared(
+        "int", "25", "install: the people using the console at the same time; sizes TB_CONSOLE_WORKERS (P2-11)"
+    ),
+    "TB_CONSOLE_WORKERS": Declared(
+        "int", "1", "console: worker processes, sized from TB_CONSOLE_USERS at install (P2-11)"
+    ),
     "TB_CONSOLE_ENROL_CODE_HOURS": Declared("int", "24", "console: hours an enrolment code is good for (1-72, D-719)"),
     "TB_CONSOLE_IDLE_MINUTES": Declared("int", "", "console: idle minutes before sign-out"),
     "TB_CONSOLE_MFA": Declared("str", "totp", "console: second factor (totp or off in DEV)"),
@@ -644,6 +684,9 @@ DECLARED: dict[str, Declared] = {
         "float", "40", "compiler: tokens a second the model writes, sizing an extraction part to the timeout (D-981)"
     ),
     "TB_EXTRA_CA_FILE": Declared("path", "", "extra CA bundle the services trust"),
+    "TB_EXTRA_CA": Declared("path", "", "host path of the hospital's CA file, mounted as TB_EXTRA_CA_FILE"),
+    "TB_NET_SUBNET": Declared("str", "172.31.252.0/24", "the box's internal range behind Caddy (H-137)"),
+    "TB_PROXY_ADDR": Declared("str", "172.31.252.250", "Caddy's fixed address, the console's one trusted proxy"),
     "TB_FEED_DROP_OVERRIDE": Declared("str", "", "allow one feed load that drops too many rows"),
     "TB_FEED_MAX_DROP_PCT": Declared("float", "", "largest row drop a feed load may make"),
     "TB_FHIR_PACKAGE_HOME": Declared("str", "/opt/hl7/home", "FHIR validator package folder"),
@@ -720,6 +763,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
     "TB_INSTALL_UP_TIMEOUT": Declared("int", "", "install: seconds to wait for health; empty: from the health checks"),
+    "TB_INTEGRATION": Declared("str", "", "tests: 1 lets the integration and e2e tests start (they skip without it)"),
     "TB_IRB_TEXT_GATE": Declared(
         "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
     ),
@@ -730,6 +774,8 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JUDGE_LLM_URL": Declared("str", "", "tests: the model endpoint the judge suite's real-model test calls"),
+    "TB_JUDGE_MODEL": Declared("str", "", "tests: the served model name the judge suite's real-model test calls"),
     "TB_JUDGED_STORE": Declared(
         "str", "on", "SCREEN: the judged-pair store, on or off; off asks every note question live (D-908, D-519)"
     ),
@@ -787,11 +833,21 @@ DECLARED: dict[str, Declared] = {
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
+    "TB_LLM_EVAL_KEY": Declared(
+        "str", "", "tests: the local model servers' key the model-quality suites send to a local endpoint only (secret)"
+    ),
+    "TB_LLM_EVAL_MODEL": Declared("str", "", "tests: the served model name the model-quality suites (marker llm) call"),
+    "TB_LLM_EVAL_URL": Declared("str", "", "tests: the model endpoint the model-quality suites (marker llm) call"),
     "TB_LLM_MODE": Declared("str", "vllm", "model client (vllm, llamacpp, openai, stub)"),
     "TB_LLM_OUTAGE_WAIT_S": Declared(
         "float",
         "1800",
         "jobs: seconds a job waits in model outages in all; a server reloads in minutes (0: no wait; D-456)",
+    ),
+    "TB_LLM_PREFIX_CACHING": Declared(
+        "str",
+        "no-enable",
+        "compose: model servers' prefix cache, no-enable (off) or enable (on: runs may differ; D-1462)",
     ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
     "TB_JOBS_PER_SENDER_PER_DAY": Declared(
@@ -946,6 +1002,13 @@ DECLARED: dict[str, Declared] = {
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
     "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box; doctor says so (D-726, D-887)"),
+    "TB_TEST_BOX": Declared("str", "", "--test-box: the test box's name (H-106)"),
+    "TB_TEST_BOX_PORT_OFFSET": Declared("str", "", "--port-offset: a test box's ports, base + 10 x N (H-106)"),
+    "TB_TEST_BOX_GPUS": Declared("str", "", "--gpus: a test box's cards (H-106)"),
+    "TB_TEST_BOX_GPU_MEM_GB": Declared("str", "", "--gpu-mem-gb: a test box's cap a card (H-106)"),
+    "TB_TEST_BOX_ROOT": Declared("str", "", "a test box's host folder, as installed (H-106)"),
+    "TB_TLS_PORT": Declared("str", "", "TLS proxy host port (443; H-106)"),
+    "TB_PROMETHEUS_PORT": Declared("str", "", "monitoring host port (9090; H-106)"),
     "TB_REHEARSAL_REAL_SERVERS": Declared(
         "str",
         "",
@@ -1041,6 +1104,9 @@ DECLARED: dict[str, Declared] = {
         "int", "1000", "SCREEN: patients whose notes the note stage reads at a time (same answers; T-694, D-794)"
     ),
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
+    "TB_SCREEN_TIMING": Declared(
+        "str", "off", "SCREEN: on times each stage of a measured run (M8; the flag screen.timing does the same)"
+    ),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),
     "TB_SECRETS_DIR": Declared("path", "/run/secrets/trialbox", "folder of the services' secrets"),
     "TB_SECRETS_HOST_DIR": Declared("path", "", "support bundle: host secrets folder it must never include (T-209b)"),
@@ -1059,6 +1125,9 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_SITE_PUBLISH_BATCH_SECONDS": Declared(
         "int", "0", "site decisions on main wait this long and publish as one batch (0: at once; D-403)"
+    ),
+    "TB_SITE_USERS": Declared(
+        "int", "", "install: the staff who use the console at once, sizing its memory cap (E2E P-06; empty: one)"
     ),
     "TB_SKIP_AUDIT": Declared("bool", "", "update: skip the audit check (drills)"),
     "TB_SOURCE_DIR": Declared("path", "./site/feed", "compose: host folder of the site feed (settings wizard, T-632)"),
@@ -1086,7 +1155,12 @@ DECLARED: dict[str, Declared] = {
         "/data/terminology",
         "compiler (D-1028, D-858): code systems loaded on the box, each with its manifest line",
     ),
+    "TB_TERMINOLOGY_NIGHT": Declared("str", "", "M2: HH:MM-HH:MM in which a found pack waits; empty: not checked"),
     "TB_TERMINOLOGY_SOURCE": Declared("str", "", "compiler: terminology source"),
+    "TB_TERMINOLOGY_STICK": Declared("str", "", "M2: the sticks' folders, where a signed code-system pack may be"),
+    "TB_TERMINOLOGY_UPDATE_DIR": Declared(
+        "path", "", "M2: folder a signed code-system pack is put in; empty: stick only"
+    ),
     "TB_TESTBENCH_E2E": Declared("str", "", "testbench: run the e2e entry point"),
     "TB_TESTBENCH_E2E_STRICT": Declared("bool", "", "testbench: a failing entry point fails the run"),
     "TB_TESTBENCH_HOST": Declared("str", "127.0.0.1", "testbench: address"),
@@ -1104,6 +1178,8 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_TLS_ROOT_CONFIRMED_BY": Declared("str", "", "internal CA: who in IT confirmed its root is on the PCs (D-1365)"),
     "TB_TLS_ROOT_CONFIRMED_ON": Declared("str", "", "internal CA: the day IT confirmed it, YYYY-MM-DD (D-1365)"),
+    "TB_NO_MAIL_ACCEPTED_BY": Declared("str", "", "no mail relay: who at the site accepted having none (RC3)"),
+    "TB_NO_MAIL_ACCEPTED_ON": Declared("str", "", "no mail relay: the day it was accepted, YYYY-MM-DD (RC3)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
     "TB_TO_PID_MAX_PER_HOUR": Declared(
@@ -1135,6 +1211,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_VALIDATOR_IGS": Declared("str", "tw.gov.mohw.twcore#1.0.0", "FHIR validator: guides loaded"),
     "TB_VALIDATOR_XMX": Declared("str", "4g", "FHIR validator: Java heap"),
+    "TB_VENDOR_KEYS": Declared("path", "deploy/keys", "M2: folder of the vendor's public keys a pack is checked with"),
     "TB_VAULT_DIR": Declared("path", "", "testbench: vault folder"),
     "TB_VAULT_URL": Declared("str", "", "testbench: vault URL"),
     "TB_WEIGHTS_FLAG": Declared("path", "", "doctor --verify-all: where the weights flag file goes (D-393)"),

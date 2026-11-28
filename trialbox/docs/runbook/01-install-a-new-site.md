@@ -27,6 +27,25 @@ the site's install (RUNBOOK §16, "A rehearsal box"), keeping the record.
 `python -m tools.gpu_sizing` prints the hardware estimate. Feasibility needs no GPU; notes need one. The tier
 rule is held by `tests/unit/test_install_tiers.py`.
 
+**Load from the stick, two packs** (H-95). A release comes as a software pack `trialbox-<version>.tar` (the box's
+own images, the host tree, rule sets, reference data, the installer; a few GB, what every update carries) and a model
+pack `trialbox-models-<version>.pack` (the engine image and the weights; installed once, and again only when the
+pair or the engine changes), each signed on its own, each with its `.sha256`. The software pack names its model
+pack by that pack's signed identity (its bundle id and the sha256 of its signed manifest), and `install.sh` finds
+the model pack beside it by that identity (or takes the one its model-pack option names); a whole bundle of before still installs
+alone. Nothing is copied off the stick: the verify pass hashes every payload on the stick (no image archive and no
+weight file is written), then each pack is loaded straight from the stick, the model pack first, every image and
+weight file hashed again as it goes in (a weight file takes its name only when its hash holds; an image stream
+whose hash fails at its end is cut short and removed). Before it loads, the install prints
+`disk: installed size …; peak during the load …, at most … (installed + 10 %); the stick holds …`;
+the free disk needed is that peak. A software pack whose model pack the box does not hold
+is refused before anything is loaded, naming the model pack's bundle id and manifest sha256. The release walked on
+2026-11-23 was 60.7 GB in one bundle; the bundle builder prints the two packs' sizes when it builds them.
+An update that changes the pair (a new model pack with a new software pack) loads the model pack first with the
+software pack named by `--for-software` (the update tool refuses a model pack that the software on the box does not
+name, unless the software pack loaded straight after it names it), then the software pack; the installer does this
+itself for a first install. An update of the software alone takes the software pack only.
+
 **One command** (H-22, D-996). The vendor hands over a USB stick with four files: the signed bundle
 `trialbox-<version>.tar` and its `.sha256`, and the bootstrap `trialbox-bootstrap.sh` and its `.sig`. The vendor key,
 `vendor_ed25519.pub`, comes apart from the stick (out of band). Nothing TrialBox is on the machine before this command:
@@ -39,8 +58,9 @@ the bundle's signature with the same key and the release's host tree against it,
 and runs `/opt/trialbox/deploy/install.sh` with the bundle and the options after `--`. An install that stopped (a
 missing answer, a machine check) is run again by the same command. The installer verifies and loads the bundle,
 runs the settings wizard, makes one token per service, turns TLS on (the identity overlay, after `console.cli
-check-tls` passed), starts the stack, creates the first administrator and prints the password and the enrolment code
-once, writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
+check-tls` passed), starts the stack, creates the first administrator and shows the password and the enrolment code
+once on the terminal (never in its output, which a log may keep: box-install.sh keeps one; with no terminal at all
+they are in `/root/trialbox-admin-first-sign-in`, root only: read it once, hand both on in person, remove it), writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
 IT), installs both cron files (log retention and backups), runs the host check, names the judge (its role, the
 registry's label of the build the profile serves, and the pin) and ends with the `https://` console URL, which it
 checks from the box with the certificate the clinic PCs will see. It exits 1 when a FAIL line remains, and lists them
@@ -52,14 +72,30 @@ criteria that need a note's free text wait for a GPU or a pinned cloud model. Th
 files), and `release check` refuses a site bundle without them. A PRODUCTION install stops when they are missing.
 How fast the CPU embeds a hospital's records is not measured yet.
 
+**A machine without a usable TPM** (H-96). The site keys are then sealed under a passphrase (12 characters or more,
+one line). It goes in a file only root can read, and its name goes after `--`: after sudo's own password prompt, type
+the passphrase, then press Enter (nothing is shown):
+`sudo bash -c 'umask 077; IFS= read -rs p; printf "%s\n" "$p" > /root/trialbox-kek.pass'`, then the one command
+with `-- --tier large --answers /root/site/site.yaml --kek-passphrase-file /root/trialbox-kek.pass`, and with
+TB_KEK_BACKEND=passphrase set by sudo before bash. The file must be a regular file owned by root with mode 0600; the
+seal step removes it once the keys are sealed. `--kek-passphrase-stdin` instead asks for it twice on the terminal. A
+passphrase in the environment (sudo's preserve-env or -E option) is refused before anything, on every box: sudo writes a variable it keeps, with its value, to the system journal. A box
+installed that way rotates its passphrase (§23, "Rotate the KEK passphrase").
+
 **Re-running the installer.** After the release's own checks pass (pre-start) and before the database starts, the installer may run Compose `down --remove-orphans` on its own project. It does so only when every container of the project was started from this `deploy` folder and the stack is not running healthy (a failed earlier run). A healthy stack is kept with its logs. A `COMPOSE_PROJECT_NAME` in the shell that is not this install's project, or a container of the project from another folder, stops the installer and nothing is removed. Volumes and data are always kept.
 重新執行安裝程式時，版本檢查（pre-start）通過後、資料庫啟動前，只有當此專案的所有容器都來自本 `deploy` 資料夾且堆疊並非健康運行（先前執行失敗）時，才會對本專案執行 `down --remove-orphans`。健康運行的堆疊與其日誌會保留。若 shell 的 `COMPOSE_PROJECT_NAME` 不是本安裝的專案，或專案中有來自其他資料夾的容器，安裝程式會停止且不移除任何項目。資料卷與資料一律保留。
 再実行時は、リリースの確認（pre-start）が通った後、データベースの起動前に、プロジェクトの全コンテナがこの `deploy` フォルダーから起動され、かつスタックが正常稼働していない場合（以前の失敗した実行）に限り `down --remove-orphans` を実行します。正常稼働中のスタックはログとともに保持されます。シェルの `COMPOSE_PROJECT_NAME` がこのインストールのプロジェクトでない場合や、別フォルダーから起動されたコンテナがある場合は、何も削除せずに停止します。ボリュームとデータは常に保持されます。
 
-**The questions it asks.** Without `--yes`, at the terminal, the installer asks whether to start the stack now and,
-when the answers lack them, the ClinicalTrials.gov mode (`ctgov_mode`), the console's name (`tls_hostname`) and the
-trial office's mailbox (`sae_office_mailbox`). With all three in the answers, add `--yes` after `--` for an install
-that asks nothing.
+**The questions it asks** (M1, D-1280). On a terminal, answer the questions it asks: four, before anything is changed: the language, the time zone, the first
+administrator (mail address and full name), and the key passphrase only on a machine without a usable TPM. The machine's
+card, memory and security chip are read and shown, never asked. After the fourth answer nothing is asked: the rest is
+detected, derived or at its default (`libs/tb_common/install_questions.py` is the one table, shown on the page
+"Information still needed"), and an item nobody has given yet holds only the step that needs it. With answers given in a
+file nothing is asked at all. The box installer keeps the answers it was given in `deploy/site/box/owner.json` (no
+password, no passphrase): the same file on another machine gives the same settings. ClinicalTrials.gov is offline unless
+its option says live. A seed file the vendor signed, `site-seed.json` with its `.sig` beside the bundle, answers all but
+the administrator and the passphrase (10K-2). A box that is not in use (VALIDATION) is given a sample hospital of 600
+synthetic patients, loaded and screened once at the install; a PRODUCTION box gets none.
 
 **Memory caps from the hospital's size** (T-692, D-473). The night's ingest and the lake rebuild stream: what they
 hold grows only slowly with the patient count. The installer sizes `TB_MEM_ADAPTER` and `TB_MEM_LAKE` in
@@ -68,6 +104,12 @@ which the site puts in `deploy/.env` before the first install) and the measured 
 `deploy/measured/ingest_memory.json` (`python -m tools.trialbox.memcaps --measure` re-measures it). The compose
 defaults are the floor; a cap set by hand is kept. `trialbox doctor` (`memory_caps`) fails when a cap is below what
 the patient count needs; `python -m tools.trialbox.memcaps --env-file deploy/.env --write` sizes them again.
+
+**Concurrent users** (P2-11). With the patient count, the site declares how many people use the console at the same
+time: `TB_CONSOLE_USERS` in `deploy/.env`, 25 when unset (the installer then writes 25, so the box states it). The
+service level at that number: the common pages answer within 1 s at the 95th percentile with that many users at once
+(`tools.console_timing.under_load`). The installer sizes the console's worker processes from it (`TB_CONSOLE_WORKERS`,
+one per ten users, never more than the host's CPUs; a value set by hand is kept).
 SCREEN and FEAS of the whole hospital hold its rows in the orchestrator, so `TB_MEM_ORCH` grows with the hospital: the
 installer writes it from `deploy/measured/orchestrator_memory.json` (the size ladder's peaks, H23b-01, D-1005) once the
 need passes the compose default of 4 GiB, from about 45,000 patients (about 8.3 GiB at 100,000). Below that the box
@@ -181,7 +223,8 @@ health line warns 90 days before the list runs out and is red after it.
    手動インストールでは、インストーラーと同様に配置先、タイムアウト、Compose のコンテナ数を設定します。
    有効化したら `trialbox.service` を起動します。これでインストール直後から systemd でコンテナを停止できます。
 6. **Vendor key.** The one command placed it (`deploy/keys/vendor_ed25519.pub`, from the key received out of
-   band); the installer refuses to start without it.
+   band); the installer refuses to start without it. The vendor's build takes that same key from `--pub`
+   (`tools/make_bundle.sh` refuses a release without it, and refuses a stick whose key does not verify the bundle).
 7. **First ingest.** From `/opt/trialbox`: `docker compose --project-directory deploy exec adapter python -m adapter.cli run`,
    or wait for 02:00. It reads the feed folder (`TB_SOURCE_DIR`) with the site's mapping (`deploy/site/mapping`).
    The report is in the lake's volume, which the adapter mounts:
@@ -201,3 +244,13 @@ health line warns 90 days before the list runs out and is red after it.
 
 **Choices a PRODUCTION site answers** (D-1365). The wizard refuses an empty `chartno_rule` on a PRODUCTION site
 (`asis` is an answer); `doctor` (`named_choices`) warns a site installed before, with the line to add.
+
+**The container engine's range** (H-149). The installer and the update run the bundle's pinned third-party images on
+either image store of the container engine: the classic store (the default through major version 28) and the newer
+image store (the default from major version 29). On the classic store a loaded image is found by the bundle's image
+id; on the newer image store, whose loaded images have another id and keep no registry digest, it is proved by the
+layer diff ids and config the signed bundle names. An image that differs is refused and nothing is pulled. Both stores
+are shown by recorded, synthetic answers of each (the card's tests), not on a real host. A bundle made before H-149
+carries no layers: on the newer image store it stops at "starting the stack" with `MISSING`; install a bundle made
+after it. The install walk on a host with major version 28 and one with 29 is the proof on real hosts; until it has
+passed, the walk's own record says which versions were installed.

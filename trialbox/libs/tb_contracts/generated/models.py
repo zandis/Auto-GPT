@@ -958,6 +958,34 @@ class LlmJudgeOutput(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 
+class LlmJudgeOutputV2(BaseModel):
+    """
+    Output of prompt judge from version 6 (SPEC 7.3). Schema version 1.2.0: the 1.1.0 answer (llm_judge_output.schema.json, kept for judge versions 3 to 5) plus three fields on the quote (#639 7115208555): certainty, experiencer and time. A note exclusion stands only when both models give affirmed, patient and current; any other value, or null, sends the patient to review. Every property is required so strict structured output accepts the schema; null means absent. The three fields come before reason, and reason before confidence, the order a guided decoder writes them (1.1.0's note).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    verdict: Literal["pass", "fail", "unknown"]
+    certainty: Literal["affirmed", "negated", "possible", "unknown"] | None
+    """
+    What the quote says of the condition: affirmed (stated present), negated (stated absent), possible (suspected, a question, to rule out), unknown (unknown or pending: a test ordered, a result awaited).
+    """
+    experiencer: Literal["patient", "other"] | None
+    """
+    Whose condition the quote states: the patient's, or another person's (a relative, a partner, a contact).
+    """
+    time: Literal["current", "past_resolved", "planned"] | None
+    """
+    When the quote places the condition: current (now, or ongoing), past_resolved (cured, resolved, treated and gone), planned (a test or a treatment to come, a prevention).
+    """
+    reason: str | None = Field(..., max_length=300)
+    quote: str | None = Field(..., max_length=400)
+    quote_date: date_aliased | None
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
 class ManifestReview(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1069,6 +1097,26 @@ class OmopLoadSummary(BaseModel):
     """
     refused: the store's reason; failed: the error type only (a message can quote a cell)
     """
+
+
+class OpenReason(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    criterion: str
+    """
+    the criterion id
+    """
+    reason: str
+    """
+    a tb_common.reasons code, or no_reason when an open answer carried none
+    """
+    where: str
+    """
+    the site view or field the reason names: notes, condition, observation, medication, procedure, encounter, demographic, claim, report, records; or product (a component of the box) or person (a person or a model decides)
+    """
+    count: int = Field(..., ge=1)
 
 
 class ParseRequest(BaseModel):
@@ -1426,7 +1474,9 @@ class ReleaseComponent(BaseModel):
         populate_by_name=True,
     )
     path: str
-    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
+    kind: Literal[
+        "model", "ruleset", "image", "refdata", "other", "host", "terminology"
+    ]
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
     size: int = Field(..., ge=0)
 
@@ -1496,7 +1546,7 @@ class ReleaseGates(BaseModel):
 
 class ReleaseRecord(BaseModel):
     """
-    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.2.0 (1.1.0, D-367: component kind host, the host tree; 1.2.0, D-726: rehearsal, a bundle built for a rehearsal box). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
+    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.3.0 (1.1.0, D-367: component kind host, the host tree; 1.2.0, D-726: rehearsal, a bundle built for a rehearsal box; 1.3.0: platform, the architecture a bundle was built for). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
     """
 
     model_config = ConfigDict(
@@ -1515,6 +1565,10 @@ class ReleaseRecord(BaseModel):
     rehearsal: bool | None = None
     """
     D-726: true when tools/make_bundle.sh --rehearsal built it, for a rehearsal box (deploy/install.sh --rehearsal, TB_ENV TEST). A PRODUCTION or VALIDATION box refuses it at install and update. Absent on a bundle built for a site.
+    """
+    platform: str | None = Field(None, pattern="^[a-z0-9]+/[a-z0-9]+$")
+    """
+    The os/arch tools/make_bundle.sh --platform built the bundle for; every image archive was checked against it. The update path refuses the bundle on a host of another architecture. Absent on a bundle built before it, which is not compared.
     """
     gates: ReleaseGates = Field(..., title="ReleaseGates")
     """
@@ -1553,6 +1607,15 @@ class ReportProvenance(BaseModel):
     The language the report is written in: the site's report language (its locale), not the language of the notes that were read (G12 of the P1b review, D-980).
     """
     site: str
+
+
+class RequiresModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    manifest_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 
 class Routing(BaseModel):
@@ -2226,6 +2289,19 @@ class SiteSchema(BaseModel):
     """
 
 
+class StageTimes(BaseModel):
+    """
+    OPT-1 §6: one stage of the night: seconds spent in it (a stage entered twice adds up) and the process peak resident memory in MB when it last ended (a high-water mark, so it never falls from one stage to the next; null where the platform cannot say)
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    seconds: float = Field(..., ge=0.0)
+    peak_rss_mb: float | None = Field(..., ge=0.0)
+
+
 class StudyProtocol(BaseModel):
     """
     The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. The canonical form is written in D-1366. Schema version 1.0.0.
@@ -2440,53 +2516,10 @@ class UpdateFile(BaseModel):
     )
     path: str = Field(..., max_length=400, min_length=1)
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
+    kind: Literal[
+        "model", "ruleset", "image", "refdata", "other", "host", "terminology"
+    ]
     size: int = Field(..., ge=0)
-
-
-class UpdateManifest(BaseModel):
-    """
-    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.3.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required; 1.3.0, D-367: payload kind host, the host tree of compose files, host tools and configuration, at most one per bundle).
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
-    created_at: AwareDatetime
-    signer: str
-    description: str | None = None
-    files: list[UpdateFile]
-    release_seq: int = Field(..., ge=1)
-    """
-    Monotonic release counter: a box refuses a bundle whose release_seq is not above the installed one (unless an audited --allow-downgrade).
-    """
-    min_installed_version: int = Field(..., ge=0)
-    """
-    The lowest installed release_seq this bundle applies over (0: also a box never updated under D-210). Never overridable.
-    """
-    key_id: str = Field(..., pattern="^ed25519:[0-9a-f]{16}$")
-    """
-    The signing key: ed25519: + the first 16 hex of the sha256 of its raw 32-byte public key. Must be a key the box trusts and must be the key the signature verifies with.
-    """
-    not_after: AwareDatetime
-    """
-    The bundle is refused after this time.
-    """
-    compat_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member compat.json (the compatibility table, checked before any file is touched).
-    """
-    release_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member release.json (provisional until T-110). Required when the bundle carries images.
-    """
-    images_lock_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
-    """
-    sha256 of the bundle member images.lock (the release's deploy/images.lock).
-    """
-    rotation: KeyRotation | None = None
 
 
 class ValidationSummary(BaseModel):
@@ -2677,6 +2710,10 @@ class CriterionVerdict(BaseModel):
     """
     T-709 (D-478): what the answer rests on. coded: the patient's coded records; pair: two different models agreed; single: one model (or two clients of one model); person: a person decides or decided. Absent on an answer nobody gave (unknown) and on rows stored before the field.
     """
+    affirmed: bool | None = None
+    """
+    Round 5 of R22-16 (#639 7115208555): on a note exclusion's "present" (a verdict of fail), true when both models said the quote affirms the condition, in this patient, now (certainty affirmed, experiencer patient, time current). Only then may the answer exclude. Absent or null: not said (a judge before version 6, one model, or a row stored before the field), and the answer never excludes.
+    """
     final: bool | None = None
     """
     T-707 (D-476): on a note answer that says not met. false: given while a note answer was not allowed to exclude (one model, no second model that agreed, a shut canary gate); it never excludes the patient, on this run or at a later re-tier. true: it was allowed to exclude. Absent on every other verdict; a stored note fail without it is from before the field and never excludes.
@@ -2818,7 +2855,7 @@ class IEBlock(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.6.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.7.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector; 1.7.0: stages).
     """
 
     model_config = ConfigDict(
@@ -2860,6 +2897,10 @@ class IngestReport(BaseModel):
     connector: ConnectorReport | None = None
     """
     10E-9 (review 13-10): how long the connector took per message (a CSV or SQL row, an SS-MIX2 message, a FHIR resource), per table and for the whole source: counts and times only, never a value of a row. Absent in a report written before 1.6.0
+    """
+    stages: dict[str, StageTimes] | None = None
+    """
+    OPT-1 §6: seconds per stage of the night and the process peak resident memory at each stage end (name: seconds, peak_rss_mb): counts and times only. Absent in a report written before 1.7.0
     """
     omop: OmopLoadSummary | None = None
     """
@@ -2907,26 +2948,6 @@ class JobCreate(BaseModel):
     inputs: list[JobFile] | None = None
 
 
-class JobMetrics(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    patients_scoped: int = 0
-    llm_calls: int = 0
-    tokens_in: int = 0
-    tokens_out: int = 0
-    wall_seconds: float = 0
-    step_seconds: dict[str, float] | None = None
-    """
-    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.
-    """
-    prefilter: PrefilterRecord | None = None
-    """
-    10E-12 (D-1259): a MICROBATCH job's pre-filter record, written when the job finishes: how many distinct patients the job had in scope and at which stage each left, each counted once at their last evaluation in the job. Counts only, never a patient id; the stages add up to in_scope. Optional: absent on other jobs.
-    """
-
-
 class NavRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2941,6 +2962,34 @@ class NavRow(BaseModel):
     draft_doc_key: str | None = None
     twpas_bundle_key: str | None = None
     precheck: Precheck | None = None
+
+
+class NightOpen(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    coded_complete: int = Field(..., ge=0)
+    """
+    of the evaluated patients past the coded filter (the pre-filter's no_model, model_not_listed and listed): those with at least one coded yes, no no, and only site-data gaps open (F17 5b). Reported, never a tier.
+    """
+    open_reasons: list[OpenReason]
+    """
+    of the same patients: for each criterion that stayed open, why, and which site view or field the reason names, with the number of patients
+    """
+
+
+class Pack(BaseModel):
+    """
+    H-95: which half of a split release this bundle is. A model pack carries the engine image and the weights; a software pack carries the rest and names the model pack it needs by its bundle_id and the sha256 of its signed manifest.json. A box refuses a software pack whose model pack it does not hold.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    kind: Literal["model", "software"]
+    requires_model: RequiresModel | None = None
 
 
 class ParsedDoc(BaseModel):
@@ -3190,6 +3239,52 @@ class TrialSimResult(BaseModel):
     rows: list[TrialSimRow]
 
 
+class UpdateManifest(BaseModel):
+    """
+    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.4.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required; 1.3.0, D-367: payload kind host, the host tree of compose files, host tools and configuration, at most one per bundle; 1.4.0, H-95: the optional pack, a software pack that names the model pack it needs by that pack's signed identity, or a model pack; no pack: a whole bundle as before).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    created_at: AwareDatetime
+    signer: str
+    description: str | None = None
+    files: list[UpdateFile]
+    release_seq: int = Field(..., ge=1)
+    """
+    Monotonic release counter: a box refuses a bundle whose release_seq is not above the installed one (unless an audited --allow-downgrade).
+    """
+    min_installed_version: int = Field(..., ge=0)
+    """
+    The lowest installed release_seq this bundle applies over (0: also a box never updated under D-210). Never overridable.
+    """
+    key_id: str = Field(..., pattern="^ed25519:[0-9a-f]{16}$")
+    """
+    The signing key: ed25519: + the first 16 hex of the sha256 of its raw 32-byte public key. Must be a key the box trusts and must be the key the signature verifies with.
+    """
+    not_after: AwareDatetime
+    """
+    The bundle is refused after this time.
+    """
+    compat_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member compat.json (the compatibility table, checked before any file is touched).
+    """
+    release_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member release.json (provisional until T-110). Required when the bundle carries images.
+    """
+    images_lock_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member images.lock (the release's deploy/images.lock).
+    """
+    rotation: KeyRotation | None = None
+    pack: Pack | None = None
+
+
 class CandidateRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3223,66 +3318,28 @@ class ExtractedBool2(BaseModel):
     args: list[ExtractedAtom | ExtractedBool3] = Field(..., min_length=1)
 
 
-class Job(BaseModel):
-    """
-    A job record (SPEC 3.5). Schema version 1.2.0 (1.1.0: run_date; 1.2.0: metrics.prefilter, D-1259).
-    """
-
+class JobMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
     )
-    job_id: str = Field(..., pattern="^[0-9A-HJKMNP-TV-Z]{26}$")
-    type: Literal[
-        "FEAS",
-        "SCREEN",
-        "COHORT",
-        "NAV",
-        "APPROVE",
-        "STATUS",
-        "MICROBATCH",
-        "INGEST",
-        "SUBMIT",
-        "FEEDBACK",
-        "CANCEL",
-        "RETENTION",
-        "CALIBRATION",
-        "CONSENT",
-        "RELEASE",
-        "CASE",
-    ] = Field(..., title="JobType")
-    ruleset: str | None = None
-    ruleset_version: str | None = None
-    requested_by: str
-    received_at: AwareDatetime
-    updated_at: AwareDatetime | None = None
-    state: Literal[
-        "received",
-        "parsing",
-        "compiling",
-        "awaiting_approval",
-        "running",
-        "reporting",
-        "done",
-        "failed",
-    ] = Field(..., title="JobState")
-    snapshot_date: date_aliased | None = None
-    run_date: date_aliased | None = None
+    patients_scoped: int = 0
+    llm_calls: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    wall_seconds: float = 0
+    step_seconds: dict[str, float] | None = None
     """
-    index/run date fixed when the job starts; reruns reuse it (reproducibility)
+    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.
     """
-    options: dict[str, str] | None = None
-    comment: str | None = None
-    message_id: str | None = None
+    prefilter: PrefilterRecord | None = None
     """
-    RFC 5322 Message-ID of the request mail
+    10E-12 (D-1259): a MICROBATCH job's pre-filter record, written when the job finishes: how many distinct patients the job had in scope and at which stage each left, each counted once at their last evaluation in the job. Counts only, never a patient id; the stages add up to in_scope. Optional: absent on other jobs.
     """
-    in_reply_to: str | None = None
-    parent_job_id: str | None = None
-    inputs: list[JobFile] | None = None
-    outputs: list[JobOutput] | None = None
-    error: JobError | None = None
-    metrics: JobMetrics | None = None
+    night_open: NightOpen | None = None
+    """
+    F17 5a, 5b: a MICROBATCH job's open criteria and coded-complete count, written beside the pre-filter record. Counts only, never a patient id. Optional: absent on other jobs and on a job from before it.
+    """
 
 
 class NavListSet(BaseModel):
@@ -3474,6 +3531,68 @@ class ExtractedCriterion(BaseModel):
     action: str | None = None
     suggested_order: str | None = None
     concept_candidates: list[ConceptCandidate]
+
+
+class Job(BaseModel):
+    """
+    A job record (SPEC 3.5). Schema version 1.3.0 (1.1.0: run_date; 1.2.0: metrics.prefilter, D-1259; 1.3.0: metrics.night_open, F17 5a/5b).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    job_id: str = Field(..., pattern="^[0-9A-HJKMNP-TV-Z]{26}$")
+    type: Literal[
+        "FEAS",
+        "SCREEN",
+        "COHORT",
+        "NAV",
+        "APPROVE",
+        "STATUS",
+        "MICROBATCH",
+        "INGEST",
+        "SUBMIT",
+        "FEEDBACK",
+        "CANCEL",
+        "RETENTION",
+        "CALIBRATION",
+        "CONSENT",
+        "RELEASE",
+        "CASE",
+    ] = Field(..., title="JobType")
+    ruleset: str | None = None
+    ruleset_version: str | None = None
+    requested_by: str
+    received_at: AwareDatetime
+    updated_at: AwareDatetime | None = None
+    state: Literal[
+        "received",
+        "parsing",
+        "compiling",
+        "awaiting_approval",
+        "running",
+        "reporting",
+        "done",
+        "failed",
+    ] = Field(..., title="JobState")
+    snapshot_date: date_aliased | None = None
+    run_date: date_aliased | None = None
+    """
+    index/run date fixed when the job starts; reruns reuse it (reproducibility)
+    """
+    options: dict[str, str] | None = None
+    comment: str | None = None
+    message_id: str | None = None
+    """
+    RFC 5322 Message-ID of the request mail
+    """
+    in_reply_to: str | None = None
+    parent_job_id: str | None = None
+    inputs: list[JobFile] | None = None
+    outputs: list[JobOutput] | None = None
+    error: JobError | None = None
+    metrics: JobMetrics | None = None
 
 
 class LlmExtractOutput(BaseModel):

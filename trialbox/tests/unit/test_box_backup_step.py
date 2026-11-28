@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.test_poc_stops_bench_h94 import stop_prelude
+
 ROOT = Path(__file__).resolve().parents[2]
 INSTALL = ROOT / "deploy" / "install.sh"
 START = "# T-117b (D-274): the backup cron"
@@ -26,7 +28,7 @@ def _block() -> str:
     return text[text.index(START) : text.index(END)]
 
 
-def _run(tmp_path: Path, rc: int, box: str | None) -> subprocess.CompletedProcess[str]:
+def _run(tmp_path: Path, rc: int, box: str | None, environment: str = "") -> subprocess.CompletedProcess[str]:
     """The block as install.sh runs it (errexit, the same helpers), then what the end of the install prints."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
@@ -37,7 +39,10 @@ def _run(tmp_path: Path, rc: int, box: str | None) -> subprocess.CompletedProces
         "set -euo pipefail\n"
         "say() { printf '==> %s\\n' \"$*\"; }\n"
         "die() { printf 'install: %s\\n' \"$*\" >&2; exit 1; }\n"
-        "CAN_CRON=1\nFAILS=()\n" + _block() + "\necho 'TrialBox is running.'\n"
+        + stop_prelude(deploy=f'"{tmp_path}/deploy"', environment=environment)
+        + "CAN_CRON=1\nFAILS=()\n"
+        + _block()
+        + "\necho 'TrialBox is running.'\n"
         'if [ "${#FAILS[@]}" -gt 0 ]; then printf \'install: FAIL: %s\\n\' "${FAILS[@]}" >&2; exit 1; fi\n'
     )
     env = {"PATH": f"{bin_dir}:{os.environ['PATH']}"}
@@ -62,6 +67,17 @@ def test_the_it_form_still_stops_at_the_backup_step(tmp_path: Path, box: str | N
     r = _run(tmp_path, 1, box)
     assert r.returncode == 1 and "TrialBox is running." not in r.stdout
     assert "install: the backup schedule is not installed (above)" in r.stderr and "FAIL:" not in r.stderr
+
+
+def test_on_a_poc_box_the_it_form_warns_lists_and_goes_on(tmp_path: Path) -> None:
+    """H-94 (the owner's ruling 7092087958): a TEST install (a PoC box) is a warning and a line of the list, and the
+    install goes on; on PRODUCTION it stops as above."""
+    r = _run(tmp_path, 1, "0", environment="TEST")
+    assert r.returncode == 0 and "TrialBox is running." in r.stdout, r.stderr
+    assert "install: warning (PoC box, H-94): the backup schedule is not installed (above)" in r.stderr
+    assert "install.sh/backup-schedule" in (tmp_path / "deploy" / "site" / "poc-stops.jsonl").read_text(
+        encoding="utf-8"
+    )
 
 
 @pytest.mark.parametrize("box", [None, "1"])

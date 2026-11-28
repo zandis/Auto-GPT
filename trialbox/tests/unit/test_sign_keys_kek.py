@@ -21,9 +21,17 @@ from tb_common import kek as K
 from tb_common.audit import AuditLog
 from tb_common.crypto import create_key, ed25519_generate
 
+from tests.own_deploy import own_deploy
 from tools import audit_verify
 from tools import keys as keys_cli
 from tools.trialbox import doctor
+
+
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
+
 
 AUDIT = audit.SIGN_KEY_FILE
 EDC = KEY_FILE
@@ -166,8 +174,9 @@ def test_rotate_kek_rewraps_both_signing_keys_and_the_readers_open_them(
     audit_key, edc_key = (box["sec"] / AUDIT).read_bytes(), (box["sec"] / EDC).read_bytes()
     _init_and_unseal(box, capsys)
     old_id = json.loads((box["sec"] / K.META_FILE).read_text())["kek_id"]
+    AuditLog(box["tmp"] / "audit").append("test.box_ready", actor="tester")  # the box's chain (7114085298, F3)
     rc, out = _cli(capsys, "rotate-kek", "--secrets", str(box["sec"]), "--backend", "shamir", "--shares-out",
-                   str(box["tmp"] / "new-stewards"))  # fmt: skip
+                   str(box["tmp"] / "new-stewards"), "--audit-dir", str(box["tmp"] / "audit"))  # fmt: skip
     assert rc == 0 and "4 key(s) re-wrapped" in out, out
     new_id = json.loads((box["sec"] / K.META_FILE).read_text())["kek_id"]
     assert new_id != old_id

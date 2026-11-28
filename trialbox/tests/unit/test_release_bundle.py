@@ -52,8 +52,12 @@ def repo(ref):
     ref = ref.split("@", 1)[0]
     head, _, last = ref.rpartition("/")
     return (head + "/" if head else "") + last.split(":", 1)[0]
+def config(ref):
+    layer = "sha256:" + hashlib.sha256(repo(ref).encode()).hexdigest()
+    return json.dumps({"architecture": "amd64", "os": "linux", "config": {"Labels": {"repo": repo(ref)}},
+                       "rootfs": {"type": "layers", "diff_ids": [layer]}}, sort_keys=True).encode()
 def image_id(ref):
-    return hashlib.sha256(repo(ref).encode()).hexdigest()
+    return hashlib.sha256(config(ref)).hexdigest()
 if args[:1] == ["compose"]:
     if os.environ.get("FAKE_COMPOSE_ERR"):
         sys.exit(os.environ["FAKE_COMPOSE_ERR"])
@@ -80,7 +84,7 @@ elif args[:1] == ["save"]:
     ref, out = args[1], args[args.index("-o") + 1]
     manifest = json.dumps([{"Config": image_id(ref) + ".json", "RepoTags": [ref], "Layers": []}]).encode()
     with tarfile.open(out, "w") as tf:
-        for name, data in (("manifest.json", manifest), (image_id(ref) + ".json", b"{}")):
+        for name, data in (("manifest.json", manifest), (image_id(ref) + ".json", config(ref))):
             info = tarfile.TarInfo(name)
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
@@ -90,7 +94,16 @@ else:
 
 
 def _iid(ref: str) -> str:
-    return "sha256:" + hashlib.sha256(release.repository(ref).encode()).hexdigest()
+    """The fake's image id: the digest of the config its save writes (a config that hashes to its name, H-149)."""
+    repo = release.repository(ref)
+    layer = "sha256:" + hashlib.sha256(repo.encode()).hexdigest()
+    cfg = {
+        "architecture": "amd64",
+        "os": "linux",
+        "config": {"Labels": {"repo": repo}},
+        "rootfs": {"type": "layers", "diff_ids": [layer]},
+    }
+    return "sha256:" + hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()
 
 
 def _sbom_name(ref: str) -> str:
@@ -161,6 +174,9 @@ def _make(
     }
     if "--models" not in extra and "--rehearsal" not in extra:
         extra = (*extra, "--models", str(kit["models"]))
+    # HYG2: a release names the key the boxes trust (--pub); a rehearsal may derive it. kit["pub"] = None leaves it out
+    if kit.get("pub") and "--pub" not in extra and "--rehearsal" not in extra:
+        extra = (*extra, "--pub", str(kit["pub"]))
     cmd = [
         "bash",
         str(SCRIPT),
@@ -169,7 +185,7 @@ def _make(
         "--id",
         "2026.11-1",
         "--out",
-        str(kit["tmp"] / "out.tar"),
+        str(kit["tmp"] / "release" / "out.tar"),
         "--allow-dirty",  # D-631: these tests build from whatever tree they run in
         "the unit tests",
         *extra,
@@ -184,7 +200,7 @@ def test_a_bundle_without_its_checks_cannot_be_built(kit: dict[str, Any]) -> Non
     res = _make(kit, "--release-seq", "1")
     assert res.returncode == 2
     assert "--gates is required" in res.stderr
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "release" / "out.tar").exists()
     assert not kit["log"].exists()  # refused before any image is touched
     script = SCRIPT.read_text(encoding="utf-8")
     assert "WARNING no --gates" not in script  # the old warn-and-continue path is gone
@@ -211,7 +227,7 @@ def test_a_failed_compose_render_shows_compose_own_error(kit: dict[str, Any], mo
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
     assert res.returncode == 2
     assert env_err in res.stderr
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "release" / "out.tar").exists()
 
 
 def test_too_little_disk_stops_the_build_before_the_first_save(
@@ -224,7 +240,7 @@ def test_too_little_disk_stops_the_build_before_the_first_save(
     assert res.returncode == 2
     assert "needs about" in res.stderr and "TMPDIR" in res.stderr
     assert not [line for line in kit["log"].read_text(encoding="utf-8").splitlines() if line.startswith("save ")]
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "release" / "out.tar").exists()
 
 
 def test_an_image_outside_the_gate_record_is_refused(kit: dict[str, Any]) -> None:
@@ -232,14 +248,14 @@ def test_an_image_outside_the_gate_record_is_refused(kit: dict[str, Any]) -> Non
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 1, res.stdout + res.stderr
     assert "not a passing image of this record" in res.stderr
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "release" / "out.tar").exists()
 
 
 def test_an_image_that_passed_only_in_report_mode_is_refused(kit: dict[str, Any]) -> None:
     gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM], report_mode=(VLLM,))
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 1
-    assert not (kit["tmp"] / "out.tar").exists()
+    assert not (kit["tmp"] / "release" / "out.tar").exists()
 
 
 def test_release_build_rechecks_the_saved_archives(tmp_path: Path) -> None:
@@ -262,7 +278,7 @@ def test_release_json_in_the_bundle_names_every_component(kit: dict[str, Any]) -
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 0, res.stdout + res.stderr
     assert "release check: PASS" in res.stdout
-    bundle = kit["tmp"] / "out.tar"
+    bundle = kit["tmp"] / "release" / "out.tar"
     assert release.check_bundle(bundle) == []
 
     with tarfile.open(bundle) as tf:

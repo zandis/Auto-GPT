@@ -35,14 +35,22 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
+def with_a_letter(hex_id: str) -> str:
+    """A hex pseudonym the FHIR store takes as a client-assigned id: it refuses one of digits only (HAPI-0960), and a
+    32-hex pseudonym is all digits with p = 0.625^32. Such an id has its first digit turned into a letter a-f; any
+    other id is returned unchanged, so every pseudonym that had a letter stays what it was, and the id keeps its hex
+    charset and length."""
+    return "abcdef"[int(hex_id[0]) % 6] + hex_id[1:] if hex_id.isdigit() else hex_id
+
+
 def pid_for_mrn(site_key: bytes, mrn: str) -> str:
-    """Stable pseudonymous patient id: ``hex(HMAC-SHA256(site_key, MRN))[:32]`` (SPEC §4.6, D-09). The chart number
-    is written the site's way first (``tb_common.chartno``, R-48, D-301): with the default rule a chart number that is
-    already written that way hashes exactly as before."""
+    """Stable pseudonymous patient id: ``hex(HMAC-SHA256(site_key, MRN))[:32]`` (SPEC §4.6, D-09), with a letter
+    (:func:`with_a_letter`). The chart number is written the site's way first (``tb_common.chartno``, R-48, D-301):
+    with the default rule a chart number that is already written that way hashes exactly as before."""
     if len(site_key) < 16:
         raise ValueError("site HMAC key must be at least 16 bytes")
     norm = chartno.normalise(None, mrn)
-    return hmac.new(site_key, norm.encode("utf-8"), hashlib.sha256).hexdigest()[:PID_HEX_LEN]
+    return with_a_letter(hmac.new(site_key, norm.encode("utf-8"), hashlib.sha256).hexdigest()[:PID_HEX_LEN])
 
 
 def load_or_create_key(path: Path, size: int = 32) -> bytes:

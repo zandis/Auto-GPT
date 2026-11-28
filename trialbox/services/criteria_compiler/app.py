@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,6 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from lake.client import LakeHttp
 from pydantic import ValidationError
+from tb_common import ids
 from tb_common.audit_writer import open_audit
 from tb_common.config import get_config
 from tb_common.fhir import FhirEvaluator
@@ -124,7 +124,7 @@ def _answer[T](step: str, call: Callable[[], T]) -> T:
     except HTTPException:
         raise
     except Exception as exc:
-        error_id = uuid.uuid4().hex[:12]
+        error_id = ids.log_safe_id()  # H-147: an id the log's scrubber leaves whole (the caller finds the log by it)
         trace = trace_of(exc)
         log.error("unhandled error", extra={"step": step, "error_id": error_id, **trace})
         with contextlib.suppress(Exception):  # the audit is where the box keeps it; a failing audit adds nothing

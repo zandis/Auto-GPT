@@ -5,12 +5,13 @@ from __future__ import annotations
 import contextlib
 import imaplib
 import logging
+import os
 import smtplib
 import socket
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -19,18 +20,19 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from tb_common import patient_files, rc1_refusals
+from tb_common import egress_edge, patient_files, rc1_refusals, site_needs
 from tb_common.audit import AuditLog, mask_ids
-from tb_common.config import Config
+from tb_common.config import Config, environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError, trace_of
 from tb_common.objstore import ObjectStore
+from tb_common.routing import is_internal
 from tb_common.timeutil import now
 from tb_contracts import Job, JobCreate, SendRequest, SendResult
 
-from mail_gateway import intake
-from mail_gateway.outbound import NotSent, Transport, mail_statement, prepare
-from mail_gateway.store import MailDB, SendUncertain
+from mail_gateway import intake, tls
+from mail_gateway.outbound import NotSent, RoutingRefused, Transport, mail_statement, prepare
+from mail_gateway.store import WAITS, MailDB, SendUncertain
 
 log = logging.getLogger("mail-gateway")
 GENERIC = "This mailbox accepts requests only from authorised hospital addresses. Your message was not processed."
@@ -38,6 +40,40 @@ JobSink = Callable[[JobCreate], Job]
 #: NEW-MAIL-1 (D-863): ``(job_id, the object keys a mail carries) -> current`` against the opt-out register; raises
 #: :class:`NoSuchJob` for a job the orchestrator does not have
 OutputsCurrent = Callable[[str, list[str]], bool]
+
+
+def http_mail_rights(base_url: str) -> egress_edge.Rights:
+    """M3 (PR1239-H2, H3): the orchestrator's reading of the study's delegation log for one mail's recipients and for
+    the person who asked for the job. Yes, no, or unknown (None), never a guess."""
+    client = _orchestrator(base_url)
+
+    def ask(job_id: str, to: list[str]) -> tuple[bool | None, bool | None]:
+        query = urlencode([("key", "-"), *(("to", r) for r in to)])
+        try:
+            got = client._request("GET", f"/jobs/{job_id}/outputs-current?{query}").json()
+        except Exception as exc:
+            log.warning("mail rights not known (%s)", type(exc).__name__)
+            return None, None
+        return got.get("delegated"), got.get("sender")
+
+    return ask
+
+
+#: 1523 ruling (review round 3, M1): ``job_id -> {object key: sha256}``, the job's own record of the files it built
+OutputsMade = Callable[[str], Mapping[str, str]]
+
+
+def http_outputs_made(base_url: str) -> OutputsMade:
+    """The orchestrator's record (``GET /jobs/{job_id}/outputs-current?made=1``), asked before a mail with files
+    leaves."""
+    client = _orchestrator(base_url)
+
+    def ask(job_id: str) -> Mapping[str, str]:
+        got = client._request("GET", f"/jobs/{job_id}/outputs-current?made=1").json()
+        made = got.get("made") if isinstance(got, dict) else None
+        return {str(k): str(v) for k, v in made.items()} if isinstance(made, dict) else {}
+
+    return ask
 
 
 class OptedOutSince(RuntimeError):
@@ -119,6 +155,10 @@ REFUSED_BEFORE_SENDING = (
 # LIMIT_WAIT_S.
 RETRY_BASE_S = 60
 RETRY_MAX_S = 3600
+NO_RELAY = (
+    "no mail is sent: the hospital's mail relay (SMTP_HOST) is not given yet; IT gives it on the page "
+    '"Information still needed"'
+)
 MAX_ATTEMPTS = 12
 SENDING_STALE_S = 900
 LIMIT_WAIT_S = 3600
@@ -160,6 +200,12 @@ class Gateway:
     per_recipient_per_day: int = PER_RECIPIENT_PER_DAY  # T-108c: mails to one address in 24 hours; 0 = no limit
     #: D-863: asked before a job's patient-level files are sent; None (not wired) holds every such mail (fail closed)
     outputs_current: OutputsCurrent | None = None
+    mail_rights: egress_edge.Rights | None = None  # M3: who a patient file may go to now, and who asked for it
+    #: 1523 ruling: the job's record of the files it built; None (not wired) or no answer: no file is vouched for
+    outputs_made: OutputsMade | None = None
+    #: E2E P-10: the box has a mail relay (SMTP_HOST). Without one nothing can be sent in any environment: the mail
+    #: waits, the try not counted, as the page "Information still needed" says (the stand-in of ``mail_relay``)
+    relay: bool = True
 
     @property
     def sender(self) -> str:
@@ -219,10 +265,27 @@ class Gateway:
         except Exception as exc:
             return f"{NO_ANSWER}: {type(exc).__name__}"
 
+    def _site_needs(self) -> str:
+        """U-5 (D-1280): the mail-out gate. On a PRODUCTION box no mail leaves while the hospital's name or the mail
+        relay is still needed (missing, not usable, or a stand-in); "" to send, else the gate's line, which names the
+        page "Information still needed". A PoC box sends with the stand-ins."""
+        g = site_needs.gate(
+            "mail_out",
+            production=environment_name(os.environ) not in ("DEV", "TEST", "VALIDATION"),
+            env=os.environ,
+            settings=self.cfg.settings.model_dump(),
+            stand_ins=site_needs.read_mounted_stand_ins(),
+        )
+        return g.message("en") if g.refused else ""
+
     def _attempt(self, req: SendRequest, key: str, message_id: str | None, attempts: int, from_outbox: bool) -> Outcome:
         why = self._still_current(req)
         if why in (OPTED_OUT, NO_JOB) or (why and rc1_refusals.refused("patient_mail_and_downloads")):  # held at once
             return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
+        needed = self._site_needs() or ("" if self.relay else NO_RELAY)  # after the final refusals (rc1, D-863)
+        if needed:  # U-5: the mail waits, the try not counted, and goes once the page is filled in (D-1280)
+            return self._hold(req, key, message_id or "", False, [], "queued", attempts, needed, wait_s=RETRY_MAX_S,
+                              reason=WAITS)  # fmt: skip
         if why:  # not known now: tried again with back-off, counted, and failed for a person at the limit
             n = attempts + 1
             state = "failed" if n >= MAX_ATTEMPTS else "queued"
@@ -281,13 +344,14 @@ class Gateway:
         attempts: int,
         error: str,
         wait_s: float = 0,
+        reason: str | None = None,
     ) -> Outcome:
         res = SendResult(message_id=message_id, sent_to=[], encrypted=encrypted, password_sent=False, rejected=[])
         next_at = self._ts(wait_s) if state == "queued" else None
         error = " ".join(error.split())[:500]
         self.db.hold(key, state, request_json=req.model_dump_json(), message_id=message_id,
                      result_json=res.model_dump_json(), recipients=recipients, attempts=attempts, next_at=next_at,
-                     error=error, at=self._ts())  # fmt: skip
+                     error=error, at=self._ts(), reason=reason)  # fmt: skip
         event = {"queued": "mail.deferred", "failed": "mail.failed", "uncertain": "mail.uncertain"}[state]
         self.audit.append(
             event,
@@ -325,6 +389,13 @@ class Gateway:
             out[self._attempt(req, key, message_id, attempts, from_outbox=True).state] += 1
         return {k: v for k, v in out.items() if v}
 
+    def wake(self) -> int:
+        """Review M-1, L-1 (E2E P-10): with the relay given, the mail held for want of it is due now, not up to an
+        hour later (``RETRY_MAX_S``). Review L-4: every key held as "waits, not counted" (U-5), by its reason code, so
+        the PRODUCTION hold (the page's line) wakes too; one still blocked is held again, not counted. Returns how many
+        keys were woken."""
+        return self.db.wake() if self.relay else 0
+
     def resolve(self, key: str, decision: str, actor: str) -> str:
         """A person's decision on a held key (``trialbox mail resolve KEY --sent|--resend|--drop``); audited."""
         before = self.db.resolve(key, decision, actor, self._ts())
@@ -335,9 +406,26 @@ class Gateway:
         return before
 
     def _prepare(self, req: SendRequest, message_id: str | None = None) -> Any:
+        store: Any = self.store
+        s = self.cfg.settings
+        recorded: Mapping[str, str] = {}
+        if req.job_id and req.attachments and self.outputs_made is not None:
+            try:
+                recorded = self.outputs_made(req.job_id)
+            except Exception as exc:  # no answer: nothing is vouched for, and a file of the job is refused
+                log.warning("the job's record of its files is not known (%s)", type(exc).__name__)
+        try:  # M3: what leaves passes the egress edge
+            req, store = egress_edge.gate_mail(
+                req, store, audit=self.audit, rights=self.mail_rights,
+                internal=lambda r: is_internal(r, list(s.internal_domains)),
+                site=egress_edge.Site(s.mrn_regex, tuple(d.lower() for d in s.internal_domains)),
+                recorded=recorded)  # fmt: skip
+        except egress_edge.Refused as exc:
+            if exc.reason != "not_named":  # a patient file to another domain: prepare's own refusal names it
+                raise RoutingRefused(f"the mail may not leave the box ({exc.reason})") from exc
         return prepare(
             req,
-            store=self.store,
+            store=store,
             sender=self.sender,
             internal_domains=list(self.cfg.settings.internal_domains),
             mode=self.mode,
@@ -386,6 +474,15 @@ class Gateway:
         msg["Message-ID"] = make_msgid(domain=self.sender.rsplit("@", 1)[-1])
         msg["In-Reply-To"] = m.message_id
         msg["Auto-Submitted"] = "auto-replied"
+        try:  # M3: what leaves passes the egress edge
+            out = egress_edge.leave("mail.reply", f"mail:{m.sender.rsplit('@', 1)[-1]}",
+                                    egress_edge.Message(str(msg["Subject"]), text), audit=self.audit,
+                                    actor="mail-gateway")  # fmt: skip
+        except egress_edge.Refused as exc:
+            log.warning("reply not sent: %s", exc)
+            return
+        msg.replace_header("Subject", out.subject)
+        text = out.body
         msg.set_content(text.rstrip("\n") + "\n\n-- \n" + mail_statement(text) + "\n")  # TB-IU-01 C1 (T-116)
         try:
             self.transport(self.sender, [m.sender], bytes(msg))
@@ -449,8 +546,12 @@ class Gateway:
     # ------------------------------------------------------------------ IMAP
     def poll_once(self) -> int:
         env = self.cfg.env
-        cls = imaplib.IMAP4_SSL if env.imap_ssl else imaplib.IMAP4
-        conn = cls(env.imap_host, env.imap_port)
+        if env.imap_ssl:  # H-137: the server's certificate checked unless IMAP_TLS_VERIFY is off
+            conn: imaplib.IMAP4 = imaplib.IMAP4_SSL(
+                env.imap_host, env.imap_port, ssl_context=tls.context(env.imap_tls_verify)
+            )
+        else:
+            conn = imaplib.IMAP4(env.imap_host, env.imap_port)
         n = 0
         try:
             conn.login(env.imap_user, env.imap_pass)

@@ -27,6 +27,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# H-132 (LR-2): on a host where a box is installed (the update path's record) every action of this script would act on
+# that box's compose project (reset: down -v, its volumes). Refused before anything is made, run or removed
+if [ -e deploy/updates/installed.json ] || { [ -d deploy/updates ] && ! [ -x deploy/updates ]; }; then  # OCR 1481-5
+  printf 'poc: this host has an installed box (deploy/updates/installed.json): "deploy/poc.sh %s" would act on' \
+    "${1:-up}" >&2
+  printf ' its compose project and data. Nothing was done; the box is run by its own commands (RUNBOOK §5).\n' >&2
+  exit 1
+fi
 export TB_HOST_OBJECTS_DIR="${TB_HOST_OBJECTS_DIR:-$ROOT/deploy/.objects}"; mkdir -p "$TB_HOST_OBJECTS_DIR"  # test-stack object store (D-121)
 MODE="${TB_LLM_MODE:-stub}"
 ACTION="${1:-up}"
@@ -70,11 +78,21 @@ docker compose version >/dev/null 2>&1 || die "the docker compose plugin is miss
 ALIVE_PID=""
 alive_start() {
   local what="$1" me=$$
-  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
-    while kill -0 "$me" 2>/dev/null; do
-      sleep "${TB_POC_ALIVE_S:-60}" & s=$!; wait "$s"; n=$((n + 1))
-      kill -0 "$me" 2>/dev/null && echo "    ... still $what ($n)" >&2
-    done ) & ALIVE_PID=$!
+  # OCR 1524-2: the heartbeat holds the script's output while it lives, so it looks for the script every second and
+  # ends within a second of a script that ended without alive_stop (set -e, a signal). H-110: the sleep holds none of
+  # the caller's pipes
+  ( s=""; self=$BASHPID; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0; t=0
+    # OCR 1455-4 and 1524-2: alive while the script is this ticker's parent and not a zombie (kill -0 still finds one
+    # its caller has not reaped; Linux: its state in /proc). No command substitution here: a TERM that lands in one is lost
+    up() { kill -0 "$me" 2>/dev/null || return 1
+      if [ -r "/proc/$self/stat" ]; then read -r _ _ _ pp _ < "/proc/$self/stat" || return 1; [ "$pp" = "$me" ] || return 1; fi
+      read -r _ _ st _ 2>/dev/null <"/proc/$me/stat" || return 0; [ "$st" != Z ]; }
+    while up; do
+      sleep 1 >/dev/null 2>&1 & s=$!; wait "$s"; s=""; t=$((t + 1))
+      [ "$t" -lt "${TB_POC_ALIVE_S:-60}" ] && continue
+      t=0; n=$((n + 1))
+      up && echo "    ... still $what ($n)" >&2
+    done ) 9>&- 6>&- & ALIVE_PID=$!  # 1452-12: the ticker and its sleep hold no lock fd of the caller (9, 6)
 }
 alive_stop() { [ -n "$ALIVE_PID" ] || return 0; kill "$ALIVE_PID" 2>/dev/null || true; wait "$ALIVE_PID" 2>/dev/null || true; ALIVE_PID=""; }
 ok() { printf '    ok    %s\n' "$*"; }

@@ -5,6 +5,7 @@
     python -m tools.runbook_install static                      # the findings the runbook's text alone shows
     python -m tools.runbook_install follow --bundle B --vendor-pub K --out run.json [--machine container|vm]
     python -m tools.runbook_install compare run.json            # the run against the committed findings file
+    python3 -m tools.runbook_install bare                       # host commands that do not start bare (R22-48)
     python -m tools.runbook_install bundle                      # the vendor side only: a site bundle from a commit
     python -m tools.runbook_install run [--bundle B --vendor-pub K]   # make runbook-install: the container run
 
@@ -61,6 +62,8 @@ stamp. The committed file is ``docs/plan/measurements/runbook-install-2026-11-17
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -71,7 +74,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -241,6 +244,7 @@ class Step:
     in_block: str = ""  # the quote is in this bold-lead paragraph, not in the step itself
 
 
+KEK_PASS_FILE = "/root/trialbox-kek.pass"  # H-96: the no-tpm lift's throwaway passphrase, root-only (0600)
 ONE_COMMAND = (
     "cd /media/usb && openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh "
     "-sigfile trialbox-bootstrap.sh.sig && sudo bash trialbox-bootstrap.sh trialbox-<version>.tar --pub "
@@ -316,6 +320,14 @@ NOT_ON_PATH: list[tuple[str, str]] = [
     (r"python3 tools/serving_config\.py capture .*", "measuring a new card on a rehearsal box"),
     (r"python -m tools\.gpu_sizing", "an estimate, not an install step"),
     (r"--mode stub", "the one command's option on a machine without a GPU (the follower applies it there)"),
+    (
+        r"sudo bash -c 'umask 077; IFS= read -rs p; .*",
+        "a machine without a usable TPM: the passphrase's root-only file (H-96; the follower's no-tpm lift writes it)",
+    ),
+    (
+        r"-- --tier large --answers /root/site/site\.yaml --kek-passphrase-file /root/trialbox-kek\.pass",
+        "a machine without a usable TPM: the one command's options (H-96; the follower's no-tpm lift adds them)",
+    ),
     (r"python -m tools\.trialbox\.memcaps .*", "re-measuring or re-sizing the memory caps (the installer sizes them)"),
     (r"tools/make_bundle\.sh", "the vendor builds the bundle"),
     (r"make release-bundle", "the vendor builds the bundle"),
@@ -605,7 +617,8 @@ LIFTS: dict[str, Lift] = {
         "no-tpm",
         "machine",
         "the installer's own message; docs/security/01-the-host.md",
-        "TB_KEK_BACKEND=passphrase with a throwaway TB_KEK_PASSPHRASE: the machine has no TPM",
+        "TB_KEK_BACKEND=passphrase with a throwaway passphrase in a root-only file (--kek-passphrase-file, H-96): "
+        "the machine has no TPM",
     ),
     "sidecar-name": Lift(
         "sidecar-name",
@@ -681,6 +694,7 @@ class Follower:
             lifts,
         )
         self.kek_pass = kek_pass
+        self.kek_args = ""  # H-96: the no-tpm lift's --kek-passphrase-file (never the environment)
         self.sidecar_fix = sidecar_fix  # rewrites the stick's <bundle>.sha256 (the vendor's media, not the box)
         # H-38: each command's own output, unredacted, in root-only files on the machine (the first administrator's
         # password and enrolment code are printed once): never part of the record, gone with the machine
@@ -849,8 +863,17 @@ class Follower:
         return [d / n for n in names if (d / n).is_file()]
 
     def _one_command_text(self, *, stub: bool) -> str:
-        cmd = ONE_COMMAND.replace("trialbox-<version>.tar", self.bundle.name)
+        cmd = ONE_COMMAND.replace("trialbox-<version>.tar", self.bundle.name) + self.kek_args
         return cmd.replace("--tier large", "--mode stub") if stub else cmd
+
+    def _kek_file(self) -> bool:
+        """H-96 (the integrator's ruling 7094934985): the no-tpm lift's throwaway passphrase goes to a root-only file
+        on the machine by stdin (never an argument or the environment of docker exec or sudo); the seal step removes
+        it, so it is written again before each attempt."""
+        phrase = self.kek_pass or secrets.token_hex(12)
+        self.kek_pass = phrase
+        w = self.m.sh(f"mkdir -p /root && umask 077 && cat > {KEK_PASS_FILE}", cwd="/", stdin=phrase + "\n")
+        return w.rc == 0
 
     def _one_command(self) -> None:
         self.rec.reached.append("one-command")
@@ -860,6 +883,9 @@ class Follower:
             self._note("stub-instead", f"{SECTION}:44", "no GPU: `--mode stub` takes the place of `--tier large`")
         stdin = "\n" * 20  # a reader at the terminal presses Enter at a question
         for _attempt in range(6):
+            if self.kek_args and not self._kek_file():
+                self.rec.stop("the one command (§1:32)", "the throwaway passphrase file could not be written")
+                return
             cmd = self._one_command_text(stub=stub)
             r = self._run("one-command", place, cmd, stdin=stdin, as_written=ONE_COMMAND, cwd="/")
             text = r.out + r.err
@@ -894,10 +920,8 @@ class Follower:
                 self.rec.stop("the one command (§1:32)", "the machine has no TPM (step 1 names TPM2)", machine=True)
                 if not self._lift("no-tpm"):
                     return
-                self.env |= {
-                    "TB_KEK_BACKEND": "passphrase",
-                    "TB_KEK_PASSPHRASE": self.kek_pass or secrets.token_hex(12),
-                }
+                self.env |= {"TB_KEK_BACKEND": "passphrase"}
+                self.kek_args = f" --kek-passphrase-file {KEK_PASS_FILE}"
                 continue
             if "lacks what the installer needs" in text or "compose plugin is missing" in text:
                 self.rec.find("host-packages-unnamed", "one-command", _last(text))
@@ -1053,6 +1077,44 @@ def _cmd_extract(a: argparse.Namespace) -> int:
         for i, c in enumerate(cmds, 1):
             print(f"{i:2d} {c.place:48s} [{c.block}] {c.text}")
     return 0
+
+
+BARE_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C.UTF-8"}
+_HOST = re.compile(r"(?:^|[;&|] *)(?:sudo +)?(?:python3? +-m +(tools(?:\.\w+)+)|(trialbox))\b((?: +[a-z][a-z0-9-]*)?)")
+
+
+def host_commands(root: Path = ROOT) -> dict[tuple[str, str], str]:
+    """Every host command of the runbook's pages that runs the product's own Python: (module, first word) and where it
+    is first written. A command inside a container (``docker ... exec``, ``docker run``) is not the host's."""
+    out: dict[tuple[str, str], str] = {}
+    for page in sorted((root / "docs" / "runbook").glob("*.md")):
+        for c in extract(str(page.relative_to(root)), root):
+            if "docker" in c.text:
+                continue
+            for mod, short, word in _HOST.findall(c.text):
+                out.setdefault((mod or ("tools.trialbox" if short else ""), word.strip()), c.place)
+    return out
+
+
+def bare_failures(root: Path = ROOT, python: str = "/usr/bin/python3") -> list[tuple[str, str]]:
+    """R22-48: the commands that do not even start from a bare environment (no ``PYTHONPATH``, the system's python3):
+    their ``--help`` ends in anything but 0. (command, the last line it said)."""
+    bad = []
+    for (mod, word), place in host_commands(root).items():
+        argv = [python, "-m", mod, *([word] if word else []), "--help"]
+        done = subprocess.run(argv, cwd=root, env=BARE_ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=120, check=False)  # fmt: skip
+        if done.returncode != 0:
+            bad.append((f"{place}: {mod} {word}".strip(), (done.stderr.strip().splitlines() or [""])[-1][:160]))
+    return bad
+
+
+def _cmd_bare(a: argparse.Namespace) -> int:
+    total, bad = len(host_commands()), bare_failures(python=a.python)
+    for cmd, why in bad:
+        print(f"{cmd}\t{why}")
+    print(f"bare host: {len(bad)} of {total} runbook host commands do not start")
+    return 1 if bad else 0
 
 
 def _cmd_plan(a: argparse.Namespace) -> int:
@@ -1291,6 +1353,17 @@ def models_args(models: str | Path | None) -> list[str]:
     return ["--models", str(d.resolve())]
 
 
+@contextlib.contextmanager
+def _locked(folder: Path) -> Iterator[None]:
+    """HYG2-R12: an exclusive flock on the folder itself (no lock file beside the media), released on every way out."""
+    fd = os.open(folder, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
 def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tuple[Path, Path, list[tuple[str, str]]]:
     """A site bundle made the vendor's way (as the box rehearsal's media step makes its own, but not ``--rehearsal``
     and not ``--allow-dirty``: a site box refuses both): a throwaway vendor key, the release gates over exactly these
@@ -1366,8 +1439,16 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
         log,
     )
     stamp = time.strftime("%Y%m%d", time.gmtime())
-    bundle = work / "media" / f"trialbox-runbook-{stamp}.tar"
-    bundle.parent.mkdir(parents=True, exist_ok=True)
+    # HYG2-R2: make_bundle.sh publishes media/ inside this build's own folder; that replaces work/media only once it is
+    # built, so a failed build or a failed rename leaves the last media as they were (media.old holds them only between
+    # the two renames below)
+    # HYG2-R12: putting back, replacing and retiring media.old are done holding a lock on work, one publisher at a time
+    media, old = work / "media", work / "media.old"
+    with _locked(work):
+        if old.is_dir() and not media.exists():
+            old.rename(media)  # a cut between the two renames of an earlier build: the last media back first
+    fresh = Path(tempfile.mkdtemp(prefix=".media-next.", dir=work))
+    bundle = fresh / "media" / f"trialbox-runbook-{stamp}.tar"
     args = [
         "tools/make_bundle.sh",
         "--key",
@@ -1376,6 +1457,8 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
         f"runbook-{stamp}",
         "--release-seq",
         "1",
+        "--pub",
+        str(v / "keys" / "vendor_ed25519.pub"),
         "--out",
         str(bundle),
         "--gates",
@@ -1388,9 +1471,28 @@ def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tupl
     ]
     for i in imgs:
         args += ["--job-image" if i in JOB_IMAGES else "--image", i]
-    _sh(args, log)
-    # the images the bundle carries, by id, beside it (as the rehearsal's bundle-images.txt): --bundle reads it
-    Path(f"{bundle}.images").write_text("".join(f"{r} {i}\n" for r, i in pairs), encoding="utf-8")
+    try:  # HYG2-R11: all the work in this build's folder, and the folder removed on every way out
+        _sh(args, log)
+        # the images the bundle carries, by id, beside it (as the rehearsal's bundle-images.txt): --bundle reads it
+        Path(f"{bundle}.images").write_text("".join(f"{r} {i}\n" for r, i in pairs), encoding="utf-8")
+        with _locked(work):
+            if old.is_dir() and not media.exists():
+                old.rename(media)  # a cut between the two renames of an earlier build: the last media back first
+            if old.exists():
+                shutil.rmtree(old)
+            if media.exists():
+                media.rename(old)
+            try:
+                bundle.parent.rename(media)
+            except OSError:
+                if old.is_dir() and not media.exists():
+                    old.rename(media)
+                raise
+            if old.exists():
+                shutil.rmtree(old)
+    finally:
+        shutil.rmtree(fresh)
+    bundle = media / bundle.name
     return bundle, v / "keys" / "vendor_ed25519.pub", pairs
 
 
@@ -1501,6 +1603,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     e.add_argument("--json", action="store_true")
     sub.add_parser("plan")
     sub.add_parser("static")
+    ba = sub.add_parser("bare", help="runbook host commands that do not start on a bare host (R22-48)")
+    ba.add_argument("--python", default="/usr/bin/python3")
     f = sub.add_parser("follow")
     f.add_argument("--bundle", required=True)
     f.add_argument("--vendor-pub", required=True)
@@ -1535,6 +1639,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         "extract": _cmd_extract,
         "plan": _cmd_plan,
         "static": _cmd_static,
+        "bare": _cmd_bare,
         "follow": _cmd_follow,
         "compare": _cmd_compare,
         "run": _cmd_run,

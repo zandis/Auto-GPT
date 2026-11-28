@@ -18,6 +18,7 @@ from tb_common import audit
 from tb_common.audit import AuditLog
 from tb_common.db import Database
 
+from tests import pg_client
 from tests.unit.test_backup import _backup
 from tools.trialbox import backup as bk
 
@@ -169,7 +170,7 @@ def test_the_backup_never_creates_the_writers_lock_file(box: dict[str, Any], tmp
 
 # ------------------------------------------------------------------------- DATA-010: a restore keeps file owners
 def _env(box: dict[str, Any]) -> dict[str, str]:
-    return {"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"}
+    return {**pg_client.env(), "TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"}
 
 
 def test_a_restore_gives_each_file_and_folder_the_owner_it_had(

@@ -303,6 +303,9 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             return RedirectResponse(PATH, status_code=303)
         hw = hardware(folder)
         disks = tuple(str(d.get("path", "")) for d in hw.get("disks") or ())
+        # M1 (D-1280): only the four are required here; a question left empty is at its default and stays open
+        left = {k for k in ("site_name", "backup_kind") if not data.get(k, "").strip()}
+        data = box_answers.fill({k: v for k, v in data.items() if k not in left})
         answers, problems = box_answers.parse(data, disks=disks)
         errors = {p.field: p.code for p in problems}
         # NEW-DIN-3 (D-544): the rule is an answer only while the box holds no patient; the page does not ask then,
@@ -314,13 +317,10 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             held = box_holds_patients()
             if held is not False:  # D-710: "could not be read" is said as that, not as "holds patients"
                 errors["chartno_rule"] = "chartno_locked" if held else "chartno_unread"
-        if answers is not None and h.production:  # 10K-21 (D-1365): what a PRODUCTION box may not leave silent
-            held = None if answers.chartno_rule else box_holds_patients()
-            if not answers.chartno_rule and held is None:  # review of #1175, S2: unread is not "not asked"
-                errors.setdefault("chartno_rule", "chartno_unread_production")
-            asked = bool(answers.chartno_rule) or held is False  # held: not asked, the box's rule stays
-            for gap in box_answers.production_gaps(answers, chartno_asked=asked):
-                errors.setdefault(gap.field, gap.code)
+        if answers is not None and h.production and not answers.chartno_rule and box_holds_patients() is None:
+            errors.setdefault("chartno_rule", "chartno_unread_production")  # review of #1175, S2: unread is a fault
+        # M1 (D-1280, which supersedes D-1365 here): what a PRODUCTION box was not told is not refused on this page. The
+        # install marks it as open (box_answers.stand_ins), and the first run on real data refuses it by name
         pw = data.get("password", "")
         try:
             check_password_policy(pw)

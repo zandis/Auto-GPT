@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_judge_output_v2.schema.json",
+  "title": "LlmJudgeOutputV2",
+  "description": "Output of prompt judge from version 6 (SPEC 7.3). Schema version 1.2.0: the 1.1.0 answer (llm_judge_output.schema.json, kept for judge versions 3 to 5) plus three fields on the quote (#639 7115208555): certainty, experiencer and time. A note exclusion stands only when both models give affirmed, patient and current; any other value, or null, sends the patient to review. Every property is required so strict structured output accepts the schema; null means absent. The three fields come before reason, and reason before confidence, the order a guided decoder writes them (1.1.0's note).",
+  "type": "object",
+  "required": ["verdict", "certainty", "experiencer", "time", "reason", "quote", "quote_date", "confidence"],
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {"type": "string", "enum": ["pass", "fail", "unknown"]},
+    "certainty": {
+      "description": "What the quote says of the condition: affirmed (stated present), negated (stated absent), possible (suspected, a question, to rule out), unknown (unknown or pending: a test ordered, a result awaited).",
+      "type": ["string", "null"],
+      "enum": ["affirmed", "negated", "possible", "unknown", null]
+    },
+    "experiencer": {
+      "description": "Whose condition the quote states: the patient's, or another person's (a relative, a partner, a contact).",
+      "type": ["string", "null"],
+      "enum": ["patient", "other", null]
+    },
+    "time": {
+      "description": "When the quote places the condition: current (now, or ongoing), past_resolved (cured, resolved, treated and gone), planned (a test or a treatment to come, a prevention).",
+      "type": ["string", "null"],
+      "enum": ["current", "past_resolved", "planned", null]
+    },
+    "reason": {"type": ["string", "null"], "maxLength": 300},
+    "quote": {"type": ["string", "null"], "maxLength": 400},
+    "quote_date": {"type": ["string", "null"], "format": "date"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+  }
+}

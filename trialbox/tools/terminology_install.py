@@ -15,7 +15,14 @@ TERM-2 (D-1113 to D-1116), in the order of the install step (``docs/handover/OFF
     python -m tools.terminology_install icd10pcs <CMS ICD-10-PCS zip or order/codes txt> [--year 2026] [--dir DIR]
     python -m tools.terminology_install loinc <Regenstrief zip or Loinc.csv> --accepted-by "NAME" [--accepted-on D]
     python -m tools.terminology_install icd10who <ClaML xml or code table> --accepted-by "NAME" [--version V]
-    python -m tools.terminology_install atc <ATC index csv or tsv> --accepted-by "NAME" --version YEAR
+    python -m tools.terminology_install atc <ATC/DDD index xlsx, csv or tsv> --accepted-by "NAME" --version YEAR
+
+V-18 (D-1182): SNOMED CT and the UMLS from the hospital's own copy, and every system of the hospital's folder at once
+(the layout: ``docs/handover/terminology-folder.md``); a system missing or refused is said, never a stop:
+
+    python -m tools.terminology_install snomed <RF2 Snapshot folder or zip> --accepted-by "NAME" [--sha256 S]
+    python -m tools.terminology_install umls <RRF subset folder or zip> --accepted-by "NAME" [--version 2025AB]
+    python -m tools.terminology_install folder <the hospital's folder> [--accepted-by "NAME"]
 
 H-17 (D-1127): the NHI open data as it ships in the image (D-1028 point 3), built by the integrator from the files
 it fetched (``docs/licences/nhi-open-data-fetch.md``), and checked:
@@ -78,6 +85,11 @@ def main(argv: list[str] | None = None) -> int:
     where = args.dir or installed.installed_dir()
     if args.cmd == "remove-site-list":
         return _remove(args, where)
+    if args.cmd == "folder":  # V-18: never a stop; each system says what happened
+        for label, (state, said) in installed.install_folder(args.folder, where, args.accepted_by,
+                                                             args.accepted_on).items():  # fmt: skip
+            print(f"{label}: {state}: {said}", file=sys.stdout if state == "loaded" else sys.stderr)
+        return 0
     if args.cmd == "icd10cm":
         for name, n in installed.install_icd10cm(args.zip, where, args.year).items():
             print(f"{name}: {n} rows loaded into {where}")
@@ -145,13 +157,22 @@ def _term2(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     pcs.add_argument("--dir", type=Path, default=None)
     for cmd, what in (("loinc", "LOINC from the site's own Regenstrief download (zip or Loinc.csv)"),
                       ("icd10who", "WHO ICD-10 from the site's own licensed copy (ClaML, or a code and title table)"),
-                      ("atc", "the ATC index from the site's own copy (CSV or TSV)")):  # fmt: skip
+                      ("atc", "the ATC/DDD index from the site's own copy (xlsx, CSV or TSV)"),
+                      ("snomed", "SNOMED CT from the site's own RF2 Snapshot (folder or zip; V-18)"),
+                      ("umls", "the UMLS from the site's own RRF subset (folder or zip; V-18)")):  # fmt: skip
         p = sub.add_parser(cmd, help=what)
         p.add_argument("file", type=Path)
         p.add_argument("--accepted-by", required=True, help="the named person who accepted the licence (D-1114)")
         p.add_argument("--accepted-on", default="", help="the day it was accepted, YYYY-MM-DD (default: today)")
         p.add_argument("--version", default="")
         p.add_argument("--dir", type=Path, default=None)
+        if cmd in ("atc", "snomed", "umls"):
+            p.add_argument("--sha256", default="", help="the archive's sha256 as the person recorded it (V-18)")
+    fo = sub.add_parser("folder", help="every system in the hospital's folder, one subfolder each (V-18)")
+    fo.add_argument("folder", type=Path)
+    fo.add_argument("--accepted-by", default="", help="the named person (default: the folder's acceptance.json)")
+    fo.add_argument("--accepted-on", default="")
+    fo.add_argument("--dir", type=Path, default=None)
     site.add_argument("--version", default="")
     site.add_argument("--dir", type=Path, default=None)
 
@@ -165,7 +186,14 @@ def _load(args: argparse.Namespace, where: Path) -> dict[str, int]:
         return installed.install_nhi_services(args.file, where, args.version, columns=_columns(args.column))
     if args.cmd == "icd10pcs":
         return installed.install_icd10pcs(args.file, where, args.year)
-    loader = {"loinc": installed.install_loinc, "icd10who": installed.install_icd10_who, "atc": installed.install_atc}
+    if args.cmd in ("atc", "snomed", "umls"):  # V-18: the site's copies, xlsx too, verified when they can be
+        copies = {
+            "atc": installed.install_atc_index,
+            "snomed": installed.install_snomed,
+            "umls": installed.install_umls,
+        }
+        return copies[args.cmd](args.file, where, args.accepted_by, args.accepted_on, args.version, args.sha256)
+    loader = {"loinc": installed.install_loinc, "icd10who": installed.install_icd10_who}
     return loader[args.cmd](args.file, where, args.accepted_by, args.accepted_on, args.version)
 
 

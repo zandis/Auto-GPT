@@ -22,7 +22,7 @@
 set -u
 GB10=0; GPU_PROFILE=""; GPU_ONLY=0; BASELINE=0; ENV_FILE="$(dirname "$0")/.env"
 WSL2=0; WSL2_DISTRO="${WSL_DISTRO_NAME:-}"; ESCROW=""; RRS=0; RRS_PROBE=""; RRS_INDEX=""
-SECRETS="${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}"
+SECRETS="${TB_SECRETS_HOST_DIR:-}"  # H-106: else the box's own project's volume (OWN_PROJECT, below)
 HR="${TB_HOST_ROOT:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -40,20 +40,29 @@ while [ $# -gt 0 ]; do
     --engine-probe) RRS_PROBE="$2"; shift ;;
     --gpu-index) RRS_INDEX="$2"; shift ;;
     # ---- end of REHEARSAL-REAL-SERVERS (H-89)
-    *) echo "unknown option $1" >&2; exit 2 ;;
+    *) echo "unknown option $1" >&2; exit 2 ;;  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
   esac
   shift
 done
+# H-106 (OCR 1452-1): this folder's own project: a test box's record beside the settings file (install.sh --check runs
+# before the record is exported), else as before
+OWN_PROJECT="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$(dirname "$ENV_FILE")/site/test-box.env" 2>/dev/null | tail -1)"
+OWN_PROJECT="${OWN_PROJECT:-${COMPOSE_PROJECT_NAME:-trialbox}}"
+[ -n "$SECRETS" ] || SECRETS="/var/lib/docker/volumes/${OWN_PROJECT}_tb-secrets/_data"
 # REHEARSAL-REAL-SERVERS (H-89): all three or none, never on GB10
 if [ "$RRS" = 1 ] || [ -n "$RRS_PROBE" ] || [ -n "$RRS_INDEX" ]; then
   { [ "$RRS" = 1 ] && [ -n "$RRS_PROBE" ] && [ -n "$RRS_INDEX" ] && [ "$GB10" = 0 ] && [ -n "$GPU_PROFILE" ]; } \
-    || { echo "--rehearsal-real-servers needs --engine-probe, --gpu-index and --gpu <profile> (install.sh's rehearsal)" >&2; exit 2; }
+    || { echo "--rehearsal-real-servers needs --engine-probe, --gpu-index and --gpu <profile> (install.sh's rehearsal)" >&2; exit 2; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 # ---- end of REHEARSAL-REAL-SERVERS (H-89)
 FAILS=0
 pass() { echo "PASS  $1"; }
 warn() { echo "WARN  $1"; }
 fail() { echo "FAIL  $1"; FAILS=$((FAILS + 1)); }
+# H-110 (g; the integrator's ruling 7119913331): a FAIL of a kept refusal carries its kind where it is made, and the
+# install keeps a line by that marker (tb_kept_fails), never by its words: (2) what the machine cannot run, (3) the
+# poc profile on a PRODUCTION box, (5) a secret where others can read it
+kept() { fail "$2 [H-94 ($1)]"; }
 mode() { stat -c %a "$1" 2>/dev/null; }
 envget() { [ -r "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -84,16 +93,16 @@ gpu_image_check() {
 # a GB10 host under 96 GiB is the 64 GB class (gb10-64): the same refusal as install.sh's; unknown memory is not judged
 gb10_memory_check() {
   [ "$(sh "$ROOT_DIR/deploy/gpu_profile.sh" memory-class "${TB_TEST_MEM_KIB:-}")" = gb10-64 ] || return 0
-  fail "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB, and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub, or use a 128 GB Spark or another measured box"
+  kept 2 "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB, and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub, or use a 128 GB Spark or another measured box"
 }
 [ -n "$GPU_PROFILE" ] || [ "$(envget TB_LLM_MODE)" != vllm ] || GPU_PROFILE=default
 if [ "$GPU_ONLY" = 1 ]; then
-  [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }
-  [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"; }
+  [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
+  [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || kept 2 "GB10 profile on $(uname -m)"; }
   [ "$GB10" = 1 ] && gb10_memory_check
   gpu_image_check
   echo "---"
-  [ "$FAILS" -eq 0 ] && { echo "GPU host checks passed"; exit 0; } || { echo "$FAILS GPU check(s) failed"; exit 1; }
+  [ "$FAILS" -eq 0 ] && { echo "GPU host checks passed"; exit 0; } || { echo "$FAILS GPU check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 
 # ------------------------------------------------------------------------------------------------ host baseline
@@ -116,7 +125,7 @@ facilities() { [ -z "$FACILITIES" ] || warn "host profile poc: ${FACILITIES#, } 
 # What only the site's host can have is a WARN there
 rehearsal_box() { [ "$(envget TB_REHEARSAL)" = 1 ] && { [ "$TBENV" = TEST ] || { [ "$TBENV" = VALIDATION ] && [ -f "$(dirname "$ENV_FILE")/site/rehearsal.json" ]; }; }; }
 if [ "$HOST_PROFILE" = poc ] && [ "$TBENV" = PRODUCTION ]; then
-  fail "TB_HOST_PROFILE=poc on a PRODUCTION box: the host-facility checks are never relaxed there (remove it from $ENV_FILE)"
+  kept 3 "TB_HOST_PROFILE=poc on a PRODUCTION box: the host-facility checks are never relaxed there (remove it from $ENV_FILE)"
 fi
 KREL="$(cat "$HR/proc/sys/kernel/osrelease" 2>/dev/null || true)"
 case "$KREL" in *[Mm]icrosoft*WSL2*) WSL2=1 ;; esac  # a WSL2 kernel: the Windows checks are on by themselves
@@ -213,31 +222,134 @@ done
 fi  # the LUKS lines; on WSL2 BitLocker's lines above
 if [ -z "$(swapon --noheadings 2>/dev/null)" ]; then pass "swap disabled"; else fail "swap is enabled (swapoff -a; remove from /etc/fstab)"; fi
 # H-89 (the integrator's ruling, item 1 of #1370's round): the passphrase back end needs no TPM. Chosen: this run has
-# TB_KEK_BACKEND=passphrase and a TB_KEK_PASSPHRASE (the install's way out, never printed), or the site keys are
-# sealed under it (kek.json). Then a missing or unusable TPM is a WARN that names it; otherwise it FAILs as before
-kek_passphrase() {
-  { [ "${TB_KEK_BACKEND:-}" = passphrase ] && [ -n "${TB_KEK_PASSPHRASE:-}" ]; } \
-    || grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null
-}
+# TB_KEK_BACKEND=passphrase (the install's way out), or the site keys are sealed under it (kek.json). Then a missing
+# or unusable TPM is a WARN that names it; otherwise it FAILs as before. H-96: the passphrase itself is never read
+# here (it comes from a file only root can read, or stdin, never the environment)
+kek_sealed_pp() { grep -q '"backend": *"passphrase"' "$SECRETS/kek.json" 2>/dev/null; }
+kek_passphrase() { [ "${TB_KEK_BACKEND:-}" = passphrase ] || kek_sealed_pp; }
 KEK_PP="the KEK is under the passphrase back end (TB_KEK_BACKEND=passphrase), which needs no TPM"
+# H-96 (L-3 of the review of #1398; the integrator's ruling 7102655419): the back end only named (nothing sealed under
+# it yet) WARNs on a PoC box alone, as one line of the PoC list (D-1091: the STOP-OR-WARN block below, the same rule
+# as tools/trialbox/stops.py, where the box's recorded environment decides, never a caller's variable); on any other
+# box it is a FAIL
+# ---- STOP-OR-WARN (H-94, the owner's ruling 7092087958, D-1091; the same bytes in every script that has it): on a PoC box
+# the install, start and update paths stop for five things only (D-1091), each named where it stops as "H-94 (N)":
+# (1) the bundle's or update's signature or hashes do not hold; (2) the machine physically cannot run it (disk,
+# memory, card); (3) a PoC box would load real patient data or become PRODUCTION; (4) the step needs root and does
+# not have it; (5) a secret would be read from, or written to, a place others can read. Every other stop calls
+# stop_or_warn: on a PoC box a warning, a line of the one list (deploy/site/poc-stops.jsonl, which trialbox doctor
+# shows) and the step goes on; on any other box the same stop as before, the same words and exit code. "H-94
+# depends (N)" marks a stop kept because it protects stop N on the input that reaches it (D-1091, H94-03).
+# A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
+# The sources are TB_ENV in deploy/.env read as compose reads it (an "export", blanks, a comment; the last line wins.
+# A file that cannot be read, or a value none of the four: PRODUCTION), an installed box with none (PRODUCTION,
+# D-127), the rehearsal mark on a box that records none yet (VALIDATION), and this run's command line, upper-cased
+# only, as ENV-EARLY reads it (TB_STOP_ARG_ENV, TB_STOP_REHEARSAL: set by the script itself, never read from a
+# caller's environment). Nothing speaking (a fresh box, no environment given) is PRODUCTION.
+tb_env_raw() {  # FILE: TB_ENV's value as compose reads it (an "export", blanks around the name and the value, a comment
+  # after an unquoted value; the last line wins), quotes kept; nothing when the file names none or cannot be read
+  { sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?TB_ENV[[:space:]]*=//p' "$1" 2>/dev/null || true; } | tail -1 \
+    | sed -E -e "/^[[:space:]]*[\"']/!s/[[:space:]]+#.*\$//" -e 's/^[[:space:]]+//' -e 's/[[:space:]]+$//'
+}
+tb_env_of() { tb_env_raw "$1" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]'; }  # FILE: no quotes, no blanks, upper case
+tb_poc_box() {
+  _d="$TB_STOP_DEPLOY"; _rec=""
+  if [ -e "$_d/.env" ] || [ -L "$_d/.env" ]; then
+    [ -f "$_d/.env" ] && [ -r "$_d/.env" ] || return 1
+    _rec="$(tb_env_of "$_d/.env")"
+  fi
+  if [ -z "$_rec" ] && { [ -e "$_d/settings.yaml" ] || [ -e "$_d/updates/installed.json" ]; }; then _rec=PRODUCTION; fi
+  if [ -z "$_rec" ] && [ -f "$_d/site/rehearsal.json" ]; then _rec=VALIDATION; fi
+  _arg="$(printf '%s' "$TB_STOP_ARG_ENV" | tr '[:lower:]' '[:upper:]')"
+  [ -n "$_arg" ] || [ "$TB_STOP_REHEARSAL" != 1 ] || _arg=VALIDATION
+  for _e in "$_rec" "$_arg"; do case "$_e" in ""|DEV|TEST|VALIDATION) ;; *) return 1 ;; esac; done
+  [ -n "$_rec$_arg" ]
+}
+tb_stop_json() {  # one line, no secret's value, no path under uploads/, escaped for a JSON string
+  printf '%s' "$1" | tr -d '\000-\037' | sed -e 's#[^ ]*/uploads/[^ ]*#<a path under uploads/>#g' \
+    -e 's/\([a-z0-9_]*\(password\|passphrase\|token\|secret\|_key\)\)=[^ ]*/\1=<hidden>/gI' -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or the installer only; never a stop
+  _f="$TB_STOP_DEPLOY/site/poc-stops.jsonl"; _o=""
+  [ ! -e "$_f" ] || _o="$(stat -c %u "$_f" 2>/dev/null || echo unknown)"
+  # a link is never followed, nor a second name of another file (review L-2 of #1430: one name, its own)
+  if [ ! -L "$_f" ] && { [ ! -e "$_f" ] || [ "$(stat -c %h "$_f" 2>/dev/null)" = 1 ]; } \
+      && { [ -z "$_o" ] || [ "$_o" = 0 ] || [ "$_o" = "$(id -u)" ]; } && mkdir -p "${_f%/*}" 2>/dev/null \
+      && (umask 027; printf '{"key": "%s", "what": "%s", "skipped": "%s", "at": "%s", "by": "%s"}\n' "$(tb_stop_json "$TB_STOP_FILE/$1")" \
+        "$(tb_stop_json "$3")" "$(tb_stop_json "$2")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TB_STOP_FILE" >> "$_f") 2>/dev/null; then
+    chmod 0640 "$_f" 2>/dev/null || true
+  else
+    printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
+  fi
+}
+stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning, a line of the list, 0; else the stop
+  _rc=1; _silent=0
+  while :; do case "$1" in --rc) _rc="$2"; shift 2 ;; --silent) _silent=1; shift ;; *) break ;; esac; done
+  _key="$1"; _skipped="$2"; shift 2
+  if ! tb_poc_box; then
+    if command -v alive_stop >/dev/null 2>&1; then alive_stop; fi
+    [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
+    exit "$_rc"
+  fi
+  # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
+  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  tb_stop_list "$_key" "$_skipped" "$*"
+  return 0
+}
+tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a kept refusal, which stop on every box
+  # (H-110 (g), the integrator's ruling 7119913331): by the kind marker deploy/check_host.sh writes where the line is
+  # made, never by its words: "[H-94 (5)]" a secret's mode (deploy/.env, a plain key); "(2)" what the machine cannot
+  # run (memory class, card, driver, toolkit, disk space); "(3)" the poc profile on a PRODUCTION box. Every other warns
+  grep -E '^FAIL .*\[H-94 \([235]\)\]$' | sort -u || true
+}
+# ---- end of STOP-OR-WARN
+# H-94: the host check's PoC box is the record (deploy/.env beside the --env file, the mark) alone; it never stops by
+# the helper (its answer is its exit code): it asks tb_poc_box and writes one line with tb_stop_list, the one list
+TB_STOP_WHO=check_host; TB_STOP_FILE=check_host.sh; TB_STOP_DEPLOY="$(dirname "$ENV_FILE")"; TB_STOP_ARG_ENV=""
+TB_STOP_REHEARSAL=0
 if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
+elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_sealed_pp; then
+  # H-97 (the integrator's ruling 7104745003, H-96's L-3): keys already sealed under the passphrase follow the rule of
+  # new ones: a WARN listed on a PoC box (the box's recorded environment decides, never a caller's variable), else a
+  # FAIL that names the action
+  NO_TPM_SEALED="no TPM device: the site keys are sealed under the passphrase back end (kek.json); the disk unlock is not bound to this board"
+  NO_TPM_ACTION="reseal the site keys under a TPM: on a board with a TPM, rotate the KEK to the TPM back end (SECURITY §10)"
+  if tb_poc_box; then
+    # the one list's writer says on stderr when it cannot write its line (the WARN says so too, with the action)
+    if [ -z "$(tb_stop_list no-tpm-sealed "the TPM binding of the KEK" "$NO_TPM_SEALED; to do: $NO_TPM_ACTION" 2>&1 >/dev/null)" ]; then
+      warn "$NO_TPM_SEALED (a PoC box: listed in deploy/site/poc-stops.jsonl)"
+    else warn "$NO_TPM_SEALED (a PoC box: NOT listed, deploy/site/poc-stops.jsonl cannot be written). Action: $NO_TPM_ACTION"; fi
+  else fail "$NO_TPM_SEALED: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) keeps them so. Action: $NO_TPM_ACTION"; fi
 elif ! { [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; } && kek_passphrase; then
-  warn "no TPM device: $KEK_PP; the disk unlock is not bound to this board"
+  NO_TPM_PP="no TPM device: $KEK_PP, but nothing is sealed under it yet; the disk unlock is not bound to this board"
+  if tb_poc_box; then
+    # the one list's writer says on stderr when it cannot write its line (H-96's review: the WARN says so too)
+    if [ -z "$(tb_stop_list no-tpm "the TPM binding of the KEK" "$NO_TPM_PP" 2>&1 >/dev/null)" ]; then
+      warn "$NO_TPM_PP (a PoC box: listed in deploy/site/poc-stops.jsonl)"
+    else warn "$NO_TPM_PP (a PoC box: NOT listed, deploy/site/poc-stops.jsonl cannot be written)"; fi
+  else fail "$NO_TPM_PP: only a PoC box (TB_ENV DEV, TEST or VALIDATION in $ENV_FILE) goes on without a TPM"; fi
 elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then
   # D-836: a device node is not enough; systemd-creds needs the TPM and its TSS2 libraries. Asked of the running host
   # only (a test's TB_HOST_ROOT has no kernel to ask)
   if [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1 && kek_passphrase; then
     warn "TPM 2.0 device present but not usable (systemd-creds has-tpm2): $KEK_PP"
   elif [ -z "$HR" ] && command -v systemd-creds >/dev/null 2>&1 && ! systemd-creds has-tpm2 >/dev/null 2>&1; then
-    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM
+    facility strict "TPM 2.0 device present but not usable (systemd-creds has-tpm2): the KEK cannot be sealed to it (TB_KEK_BACKEND=passphrase with --kek-passphrase-file)" TPM
   else
     pass "TPM 2.0 device present"
   fi
-else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE)" TPM; fi
+else facility strict "no TPM device: the disk unlock and the KEK cannot be bound to this board (TB_KEK_BACKEND=passphrase with --kek-passphrase-file)" TPM; fi
 
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then
-  m=$(mode "$ENV_FILE"); [ "$m" = "600" ] || [ "$m" = "400" ] && pass ".env mode $m" || fail ".env mode $m (want 600, root-owned)"
+  m=$(mode "$ENV_FILE"); [ "$m" = "600" ] || [ "$m" = "400" ] && pass ".env mode $m" || kept 5 ".env mode $m (want 600, root-owned)"
+  # H-110 (M-LH-1): the mode alone is not "root-owned": a .env another user owns (or a link, or a second name of the
+  # file) lets that user read every password and set COMPOSE_FILE for root's next start
+  u="$(stat -c %u "$ENV_FILE" 2>/dev/null)"; h="$(stat -c %h "$ENV_FILE" 2>/dev/null)"
+  if [ -L "$ENV_FILE" ]; then kept 5 ".env is a link (want a file of its own, root-owned, mode 600)"
+  elif [ "$u" != 0 ] && [ "$u" != "$(id -u)" ]; then kept 5 ".env is owned by uid $u (want root-owned, mode 600: chown root:root)"
+  elif [ "$h" != 1 ]; then kept 5 ".env has $h names (hard links; want one, root-owned, mode 600)"
+  fi
 else
   fail ".env not found at $ENV_FILE"
 fi
@@ -245,7 +357,18 @@ if [ -d "$SECRETS" ]; then
   for f in site_hmac.key pid_map.key; do  # the pid map rows are in the trial database (schema pidmap)
     if [ -f "$SECRETS/$f" ]; then
       m=$(mode "$SECRETS/$f")
-      facility strict "$f is a plain file (mode $m): seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)" "$f sealed"
+      # H-110 (f): a plain key group or others can read is a secret where others can read it (H-94 (5)): a FAIL on
+      # every box and profile, which the install keeps as a refusal (tb_kept_fails)
+      case "$m" in *00) ;; *) kept 5 "$f mode $m: a plain site key that group or others can read (want 600, root-owned)" ;; esac
+      # OCR 1455-3: mode 600 protects nothing when another user owns the key. Who may own one is D-1461's rule,
+      # read from its one place (libs/tb_common/kek.py key_owner_allowed: root, the services' uid, the user that runs
+      # this), never written here again (the integrator's ruling 7141781119)
+      u="$(stat -c %u "$SECRETS/$f" 2>/dev/null)"
+      python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from tb_common.kek import key_owner_allowed as ok
+sys.exit(0 if ok(int(sys.argv[2]), int(sys.argv[3])) else 1)' "$ROOT_DIR/libs" "${u:--1}" "$(id -u)" 2>/dev/null \
+        || kept 5 "$f is owned by uid $u: a plain site key another user can read (want root-owned, mode 600: chown root:root)"
+      # H-110 (g): this line names no mode: a plain key only its owner reads is not one of the five on a PoC box
+      facility strict "$f is a plain file: seal it (deploy/hardening/seal_keys.sh; python3 -m tools.keys init)" "$f sealed"
     elif [ -f "$SECRETS/$f.wrapped" ]; then
       pass "$f sealed under the KEK ($f.wrapped)"
     else
@@ -283,16 +406,22 @@ fi
 # room to work: Docker's data root (backups and updates stage there too)
 free="$(df -P "$HR$DOCKER_ROOT" 2>/dev/null | awk 'NR == 2 {gsub("%", "", $5); print 100 - $5}')"
 if [ -z "$free" ]; then warn "free space on $DOCKER_ROOT unknown"
-elif [ "$free" -lt 10 ]; then fail "free space on $DOCKER_ROOT: $free% (below 10%)"
+elif [ "$free" -lt 10 ]; then kept 2 "free space on $DOCKER_ROOT: $free% (below 10%)"
 elif [ "$free" -lt 20 ]; then warn "free space on $DOCKER_ROOT: $free% (below 20%)"
 else pass "free space on $DOCKER_ROOT: $free%"; fi
 
 # the two cron files of the install (T-632: log retention, backups)
+# H-110 (c): on a systemd host either job may be a timer instead (the retention's, the backup's of H-92)
 for c in trialbox-retention trialbox-backup; do
-  if [ -f "$HR/etc/cron.d/$c" ]; then pass "cron file /etc/cron.d/$c"; else facility strict "cron file /etc/cron.d/$c missing (re-run install.sh)" "cron $c"; fi
+  t="$c.timer"; [ "$c" = trialbox-backup ] && t=trialbox-backup-nightly.timer
+  if [ -f "$HR/etc/cron.d/$c" ]; then pass "cron file /etc/cron.d/$c"
+  elif [ -f "$HR/etc/systemd/system/$t" ]; then pass "systemd timer /etc/systemd/system/$t (no cron file: the timer runs $c)"
+  else facility strict "cron file /etc/cron.d/$c missing (re-run install.sh)" "cron $c"; fi
 done
-# the host's time zone (doctor compares it with the site's, D-315)
-HOST_TZ_NAME="$(timedatectl show -p Timezone --value 2>/dev/null || cat "$HR/etc/timezone" 2>/dev/null || true)"
+# the host's time zone (doctor compares it with the site's, D-315): read as the install's questions read it, one source
+HOST_TZ_NAME="$(python3 -I "$ROOT_DIR/libs/tb_common/host_zone.py" "${HR:-/}" 2>/dev/null || true)"
+# no python3, or a copied /etc/localtime with no /etc/timezone: timedatectl still answers
+[ -n "$HOST_TZ_NAME" ] || HOST_TZ_NAME="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
 if [ -n "$HOST_TZ_NAME" ]; then pass "host time zone $HOST_TZ_NAME"; else warn "host time zone not set (timedatectl set-timezone)"; fi
 
 # OS patches (tools/apply_update.sh ospatch; OPS-024)
@@ -311,7 +440,7 @@ fi
 if [ "$BASELINE" = 1 ]; then
   echo "---"
   facilities
-  [ "$FAILS" -eq 0 ] && { echo "host baseline checks passed"; exit 0; } || { echo "$FAILS baseline check(s) failed"; exit 1; }
+  [ "$FAILS" -eq 0 ] && { echo "host baseline checks passed"; exit 0; } || { echo "$FAILS baseline check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)
 fi
 
 # network egress (§2, deploy/network.sh)
@@ -339,18 +468,18 @@ fi
 
 # GPU / GB10 (§2; docker-compose.gb10.yml)
 if [ "$GB10" = 1 ]; then
-  [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"
+  [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || kept 2 "GB10 profile on $(uname -m)"
   gb10_memory_check
   d=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
-  if [ "$d" = "580.142" ]; then pass "NVIDIA driver 580.142 (pinned)"; else fail "NVIDIA driver '${d:-none}' (GB10 requires 580.142; hold it with apt-mark)"; fi
+  if [ "$d" = "580.142" ]; then pass "NVIDIA driver 580.142 (pinned)"; else kept 2 "NVIDIA driver '${d:-none}' (GB10 requires 580.142; hold it with apt-mark)"; fi
   if apt-mark showhold 2>/dev/null | grep -q nvidia; then pass "NVIDIA driver packages held"; else warn "driver packages not held (apt-mark hold)"; fi
-  if docker info 2>/dev/null | grep -qi nvidia; then pass "nvidia container runtime"; else fail "nvidia-container-toolkit not configured"; fi
+  if docker info 2>/dev/null | grep -qi nvidia; then pass "nvidia container runtime"; else kept 2 "nvidia-container-toolkit not configured"; fi
   gpu_image_check
 elif command -v nvidia-smi >/dev/null 2>&1; then
   pass "GPU: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | head -1)"
   [ -z "$GPU_PROFILE" ] || gpu_image_check
 elif [ -n "$GPU_PROFILE" ]; then
-  fail "GPU profile $GPU_PROFILE but no nvidia-smi (NVIDIA driver not installed)"
+  kept 2 "GPU profile $GPU_PROFILE but no nvidia-smi (NVIDIA driver not installed)"
 else
   warn "no NVIDIA GPU: run with TB_LLM_MODE=stub or the cloud flag"
 fi
@@ -365,20 +494,19 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   [ "$(cd "$(dirname "$ENV_FILE")" && pwd)" = "$(cd "$ROOT_DIR/deploy" && pwd)" ] \
     && [ "$(basename "$ENV_FILE")" = .env ] && set -- "$@" --env-file /app/deploy/.env
   # the host's zone for doctor's site_tz check (D-315): the container's /etc is the image's, not the host's
-  HOST_TZ="$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null \
-    || readlink /etc/localtime 2>/dev/null | sed 's|.*zoneinfo/||')"
+  HOST_TZ="$HOST_TZ_NAME"
   # the KEK the unseal writes (tb_common.kek, D-347), read-only, when this host has one
   KEK_DIR="${TB_KEK_HOST_DIR:-/run/trialbox}"; KEK_MOUNT=""
   [ -d "$KEK_DIR" ] && KEK_MOUNT="$KEK_DIR:/run/trialbox:ro"
   # D-991: the code systems loaded at install (deploy/terminology.sh), read-only, so doctor's terminology line reports
   # what criteria-compiler, orchestrator and console read
-  TERM_VOL="${COMPOSE_PROJECT_NAME:-trialbox}_tb-terminology"; TERM_MOUNT=""
+  TERM_VOL="${OWN_PROJECT}_tb-terminology"; TERM_MOUNT=""
   docker volume inspect "$TERM_VOL" >/dev/null 2>&1 && TERM_MOUNT="${TERM_VOL}:/data/terminology:ro"
   # NEW-STD-2 (D-562): doctor's audit_heads check reads the secrets volume (the audit key) and the anchor folders
   # (the signed heads) at their host paths, read-only; without them a healthy box FAILed the check in the image
   AUDIT_MOUNTS=""
   SEC_HOST="$(sed -n 's/^TB_SECRETS_HOST_DIR=//p' "$ENV_FILE" | tail -1)"
-  [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)"
+  [ -n "$SEC_HOST" ] || SEC_HOST="$(docker volume inspect -f '{{.Mountpoint}}' "${OWN_PROJECT}_tb-secrets" 2>/dev/null)"
   [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ] && AUDIT_MOUNTS="-v $SEC_HOST:$SEC_HOST:ro -e TB_SECRETS_HOST_DIR=$SEC_HOST"
   # D-887 (found by the box rehearsal in CI): doctor's site_key check reads the site key where the services do
   if [ -n "$SEC_HOST" ] && [ -d "$SEC_HOST" ]; then AUDIT_MOUNTS="$AUDIT_MOUNTS -v $SEC_HOST:/run/secrets/trialbox:ro"
@@ -409,17 +537,27 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   # D-621: the doctor's container has no network and no docker, so the host hands in what it cannot see: the
   # environment of the running containers (docker inspect, through a pipe: it holds passwords and is never
   # written to a file) and the pid map's row for the site (the fingerprint and the chart-number rule; no secret)
-  PROJECT="${COMPOSE_PROJECT_NAME:-trialbox}"
+  PROJECT="$OWN_PROJECT"  # H-106: this folder's own (a test box's record)
   RUNNING_IDS="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null | tr '\n' ' ')"
   SITE_ID="$(sed -n 's/^TB_SITE_ID=//p' "$ENV_FILE" | tail -1)"
   PIDMAP_ROW=""
   if [ -n "$RUNNING_IDS" ] && [ -n "$SITE_ID" ]; then
-    if PIDMAP_OUT="$(printf '%s\n' "SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site'" \
+    # P-30: guarded as the doctor's own read (to_regclass): before the first night there is no table, and an
+    # unguarded SELECT logs an ERROR in the database at every boot
+    if PIDMAP_OUT="$(printf '%s\n' "SELECT to_regclass('pidmap.site_key') IS NOT NULL AS tb_has_pidmap \\gset" \
+        "\\if :tb_has_pidmap" \
+        "SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site';" \
+        "\\endif" \
         | docker compose --project-directory "$ROOT_DIR/deploy" exec -T db psql -X -q -tA -v ON_ERROR_STOP=1 \
             -v site="$SITE_ID" -U trialbox -d trialbox_wf 2>/dev/null)"; then
       PIDMAP_ROW="${PIDMAP_OUT:-none}"
     fi
   fi
+  # H-136: the hold after a restore (D-522), read through the box as the doctor reads it on a host (compose exec db,
+  # tools/trialbox/box_hold.py, the standard library only): this doctor has no engine to ask. One JSON line, held,
+  # released or unread with its cause, which the doctor FAILs (an operator told nothing is held while it is on)
+  HOLD_LINE="$(cd "$ROOT_DIR" && python3 -m tools.trialbox.box_hold "$ROOT_DIR/deploy" 2>/dev/null)" || HOLD_LINE=""
+  [ -n "$HOLD_LINE" ] || HOLD_LINE='{"state": "unread", "cause": "the host check could not run python3 -m tools.trialbox.box_hold"}'
   # $AUDIT_MOUNTS and $RUNNING_IDS are lists of words by design (the folders' paths hold no space on a box)
   running_env() {
     # shellcheck disable=SC2086
@@ -429,7 +567,8 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   doctor_in_image() {
     # shellcheck disable=SC2086
     if docker run --rm --network none --env-file "$ENV_FILE" -i -e TB_HOST_TZ="$HOST_TZ" \
-        -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
+        -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -e TB_DOCTOR_RESTORE_HOLD="$HOLD_LINE" \
+        -v "$ROOT_DIR/deploy:/app/deploy:ro" \
         ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} ${TERM_MOUNT:+-v "$TERM_MOUNT"} ${LDAP_MOUNT:+-v "$LDAP_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
         "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
       return 0
@@ -453,4 +592,4 @@ fi
 
 facilities
 echo "---"
-[ "$FAILS" -eq 0 ] && { echo "host checks passed"; exit 0; } || { echo "$FAILS check(s) failed"; exit 1; }
+[ "$FAILS" -eq 0 ] && { echo "host checks passed"; exit 0; } || { echo "$FAILS check(s) failed"; exit 1; }  # H-94 not a stop: the check's answer to its caller (install.sh's FAIL lines; on a PoC box they warn)

@@ -388,8 +388,15 @@ class Fit:
     todo_words: dict[str, str] = field(default_factory=dict)  # a run's to-do -> its words in the page language (D-309)
 
 
-def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta]) -> Fit:
-    fit = Fit(todo_words={m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original})
+def todo_words_of(crit: Mapping[str, CriterionMeta]) -> dict[str, str]:
+    return {m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original}
+
+
+def fit_facts(
+    criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta], todo_words: dict[str, str] | None = None
+) -> Fit:
+    """``todo_words``: :func:`todo_words_of` ``crit``, when the caller made it once for many rows (MVP-B)."""
+    fit = Fit(todo_words=todo_words_of(crit) if todo_words is None else todo_words)
     for v in criteria:
         cid = str(v.get("id"))
         meta = crit.get(cid)
@@ -423,6 +430,19 @@ def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Criterio
     return fit
 
 
+def kept_fit(
+    r: Mapping[str, Any], crit: Mapping[str, CriterionMeta], todo: dict[str, str], fits: dict[str, tuple[Any, Fit]]
+) -> Fit:
+    """MVP-B: the row's :func:`fit_facts`, made once while the row's own criteria list is the one kept (``is``: a row
+    sent back or laid over gets a new list, so a new fit). Shared between views: a page that adds to it replaces it
+    with its own copy (``home.others_of``), never changes it in place."""
+    pid, src = str(r.get("pid") or ""), r.get("criteria")
+    got = fits.get(pid)
+    if got is None or got[0] is not src:
+        got = fits[pid] = (src, fit_facts(list(src or []), crit, todo))
+    return got[1]
+
+
 def weekly_rows(
     cl: Mapping[str, Any] | None,
     crit: Mapping[str, CriterionMeta],
@@ -434,11 +454,15 @@ def weekly_rows(
     *,
     include_closed: bool = False,
     today: date | None = None,
+    fits: dict[str, tuple[Any, Fit]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled,
+    """``fits``: kept fits of this list and ``crit`` (:func:`kept_fit`), for a caller that views it again.
+
+    Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled,
     closed or set aside, sorted by next visit (none last), then tier, then pseudonym. A "Not now, re-check on <date>"
     mark hides the patient until that date (``today``); from then on the patient is back with the mark shown."""
     names = dict(practitioners or {})
+    todo = todo_words_of(crit)  # read only (the page's to-do words), so one for every row
     rows = []
     for r in (cl or {}).get("rows") or []:
         tier = r.get("tier")
@@ -453,7 +477,7 @@ def weekly_rows(
         if not include_closed and status in ("closed", "enrolled", "set_aside"):
             continue
         crits = list(r.get("criteria") or [])
-        fit = fit_facts(crits, crit)
+        fit = fit_facts(crits, crit, todo) if fits is None else kept_fit(r, crit, todo, fits)
         nxt = r.get("next_appointment") or ""
         when = None
         if nxt:

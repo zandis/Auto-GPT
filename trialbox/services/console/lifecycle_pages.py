@@ -34,7 +34,7 @@ from datacore.lifecycle import ON_STUDY
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common import workdays
+from tb_common import egress_edge, workdays
 from tb_common.csvfile import for_spreadsheet
 from tb_common.erased import is_erased
 
@@ -337,6 +337,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(404, "notfound")
         out = actor.call(h, sess, "phi.view", rid, "GET", f"/studies/{rid}/report/{fmt}")
         data = base64.b64decode(out["b64"]) if "b64" in out else str(out.get("text") or "").encode("utf-8")
+        data = egress_edge.made(data)  # built by the orchestrator for this signed call, never a stored file (1523)
         au.append("console.export", ruleset=rid, actor=h.actor(sess), detail={"filename": str(out["name"])})
         return str(out["name"]), str(out["media_type"]), data
 
@@ -773,7 +774,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if media.startswith("text/csv"):
             data = for_spreadsheet(data)  # a file a person opens: Excel reads it as UTF-8 only with the mark
         elif fmt == "xlsx":
-            data = printable_report(data, sess.lang)  # NEW-UX-3b (D-699): it opens on the report for people
+            data = egress_edge.made(printable_report(data, sess.lang))  # NEW-UX-3b (D-699); built here (1523)
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     # ------------------------------------------------------------------ /api/v1 (D-125, D-127)

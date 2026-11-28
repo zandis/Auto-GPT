@@ -4,7 +4,13 @@ PY ?= .venv/bin/python
 COMPOSE := docker compose --project-directory deploy -f deploy/docker-compose.yml
 # the test stack uses the example settings with a high per-sender limit: e2e suites run many times a day
 TEST_SETTINGS := .cache/test-settings.yaml
-COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
+# H-139: the test stack's own compose project. The base file's name (trialbox) is a box's, and a box installed on the
+# same host would otherwise share the test stack's containers and networks; `make up-test` refuses when another
+# project or program holds what the stack would publish (tools/test_stack_free.py). H-139 (H139-14): the test stack is
+# TEST and D0 whatever the caller's shell exports (a TB_ENV of the host's own box made every service refuse the
+# tests' calls, 401): no caller's environment variable decides it
+TEST_PROJECT := trialbox-test
+COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) TB_ENV=TEST TB_DATA_CLASS=D0 $(COMPOSE) -p $(TEST_PROJECT) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
 # release identity on every image we build (T-110b, ENG-015): the version from pyproject.toml and the commit
 TB_VERSION := $(shell sed -n 's/^version = "\(.*\)"$$/\1/p' pyproject.toml | head -1)
@@ -19,7 +25,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 
 
 .PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline console-timing e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch buildx-check two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
-	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates vocab-bundle-check release-bundle security-contact-check supply-chain release-version release-tag media-linux
+	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates vocab-bundle-check release-images release-bundle security-contact-check supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
@@ -134,7 +140,7 @@ test-random: venv-check $(FONTS) $(JVM_DEPS)
 	if [ $$rc = 75 ]; then echo "test-random: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
 
 test-random-locked:
-	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -m 0700 -p "$(TB_TEST_ROOT)/tmp"
 	TB_TEST_RANDOM=1 TMPDIR="$(TB_TEST_ROOT)/tmp" uv run --frozen --no-sync --with "$(RANDOMLY)" $(NO_NETWORK) \
 		python -m pytest -p randomly $(if $(RANDOM_SEED),--randomly-seed=$(RANDOM_SEED),) $(NO_NETWORK_ARGS) \
 		-n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf" \
@@ -143,7 +149,7 @@ test-random-locked:
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
 
 test-locked:
-	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -m 0700 -p "$(TB_TEST_ROOT)/tmp"
 	TMPDIR="$(TB_TEST_ROOT)/tmp" $(if $(TRACE),TB_TRACE_OUT="$(TRACE)",) $(PY) -m pytest -q -n $(PYTEST_N) $(XDIST_DIST) \
 		--basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf" $(SHARD_ARGS) \
 		$(TESTS); rc=$$?; \
@@ -200,6 +206,7 @@ differential: venv-check
 # the pure tests alone (ENG-028, T-653): the tests marked nodb (tests/conftest.py PURE_MODULES), with no PostgreSQL
 # at all: TB_PG_BIN points nowhere and TB_TEST_DB_URL is unset, so a test that needs a database fails at once
 test-pure: venv-check
+	@mkdir -p "$(TB_TEST_ROOT)"
 	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-n $(PYTEST_N) -m "nodb and not integration and not e2e and not llm and not perf"
 
@@ -307,7 +314,7 @@ demo:
 # the same as one image file for the demo VM (docs/RUNBOOK.md §11): dist/trialbox-demo.tar.gz
 # T-501: the jar the compiler reads FHIRHelpers from comes from jvm-deps (the Dockerfile fetches it on a fresh clone)
 demo-bundle: jvm-deps vocab-bundle-check
-	docker build $(CA_SECRET) -f demo/Dockerfile -t trialbox-demo:step5 .
+	docker build $(CA_SECRET) $(NO_CACHE_ARG) -f demo/Dockerfile -t trialbox-demo:step5 .
 	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
 	@ls -l dist/trialbox-demo.tar.gz
 
@@ -316,9 +323,10 @@ test-e2e:
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
 # the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
-# the public corpus the public-data site reads (ENG-002, D-560; tools/public_site.py): NTCIR-16 Real-MedNLP MedTxt
-# (CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and never committed. `tools.public_e2e` and the
-# nightly job `public-e2e` need it.
+# the Real-MedNLP MedTxt test collection (NTCIR-16, CC BY 4.0, Sociocom NAIST, 1.4 MB), fetched once into .cache/medtxt and
+# never committed. The eval, the medtxt gate and the public-medtxt scenario need it (the negative and suspicious tags).
+# The public-data site and `tools.public_e2e` no longer do: they read the JMED-LLM datasets committed under
+# eval/medtxt/jmed-llm (D-639; #639 7116467086). The corpus host is not reachable from the CI runner.
 public-data:
 	PYTHONPATH=libs:services:. $(PY) -c "import tools.medtxt_eval as m; m.fetch(); print('public-data: MedTxt in', m.CACHE)"
 
@@ -439,15 +447,29 @@ PLATFORM_ARG := $(if $(PLATFORM),--platform $(PLATFORM),)
 buildx-check:
 	@docker buildx version >/dev/null 2>&1 || { echo "images: Docker's buildx plugin is missing (docker buildx version failed); install docker-buildx-plugin (Docker's packages) or docker-buildx (Ubuntu's), then run make again" >&2; exit 1; }
 
+# H-143: the Debian security-upgrade layer (python.Dockerfile, demo/Dockerfile) is unpinned, so a warm cache keeps
+# an older day's libraries (the bench's bundle at c3a5b2b2: libzstd1 in trialbox-py, -backup, -jvm and -embed).
+# Dev builds keep the cache. `make release-images` (and so `make release-bundle`, ahead of its gates) first pulls
+# every outside base the Dockerfiles pin by digest, then builds every image with --no-cache and without --pull:
+# --pull would send the FROM of trialbox-py (backup, jvm, embed) to a registry, where it is not. The gates then hold
+# each image to deploy/images.lock security_floors (tools/supply_chain/floors.py).
+RELEASE_DOCKERFILES := deploy/docker/python.Dockerfile deploy/docker/backup.Dockerfile deploy/docker/jvm.Dockerfile \
+	deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile demo/Dockerfile
+RELEASE_BASES = $(sort $(shell grep -hoE '[a-z0-9./_-]+:[^ @"]*@sha256:[0-9a-f]{64}' $(RELEASE_DOCKERFILES)))
+NO_CACHE_ARG = $(if $(RELEASE_NO_CACHE),--no-cache,)
+release-images:
+	for b in $(RELEASE_BASES); do docker pull $(PLATFORM_ARG) "$$b" || exit 1; done
+	$(MAKE) images demo-bundle RELEASE_NO_CACHE=1
+
 images: buildx-check jvm-deps $(FONTS)
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
-		-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/backup.Dockerfile \
-		-t trialbox-backup:1.0.0 .
-	docker build $(PLATFORM_ARG) $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/embed.Dockerfile \
-		-t trialbox-embed:1.0.0 .
-	deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS)  # the db build of deploy/poc.sh too (card 24-2)
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
+		--build-arg TB_REVISION=$(TB_REVISION) -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
+		-f deploy/docker/backup.Dockerfile -t trialbox-backup:1.0.0 .
+	docker build $(PLATFORM_ARG) $(OCI_LABELS) $(NO_CACHE_ARG) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) $(NO_CACHE_ARG) \
+		-f deploy/docker/embed.Dockerfile -t trialbox-embed:1.0.0 .
+	deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS) $(NO_CACHE_ARG)  # the db build of deploy/poc.sh too (card 24-2)
 
 # ENG-003 (D-563): a PRODUCTION box starts its embed service. The box's compose file, the trialbox-embed image,
 # TB_ENV=PRODUCTION, a tiny model made on the spot (no download), pinned by the installer's own call; one
@@ -520,7 +542,10 @@ objects-dir:
 	       "another user): remove it (sudo rm -rf $(OBJECTS_DIR)) and run again" >&2; exit 1; }
 
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
-	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects && $(COMPOSE_TEST) up -d --wait
+	@echo "up-test: the test stack is compose project $(TEST_PROJECT), TB_ENV=TEST and TB_DATA_CLASS=D0, whatever this shell exports"
+	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects
+	set -o pipefail; $(COMPOSE_TEST) config --format json | PYTHONPATH=libs:services:. $(PY) -m tools.test_stack_free $(TEST_PROJECT)
+	$(COMPOSE_TEST) up -d --wait
 
 # load synthetic site A into the running test stack (adapter -> lake + FHIR store)
 ingest-test:
@@ -548,9 +573,14 @@ bench:
 # (in the pull request that changes the speed on purpose, with the reason in the commit)
 BENCH_PATIENTS ?= 5000
 BENCH_OUT ?= $(TB_TEST_ROOT)/bench-gate
+# BENCH_REF=<file>: the baseline's reference commit measured on this runner (`make bench-baseline` in a checkout of it,
+# the copy of its tools/bench_baseline.json): the gate is then on the ratio to it. The nightly sets it when the runner's
+# CPU model is not the one the baseline was written on (`tools/bench.py --cpu-differs`)
+BENCH_REF ?=
 bench-gate:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)"
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)" \
+		$(if $(BENCH_REF),--ref "$(BENCH_REF)",)
 
 # D-1245 (10E-13): the console's ten-page timing walk (p95 of the Server-Timing header under 300 ms; marker perf, nightly
 # in trialbox-e2e.yml's perf-5k job). The walk's rules and the planted slow page are tests/console/test_console_timing.py
@@ -646,12 +676,44 @@ restore-drill:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.restore_drill run --out "$(RESTORE_DRILL_OUT)" \
 		--work "$(TB_TEST_ROOT)/restore-drill/work"
 
-test-console:
-	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
+# H139-13: the full set's console and poc stages (tools/full_set.py) allow no skip, as test-compose and test-walks:
+# a browser driver node cannot load is a failure that names it, never a skip that turns the stage green. The unit
+# shards run the console tests without this: there a host with no node still skips them with their own reasons.
+# H-145 (#1504): the console tests run as `make test` runs the unit suite: the same marked TB_TEST_ROOT and its lock,
+# the xdist workers with --dist worksteal, TMPDIR and basetemp under the root. TB_STRICT_SKIPS=1 (tests/conftest.py):
+# a browser file that cannot start node or Chromium fails with its reason, it never turns the stage green by skipping.
+# The lead's bench (#1504): a run under nohup (SIGHUP ignored) is refused, since its workers, servers and browsers
+# would outlive a closed session; so is a root that group or others can write into, or that lies under such a folder
+# without the sticky bit (pglocal mark closes the folders this user owns; this refuses the ones it cannot close).
+# R1 (#1539): every cleanup step after pytest runs; a green run fails with the first cleanup step that failed, and a
+# red run keeps pytest's status.
+test-console: venv-check test-console-preflight
+	@TB_STRICT_SKIPS=1 flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-console-locked; rc=$$?; \
+	if [ $$rc = 75 ]; then echo "test-console: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
+
+.PHONY: test-console-preflight
+test-console-preflight:
+	@case "$$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$$$/status)" in *[13579bdfBDF]) \
+		echo "test-console: SIGHUP is ignored (nohup?): run it in a session that can end it" >&2; exit 1;; esac
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	@d="$(TB_TEST_ROOT)"; while :; do m=$$(stat -L -c %A "$$d") || exit 1; \
+		case "$$m" in ?????w????|????????w?) case "$$m" in *[tT]) ;; *) \
+			echo "test-console: $$d ($$m) can be written by others: give TB_TEST_ROOT a parent only you can write" >&2; \
+			exit 1;; esac;; esac; [ "$$d" = / ] && break; d=$$(dirname "$$d"); done
+
+.PHONY: test-console-locked
+test-console-locked:
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -m 0700 -p "$(TB_TEST_ROOT)/tmp"
+	TB_STRICT_SKIPS=1 TB_ENV=TEST TMPDIR="$(TB_TEST_ROOT)/tmp" PYTHONPATH=libs:services:. $(PY) -m pytest -q -n $(PYTEST_N) $(XDIST_DIST) \
+		--basetemp "$(TB_TEST_ROOT)/pytest" tests/console; rc=$$?; \
+	c=0; rm -rf "$(TB_TEST_ROOT)/tmp"; s=$$?; [ $$c != 0 ] || c=$$s; \
+	PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; s=$$?; [ $$c != 0 ] || c=$$s; \
+	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; s=$$?; [ $$c != 0 ] || c=$$s; fi; \
+	if [ $$rc != 0 ]; then exit $$rc; fi; exit $$c
 
 # browser + e-mail end to end against the running POC (make poc first): Playwright (Node) drives the console
 test-console-e2e:
-	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
+	TB_INTEGRATION=1 TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
 
 site:
 	$(PY) tools/build_site.py
@@ -731,7 +793,8 @@ trivy-db: scanners
 
 # the release gates: each image pinned (a local one by image id, registry:REF=os/arch by digest), then offline
 # Trivy, Syft SBOM, licences, one record (build/supply-chain/gates.json, dist/sbom/index.json). Needs make trivy-db.
-release-gates: lock-sbom sc-images
+# under `make release-bundle` the gates wait for release-images (the images they scan); alone they scan what is there
+release-gates: lock-sbom sc-images $(if $(filter release-bundle,$(MAKECMDGOALS)),release-images,)
 	PATH=$(SCANNERS):$$PATH $(SC) release-gates --cache-dir $(TRIVY_CACHE) --out $(SC_DIR) --sbom-dir dist/sbom \
 		--lock-sbom dist/sbom/requirements.lock.cdx.json $(RELEASE_GATES_ARGS) $(foreach i,$(SC_IMAGES),--image $(i))
 
@@ -757,7 +820,7 @@ vocab-bundle-check:
 # and the tree as one set. No hadolint ignore is added for them (no scan allow-list entry).
 HADOLINT_GATING := deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile
 HADOLINT_REPORT := deploy/docker/backup.Dockerfile deploy/docker/embed.Dockerfile deploy/docker/db.Dockerfile \
-	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile
+	deploy/redcap-test/Dockerfile tools/rehearse_box/host.Dockerfile tools/bench_ci/runner.Dockerfile
 HADOLINT_IMAGE := hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e
 # each image of SC_OWN_IMAGES and the Dockerfile it is built from
 IMAGE_SCAN_IMAGES ?= trialbox-py:1.0.0=deploy/docker/python.Dockerfile trialbox-backup:1.0.0=deploy/docker/backup.Dockerfile \
@@ -773,6 +836,16 @@ image-scan: scanners
 		--hadolint-image $(HADOLINT_IMAGE) $(foreach i,$(IMAGE_SCAN_IMAGES),--image $(i)) \
 		--config-dir deploy/docker --config-dir demo $(IMAGE_SCAN_ARGS)
 
+# Release hygiene item 5: the standing release gates (tools/supply_chain/standing_gates.py): the code-pattern scanner
+# with its rule set at a pinned commit, two secret scanners, the platform-manifest scanner on deploy/platform and the
+# Dockerfile linter on every Dockerfile, each an image by version and digest, the tree read-only. Fails on a count
+# above deploy/security/standing-gates-baseline.json and on every finding of a tool from its date in BLOCKS_FROM (the
+# integrator's ruling 7213778687). Needs Docker and the network for the rule set.
+STANDING_GATES_DIR ?= build/standing-gates
+.PHONY: standing-gates
+standing-gates:
+	$(SC) standing-gates --out $(STANDING_GATES_DIR) --src .. --rules .cache/code-rules $(STANDING_GATES_ARGS)
+
 # D-1343: hadolint on HADOLINT_REPORT, report-only (exit 0 whatever it finds; the hadolint image by digest, Docker).
 HADOLINT_REPORT_OUT ?= build/hadolint-report.txt
 .PHONY: hadolint-report
@@ -784,10 +857,10 @@ hadolint-report:
 	@cat $(HADOLINT_REPORT_OUT)
 
 # a bundle only from images that passed the gates (make_bundle.sh needs --gates, T-110b); the SBOMs of dist/sbom ride
-# inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
+# inside it with release.json. BUNDLE_ARGS="--key ... --pub ... --id ... --release-seq N --out FRESH_FOLDER/trialbox-<id>.tar"
 # 10G-9 (D-1239): no release bundle while the public security contact (deploy/security/contact.json) is not set; a
 # --rehearsal or --allow-dirty bundle, which is no release, passes with a warning
-release-bundle: security-contact-check release-gates vocab-bundle-check
+release-bundle: security-contact-check release-images release-gates vocab-bundle-check
 	tools/make_bundle.sh --gates $(SC_DIR)/gates.json --sbom-dir dist/sbom $(BUNDLE_ARGS)
 
 # OPS-006 (D-966): the offline media of a bare Ubuntu box from a signed bundle and the packages of
@@ -815,3 +888,10 @@ rehearse:
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build *.egg-info
+
+# rc1 line 1: the whole test set (unit, integration, e2e, goldens, the GPU suites) three runs in a row, a log per stage
+# per run, a summary (tools/full_set.py). FULL_SET_ARGS: --out DIR --llm-url URL --llm-model NAME, --only, --list
+FULL_SET_ARGS ?=
+.PHONY: full-set
+full-set: venv-check
+	PYTHONPATH=libs:services:. $(PY) -m tools.full_set $(FULL_SET_ARGS)

@@ -16,6 +16,7 @@ import pytest
 from tb_common import metrics
 from tb_common.db import Database, split_url
 
+from tests import pg_client
 from tools.trialbox import backup as bk
 from tools.trialbox import backup_schedule as bsch
 from tools.trialbox import restore_drill as rd
@@ -23,7 +24,9 @@ from tools.trialbox.__main__ import main as cli
 
 
 @pytest.fixture
-def box(tmp_path: Path, db_url: str) -> dict[str, Any]:
+def box(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    for var, cmd in pg_client.env().items():  # the CLI forms read the process environment, as TB_DB_URL is set
+        monkeypatch.setenv(var, cmd)
     db = Database.connect(db_url, "site")
     db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT NOT NULL)"])
     db.execute("INSERT INTO marks VALUES (?, ?)", ("P1", "approach"))
@@ -34,7 +37,7 @@ def box(tmp_path: Path, db_url: str) -> dict[str, Any]:
     (dirs["lake"] / "patient.parquet").write_bytes(b"PAR1" + bytes(range(256)) * 50)
     priv, pub = tmp_path / "usb" / "backup.key", tmp_path / "box" / "backup.pub"
     bk.keygen(priv, pub)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH", **pg_client.env()}
     (f, *_) = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)
     return {"db": db, "dirs": dirs, "priv": priv, "file": f, "env": env, "url": db_url}
 
@@ -218,7 +221,9 @@ def test_box_restore_with_the_installers_nocreatedb_owner(
     run_cmd = update.run_cmd
     installed = box_drill.BoxDrill(settings)
 
-    def docker(argv: list[str], stdin_file: Path | None = None, env: dict[str, str] | None = None) -> str:
+    def docker(
+        argv: list[str], stdin_file: Path | None = None, env: dict[str, str] | None = None, timeout: float | None = None
+    ) -> str:  # run_cmd's signature (the audit send is bounded, review 1534)
         if argv[:2] == [*installed.box.docker, "inspect"]:
             assert argv[-1] == "synthetic-container-id"
             return json.dumps([{"Destination": "/var/lib/postgresql/data", "Source": str(tmp_path)}])
@@ -245,7 +250,10 @@ def test_box_restore_with_the_installers_nocreatedb_owner(
             return ""
         cmd = argv[argv.index("db") + 1 :]
         visited.append(cmd[0])
-        return run_cmd(cmd, stdin_file=stdin_file, env=pg_env)
+        tool = (
+            pg_client.tool(cmd[0]) if cmd[0] in pg_client.TOOLS else cmd[0]
+        )  # the db image's client, here the cluster's
+        return run_cmd([tool, *cmd[1:]], stdin_file=stdin_file, env=pg_env)
 
     with psycopg.connect(dsn, user=admin, autocommit=True) as con:
         # A second, empty source database exercises a full HAPI dump alongside the workflow's schema-filtered dump.

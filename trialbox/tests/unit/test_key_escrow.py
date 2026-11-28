@@ -16,9 +16,17 @@ from typing import Any
 import pytest
 from tb_common import kek as K
 
+from tests.own_deploy import own_deploy
 from tests.unit.test_kek import _cli, box  # noqa: F401
 from tools import key_escrow as ke
 from tools.trialbox import doctor
+
+
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
+
 
 NAMES = ["--custodian", "Custodian One", "--custodian", "Custodian Two", "--custodian", "Custodian Three"]
 
@@ -267,7 +275,7 @@ def test_the_ceremony_record_lists_the_set_and_the_doctor_warns_on_an_older_or_u
     assert _doctor(tpm).status == "PASS"
     # a rotation without a new set: the old set is kept, said, and refused on the record until a new one is made
     rc, out = _cli(capsys, "rotate-kek", "--secrets", str(tpm["sec"]), "--backend", "file", "--kek-out",
-                   str(tpm["tmp"] / "n.kek"))  # fmt: skip
+                   str(tpm["tmp"] / "n.kek"), "--audit-dir", str(tpm["audit"]))  # fmt: skip  # every rotation is an audit event (ruling 7114085298)
     assert rc == 0 and "opens the old KEK only" in out
     d = _doctor(tpm)
     assert d.status == "WARN" and "older KEK" in d.detail and "escrow-shares" in d.detail

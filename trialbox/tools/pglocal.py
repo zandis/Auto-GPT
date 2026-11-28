@@ -24,6 +24,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,38 @@ SOCK_MAX = 100  # sun_path holds 108 bytes on Linux and 104 on macOS
 # stays in the branch's own root; a longer slug sends it to the short-socket fallback.
 SLUG_MAX = 40
 SLUG_HASH = 8  # hex characters of the whole name's sha256 that a cut slug ends with
+
+
+#: H-139: the db image's pinned extensions (deploy/images.lock): the test server's vector may not be older
+IMAGES_LOCK = Path(__file__).resolve().parents[1] / "deploy" / "images.lock"
+
+
+def _version(text: str) -> tuple[int, ...]:
+    return tuple(int(n) for n in re.findall(r"\d+", text.split("-", maxsplit=1)[0])[:3])
+
+
+def vector_behind_pin(offered: str | None, pinned: str) -> str:
+    """Why a test server's vector extension cannot stand in for the db image's: older than ``pinned``. Empty when
+    the server offers none (the tests that need it say so themselves) or one at least as new."""
+    if not offered or _version(offered) >= _version(pinned):
+        return ""
+    return (
+        f"the test PostgreSQL offers the vector extension {offered}, older than the db image's {pinned} "
+        f"(deploy/images.lock): its types (halfvec among them) are missing, so the tests would fail for the host, "
+        f"not for the code. Install pgvector {pinned} or newer for this server, or give one in TB_TEST_DB_URL"
+    )
+
+
+def vector_check(url: str, lock: Path = IMAGES_LOCK) -> str:
+    """:func:`vector_behind_pin` for the server at ``url`` (its ``vector`` default version) and the image's pin."""
+    import json
+
+    import psycopg
+
+    pinned = str(json.loads(lock.read_text(encoding="utf-8"))["images"]["db"]["extensions"]["vector"])
+    with psycopg.connect(url, autocommit=True, connect_timeout=10) as con:
+        row = con.execute("SELECT default_version FROM pg_available_extensions WHERE name = 'vector'").fetchone()
+    return vector_behind_pin(str(row[0]) if row and row[0] else None, pinned)
 
 
 def bindir() -> Path:
@@ -337,12 +370,65 @@ def check_test_root(path: Path) -> Path:
     return p
 
 
+def _close_to_others(folder: Path) -> None:
+    """Take group and others' write from ``folder`` if this user owns it (the search bit stays). A shared folder (a
+    sticky one such as /tmp, a group's setgid folder, the home folder, / or a system folder) is never changed. The
+    folder is opened once without following a link, and the folder looked at is the folder changed."""
+    if folder in {Path("/"), Path.home(), *(Path(d) for d in SYSTEM_DIRS)}:
+        return
+    try:
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:  # a link, gone, or not a folder: left as it is
+        return
+    try:
+        st = os.fstat(fd)
+        shared = st.st_mode & (stat.S_ISVTX | stat.S_ISGID) or st.st_uid != os.geteuid()
+        if not shared and st.st_mode & 0o022:
+            os.fchmod(fd, stat.S_IMODE(st.st_mode) & ~0o022)
+    finally:
+        os.close(fd)
+
+
 def mark_test_root(path: Path) -> Path:
-    """Check ``path`` as a test root, create it (mode 0700 parents are left as they are) and write its marker."""
+    """Check ``path`` as a test root, create it and write its marker.
+
+    H-115: the folders it creates are 0700 whatever the umask. The test root, and the folders from it up to the
+    per-user scratch root when it lies under that root, lose group and others' write if this user owns them. A folder
+    above the scratch root is never changed, nor any folder when the scratch root is ``/`` or a top-level folder. A
+    folder in that chain that another account owns (not root), sticky or not, is refused: its owner could swap what
+    this run makes. The marker is written through the root's own descriptor, opened without following a link.
+    Under an ordinary user's umask 002 these folders were 0775, and the product's checks that walk the real folders
+    from ``/`` rightly refused every tree a test built below them."""
     p = check_test_root(path)
-    p.mkdir(parents=True, exist_ok=True)
-    (p / MARKER).touch()
+    for folder in reversed([p, *p.parents]):
+        if not folder.exists():
+            with contextlib.suppress(FileExistsError):  # another run made it a moment ago: checked below
+                folder.mkdir(mode=0o700)
+                folder.chmod(0o700)
+    scratch = Path(os.path.realpath(scratch_root()))  # p is a real path: compare like with like
+    for folder in [p, *p.parents]:
+        if folder != p and (len(scratch.parts) < 3 or not folder.is_relative_to(scratch)):
+            break
+        st = os.lstat(folder)
+        if st.st_uid not in (0, os.geteuid()):  # a sticky bit does not hold off the folder's own owner
+            raise ValueError(f"TB_TEST_ROOT={path} is refused: {folder} is uid {st.st_uid}'s, not this user's: "
+                             "its owner could swap what the run makes; give a root of this user's own")  # fmt: skip
+        _close_to_others(folder)
+        if folder == scratch:
+            break
+    _write_marker(p)
     return p
+
+
+def _write_marker(root: Path) -> None:
+    """The marker, written in ``root`` itself: a root swapped for a link after the checks is refused (an OSError),
+    never followed, and a marker that is a link is not followed either."""
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
+        os.close(os.open(MARKER, flags, 0o600, dir_fd=fd))
+    finally:
+        os.close(fd)
 
 
 def test_root() -> Path:

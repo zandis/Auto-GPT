@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from tb_common import kek as K
 
+from tests.own_deploy import own_deploy
 from tests.unit.test_backup_schedule import T0, FakeBox, _cfg, _offbox
 from tests.unit.test_kek import _cli, box  # noqa: F401
 from tests.unit.test_key_escrow import _escrow, tpm  # noqa: F401
@@ -30,7 +31,15 @@ from tools.trialbox import backup_schedule as bs
 from tools.trialbox import restic_repo as rr
 
 
+@pytest.fixture(autouse=True)
+def _own_deploy(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """H139-10: the key commands read a deploy folder of this test's own, never the checkout's deploy/.env."""
+    own_deploy(monkeypatch, tmp_path_factory.mktemp("box") / "deploy")
+
+
 # ------------------------------------------------------------------------------------------------ do shares cover it
+
+
 def test_a_shamir_kek_is_covered(stewards: dict[str, Path]) -> None:  # noqa: F811
     assert rr.shares_cover(stewards["sec"]) == ""
 
@@ -47,12 +56,16 @@ def test_a_tpm_kek_is_covered_only_with_its_current_escrow_set(
 def test_a_passphrase_kek_and_no_kek_are_not_covered(
     box: dict[str, Path],  # noqa: F811
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert "no KEK" in rr.shares_cover(box["sec"])
     assert "no KEK" in rr.shares_cover(box["tmp"] / "no-such-folder")
-    monkeypatch.setenv("TB_KEK_PASSPHRASE", "a passphrase long enough for the rule here")
-    assert _cli(capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase")[0] == 0
+    pp = box["tmp"] / "kek.pass"  # H-96 (ruling 7094934985): tools.keys takes it from a root-only file, not the env
+    pp.write_text("a passphrase long enough for the rule here\n", encoding="utf-8")
+    pp.chmod(0o600)
+    assert (
+        _cli(capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--passphrase-file", str(pp))[0]
+        == 0
+    )
     assert "not covered by escrow shares" in rr.shares_cover(box["sec"])
 
 

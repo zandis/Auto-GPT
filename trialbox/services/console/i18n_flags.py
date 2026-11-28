@@ -43,6 +43,7 @@ EN: dict[str, str] = {
     "flags.desc.steps.acting_role": "A test box only (TB_ENV DEV or TEST): a person whose account was given extra roles at boot may switch the role they act in from the top bar. Each switch is audited, and the audit trail and the delegation log keep naming the person. Refused on a validation or production box.",
     "flags.desc.notes.reading": "Note reading by the models. off holds it when a model misbehaves: no note question goes to a model, a note answer never counts as a criterion not matched, and every note criterion goes to a person. Release it with trialbox model release, after the canary passes (RUNBOOK §19).",
     "flags.desc.derived.stored_read": "Whether screening checks each score answer (eGFR, DAS28, CDAI, SDAI) against the stored score of the night's score batch: off (the default) uses the criteria's own computation only; on, on every list path alike, an answer the stored score does not support reads \"needs information\". Keep off until it has been proven on a real run.",
+    "flags.desc.screen.timing": "Measures how long each screening stage takes, for the time per chart: on, each screening run publishes a file of each stage's seconds and patient counts, with no patient data. Off: nothing is measured and the run's outputs are as before. Turn it on for a measured run, then off.",
     "flags.desc.vec.s2b": "Where the screening's semantic step reads its vectors: off embeds the note sentences during each run, as before; on reads them from the vector store built each night. Notes not yet stored, or changed since, are read the old way and the run records it. Leave off until the embedder is chosen and its threshold refitted.",
     "flags.desc.screening.after_restore": "The hold after a restore. A restore that is not complete sets it to held: until the events recorded after the backup (opt-outs, erasures, consent changes) are entered again, no patient list is made. Set it to released, with the reason, when they are.",
 }
@@ -86,6 +87,7 @@ JA: dict[str, str] = {
     "flags.desc.steps.acting_role": "テスト用の環境（TB_ENV が DEV または TEST）のみ：起動時に追加の役割を与えられたアカウントは、上部バーから操作する役割を切り替えられます。切替はすべて監査記録に残り、監査記録と委任記録には本人の名前が残ります。検証環境と本番環境では拒否されます。",
     "flags.desc.notes.reading": "モデルによるカルテ記載の読み取り。モデルの不具合時に off で停止します：記載に関する質問はモデルに送られず、カルテ記載だけで基準に合致しないとはせず、記載に基づく基準はすべて人が確認します。カナリアが合格した後に trialbox model release で再開します（RUNBOOK §19）。",
     "flags.desc.derived.stored_read": "スクリーニングでスコア（eGFR、DAS28、CDAI、SDAI）の結果を夜間のスコア一括計算の保存済みスコアと照合するか：off（既定）は基準自身の計算のみを使います。on にすると、すべてのリストの経路で同じく、保存済みスコアが裏付けない結果は「情報が必要」になります。実運用で確認できるまで off のままにしてください。",
+    "flags.desc.screen.timing": "カルテ1件あたりの時間を求めるため、スクリーニングの各段階にかかる時間を計測します。on のとき、各スクリーニング実行は段階ごとの秒数と患者数を記したファイルを公開します（患者のデータは含みません）。off のときは何も計測せず、実行の出力はこれまでどおりです。計測する実行のときだけ on にし、終わったら off に戻してください。",
     "flags.desc.vec.s2b": "スクリーニングの意味検索の段階がベクトルをどこから読むか：off はこれまでどおり実行のたびにカルテ記載の文を埋め込みます。on は毎晩作るベクトルストアから読みます。まだ保存されていない記載や、その後変わった記載は従来の方法で読み、実行記録に残します。埋め込みモデルが決まり、しきい値を合わせ直すまで off のままにしてください。",
     "flags.desc.screening.after_restore": "リストア後の保留。完了していないリストアは held にします。バックアップ後に記録された事項（オプトアウト、消去、同意の変更）を入力し直すまで、患者リストは作成されません。入力し直したら、理由を添えて released にしてください。",
 }
@@ -129,6 +131,7 @@ ZH: dict[str, str] = {
     "flags.desc.steps.acting_role": "僅限測試環境（TB_ENV 為 DEV 或 TEST）：開機時獲得額外角色的帳號，可從上方列切換目前操作的角色。每次切換都會記入稽核紀錄，稽核紀錄與授權紀錄表仍記載本人姓名。驗證與正式環境一律拒絕。",
     "flags.desc.notes.reading": "模型閱讀病歷記錄。模型異常時設為 off 以暫停：不再向模型提出記錄問題，病歷判讀不會將病人列為未符合條件，所有依記錄回答的條件都交由人員確認。金絲雀測試通過後，以 trialbox model release 恢復（RUNBOOK §19）。",
     "flags.desc.derived.stored_read": "篩選時是否以每晚分數批次計算的已儲存分數核對分數結果（eGFR、DAS28、CDAI、SDAI）：off（預設）只用條件本身的計算；on 時所有名單路徑一律相同，已儲存分數無法支持的結果列入「需要更多資訊」。在實際運行驗證前請保持 off。",
+    "flags.desc.screen.timing": "為了求得每份病歷所需的時間，記錄篩選每個階段花費的時間：開啟時，每次篩選執行會公開一個檔案，列出各階段的秒數與病人數，不含任何病人資料。關閉時不做任何記錄，執行的輸出與以往相同。只在要量測的執行時開啟，結束後請關閉。",
     "flags.desc.vec.s2b": "篩選語意步驟的向量從哪裡讀取：off 與以往相同，每次執行時才把病歷記錄的句子轉成向量；on 則從每晚建立的向量庫讀取。尚未存入或之後有變動的記錄會以舊方式讀取，並記錄在執行紀錄中。在嵌入模型選定、門檻重新調整之前，請保持 off。",
     "flags.desc.screening.after_restore": "還原後的暫停。未完成的還原會設為 held：在重新登錄備份之後記錄的事項（退出、刪除、同意變更）之前，不會產生病人名單。重新登錄完成後，請附上理由設為 released。",
 }

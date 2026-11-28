@@ -3,8 +3,7 @@ and export are each refused and audited.
 
 The withdrawal is recorded the way the console records it: the subject steps to ``withdrawn`` in the data core's
 lifecycle, and the withdrawal form's ``wd_data_use`` is written "0" (No) on the same data core the EDC service reads.
-Each action is its own test, so each turns green alone. Today nothing reads ``wd_data_use``
-(``services/datacore/builtin/forms.csv:67``); the EDC gates check opt-out only.
+Each action is its own test. The EDC service reads ``wd_data_use`` at each gate (V15-06, M7).
 """
 
 from __future__ import annotations
@@ -14,14 +13,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import pytest
 from datacore.lifecycle import Lifecycle
 from edc.store import EdcError
 
 from tests import edc_kit as k
 
 AT = "2026-11-11T09:00:00"
-REASON = "V15-06: a withdrawal with 'data may not be used' does not stop the EDC (plan 8 criterion 6; review K-4)"
 
 
 def _withdraw(svc: Any) -> None:
@@ -78,20 +75,17 @@ def _refused_and_audited(svc: Any, call: Callable[[], Any]) -> None:
     assert _refusals(svc) > before, "refused but no refusal in the audit"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=REASON)
 def test_decide_is_refused_after_a_withdrawal_without_data_use(tmp_path: Path) -> None:
     svc, drafts = _box(tmp_path)
     first = next(r for r in drafts.values() if r["state"] == "drafted")
     _refused_and_audited(svc, lambda: svc.decide(k.STUDY, first["id"], "confirm", by="crc"))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=REASON)
 def test_sign_is_refused_after_a_withdrawal_without_data_use(tmp_path: Path) -> None:
     svc, _ = _box(tmp_path, decided=True)
     _refused_and_audited(svc, lambda: _sign(svc))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=REASON)
 def test_send_is_refused_after_a_withdrawal_without_data_use(tmp_path: Path) -> None:
     svc, _ = _box(tmp_path, signed=True)
     sent: list[int] = []
@@ -108,7 +102,6 @@ def test_send_is_refused_after_a_withdrawal_without_data_use(tmp_path: Path) -> 
         raise
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=REASON)
 def test_export_is_refused_after_a_withdrawal_without_data_use(tmp_path: Path) -> None:
     svc, _ = _box(tmp_path, signed=True)
     _refused_and_audited(svc, lambda: svc.export_odm(k.STUDY, "crc"))

@@ -36,6 +36,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 import traceback
@@ -57,6 +58,19 @@ from tb_common.phi_guard import NOTE_MASK_VERSION, mask_note
 from lake.flatten import SCHEMAS
 from lake.source import lake_rows
 from lake.textproc import chunk, token_string
+
+# prof16 (CODED-PROFILE ruling Q2): DuckDB's binding of a list parameter tries ``import pandas`` twice per element;
+# with pandas not installed (the lake image) every try scans sys.path: 53.7 % of a SCREEN job at 100k patients.
+# Marked absent once at lake start, each try fails at once. An installed pandas is left alone.
+# pyarrow looks for pandas the first time it converts Python values and remembers the answer; it takes a ``None`` in
+# sys.modules for a module that was found and fails on its ``__version__`` (``pa.Table.from_pylist``, which the lake's
+# rebuild calls). So it looks first, with pandas still absent (one look, which also tells whether pandas is there),
+# and the mark goes in after. A pyarrow that does not say is left alone.
+# ponytail: stop-gap; the bulk runner (CODED-PROFILE §6) binds the pid list as one Arrow table instead
+pa.array([0])
+_PANDAS_ABSENT = getattr(getattr(getattr(pa, "lib", None), "_pandas_api", None), "have_pandas", None) is False
+if _PANDAS_ABSENT:
+    sys.modules.setdefault("pandas", None)  # type: ignore[arg-type]
 
 log = logging.getLogger("lake")
 DIM = 1024

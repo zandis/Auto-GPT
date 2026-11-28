@@ -134,6 +134,11 @@ untouched. The shape is `deploy/platform/overlays/update`. For the next update, 
 pre-update backup. A new image name or repository is refused: that is a new release, whose manifests are applied
 after the same backup. The tool refuses an update that would unpin an image.
 
+A rollback past job schema 1.3.0 (F17 5a/5b) needs the job records stripped first: a MICROBATCH job written after it
+carries `metrics.night_open`, which the previous release refuses to read. With the new release and the orchestrator
+stopped, run `python -m tools.strip_night_open` from `trialbox/` (it prints how many records it changed; safe to run
+twice), then start the previous images. The strip removes the open-criteria card data of those nights only.
+
 ## Noisy neighbours
 
 MIG separates the GPU's memory and compute, not the CPU, memory, storage or network of the host (OPS-070). Every

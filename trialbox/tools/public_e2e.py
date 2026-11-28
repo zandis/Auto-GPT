@@ -300,8 +300,8 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     t = time.perf_counter()
     summ = site["summary"]
     s.check(
-        "every source document is one patient (SIGIR 53, MedTxt-CR 123, MedTxt-RR 92)",
-        summ["by_source"] == {"SIGIR": 53, "MedTxt-CR": 123, "MedTxt-RR": 92},
+        "every source document is one patient (SIGIR 53, MedTxt-CR 147, MedTxt-RR 50)",
+        summ["by_source"] == {"SIGIR": 53, "MedTxt-CR": 147, "MedTxt-RR": 50},
         summ["by_source"],
     )
     s.check("ingest passed", site["ingest"]["passed"], site["ingest"])

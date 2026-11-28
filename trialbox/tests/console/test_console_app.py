@@ -37,6 +37,19 @@ from tb_contracts import (
     RegistryUpdate,
 )
 
+
+def one_page_pdf(text: str) -> bytes:
+    """A real one-page PDF: the egress edge reads what it lets out (M3)."""
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, invariant=1)
+    c.drawString(72, 700, text)
+    c.save()
+    return buf.getvalue()
+
+
+ONE_PAGE_PDF = one_page_pdf("synthetic")
 ADMIN_PW = "correct-horse-battery-1"
 VIEWER_PW = "viewer-password-0001"
 PILOT_ENV = {
@@ -379,7 +392,7 @@ def _done_feas(backend: FakeBackend) -> Job:
     stem = "feasibility_GZQO_v1.0.0_2026-10-04"
     outs = []
     for name, data, tag in (
-        (f"{stem}.pdf", b"%PDF-1.4 synthetic", "aggregate"),
+        (f"{stem}.pdf", ONE_PAGE_PDF, "aggregate"),
         (f"{stem}.json", json.dumps(FEAS_JSON).encode(), "aggregate"),
         (f"{stem}.raw.json", b'{"exact": 3}', "phi"),
     ):
@@ -426,7 +439,10 @@ def box(tmp_path: Path) -> dict[str, Any]:
             "headline": {"projection_12m": {"p10": 2, "p50": 5}, "recall_sentence": "x"},
         }
         (out / "dl1" / f"DL1_{trial}.json").write_text(json.dumps({"object": obj, "sha256": "0" * 64}))
-        (out / "dl1" / f"DL1_{trial}.pdf").write_bytes(b"%PDF-1.4 dl1")
+        (out / "dl1" / f"DL1_{trial}.pdf").write_bytes(ONE_PAGE_PDF)
+        # as tools/cascade_e2e.py: the run's record of the files it built (1523 ruling), by which they leave
+        made = {f"dl1/DL1_{trial}.pdf": hashlib.sha256(ONE_PAGE_PDF).hexdigest()}
+        (out / "made.json").write_text(json.dumps(made))
         (out / "recall" / "recall_certificate.json").write_text('{"alpha": 0.05}')
         (out / "cascade" / "final_list.json").write_text('{"patients": ["p1"]}')
         (out / "e2e_summary.json").write_text(
@@ -453,6 +469,7 @@ def box(tmp_path: Path) -> dict[str, Any]:
         "TB_CONSOLE_DIR": str(tmp_path / "console"),
         "TB_CONSOLE_SAMPLES_DIR": str(samples),
         "TB_CONSOLE_CONSENT_SAMPLE": str(samples / "GZQO_ICF_v2.md"),
+        "TB_OPS_DIR": str(tmp_path / "ops"),  # M1: never the machine's own /data/ops
     }
     app = create_app(env, backend=backend, audit=audit, users=users, classify=classify, cascades=cascades)
 
@@ -736,6 +753,7 @@ def test_orchestrator_refusal_is_shown_and_audited(box: dict[str, Any]) -> None:
 
 
 @pytest.mark.req("FR-UX-10", "FR-UX-9")
+@pytest.mark.usefixtures("held_dir")
 def test_free_text_becomes_a_proposal_and_runs_only_after_confirm(box: dict[str, Any]) -> None:
     c, csrf = login(box["app"])
     text = "Is GZQO feasible at our hospital? patient MRN 12345678"
@@ -1517,6 +1535,27 @@ def test_coordinator_requests_and_approves_but_does_not_operate(box: dict[str, A
     assert "/ops/users" not in c.get("/").text  # no link either
 
 
+@pytest.fixture
+def no_held_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TB_CONSOLE_HELD_DIR")  # set for the session by tests/conftest.py (_held_root)
+
+
+def test_without_a_held_dir_no_password_is_made_that_cannot_be_shown(no_held_dir: None, box: dict[str, Any]) -> None:
+    # P2-11 (TB-06 ruling): TB_CONSOLE_HELD_DIR unset: the console starts and serves; a new account or a reset is
+    # refused by name before anything is made, so no password exists that no one was shown; the refusal is a page
+    # that names the setting for IT (503), never a server error
+    c, csrf = login(box["app"])
+    assert c.get("/ops/users").status_code == 200
+    for data in ({"action": "add", "username": "nurse.lin", "role": "viewer"},
+                 {"action": "reset", "username": "viewer", "confirm": "yes"}):  # fmt: skip
+        r = c.post("/ops/users", data={"csrf": csrf, **data})
+        assert r.status_code == 503 and 'data-testid="problem-page"' in r.text
+        assert "is not set up on this box (ask IT: TB_CONSOLE_HELD_DIR on tmpfs)" in r.text
+    assert box["users"].get("nurse.lin") is None
+    login(box["app"], "viewer", VIEWER_PW)  # the password is the one it was
+
+
+@pytest.mark.usefixtures("held_dir")
 def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:
     c, csrf = login(box["app"])
     page = c.get("/ops/users").text
@@ -1584,6 +1623,7 @@ SSO_ENV = {
 }
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_sso_header_signs_in_from_a_trusted_proxy_only(tmp_path: Path) -> None:
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
@@ -1712,6 +1752,7 @@ def test_sponsor_pack_is_audited_and_for_requesters_only(box: dict[str, Any]) ->
     assert viewer.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[str, Any]) -> None:
     """D-143 (owner, 2026-11-09): the study's investigator may reveal a chart number, audited like a coordinator."""
     box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
@@ -1898,3 +1939,90 @@ def test_healthz_touches_the_database(tmp_path: Path, monkeypatch: pytest.Monkey
     users.db._con.close()  # lost, and nowhere to reopen it: the container must not look healthy
     r = c.get("/healthz")
     assert r.status_code == 503 and r.json()["status"] == "degraded"
+
+
+# ---------------------------------------------------------------------------------------------- 1523 ruling, round 3
+def _planted_pdf(line: str) -> bytes:
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    cv = canvas.Canvas(buf)
+    cv.drawString(72, 700, line)
+    cv.save()
+    return buf.getvalue()
+
+
+def _job_pdf(box: dict[str, Any], data: bytes) -> tuple[Job, str]:
+    """A done FEAS job whose PDF in the store is now ``data``, not the bytes the job recorded."""
+    job = _done_feas(box["backend"])
+    name = "feasibility_GZQO_v1.0.0_2026-10-04.pdf"
+    box["backend"].objects[f"outputs/{job.job_id}/{name}"] = data
+    return job, f"/pilot/jobs/{job.job_id}/files/{name}"
+
+
+def test_a_job_file_whose_bytes_are_not_its_record_is_refused(box: dict[str, Any]) -> None:
+    _job, url = _job_pdf(box, _planted_pdf("MRN: 70000054 Robin Example"))
+    c, _ = login(box["app"])
+    r = c.get(url)
+    assert r.status_code == 409 and b"70000054" not in r.content
+
+
+def test_a_pdf_behind_a_leading_space_does_not_leave_by_the_layer(box: dict[str, Any]) -> None:
+    """The review's High probe 1: one leading space before ``%PDF-``, an MRN in it, no record."""
+    _job, url = _job_pdf(box, b" " + _planted_pdf("MRN: 70000054 Robin Example"))
+    c, _ = login(box["app"])
+    for path in (url, url + "?rebuild=1"):
+        r = c.get(path)
+        assert r.status_code in (200, 409) and b"70000054" not in r.content, path
+    assert c.get(url).status_code == 409
+
+
+def test_a_rebuild_through_the_layer_masks_the_planted_identifier(box: dict[str, Any]) -> None:
+    from pypdf import PdfReader
+
+    _job, url = _job_pdf(box, _planted_pdf("MRN: 70000054 / site Alpha"))
+    c, _ = login(box["app"])
+    r = c.get(url + "?rebuild=1")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    shown = "".join(p.extract_text() for p in PdfReader(io.BytesIO(r.content)).pages)
+    assert "70000054" not in shown and "site Alpha" in shown
+
+
+def test_a_workbook_with_a_name_column_is_not_rebuilt_by_the_layer(box: dict[str, Any]) -> None:
+    """The review's High probe 2: a "Patient name" column, ?rebuild=1: refused, no byte of it sent."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.append(["Patient name", "n"])  # type: ignore[union-attr]
+    wb.active.append(["Robin Example", 3])  # type: ignore[union-attr]
+    buf = io.BytesIO()
+    wb.save(buf)
+    _job, url = _job_pdf(box, buf.getvalue())
+    c, _ = login(box["app"])
+    r = c.get(url + "?rebuild=1")
+    assert r.status_code == 409 and b"Robin" not in r.content
+
+
+def test_a_cascade_file_without_its_run_s_record_is_refused_and_the_record_never_reaches_the_client(
+    box: dict[str, Any],
+) -> None:
+    c, csrf = login(box["app"])
+    run_url = c.post("/pilot/cascade", data={"csrf": csrf, "trial": "GZQO"}, follow_redirects=False).headers["location"]
+    import time
+
+    for _ in range(50):
+        if 'data-testid="cascade-state" data-state="done"' in c.get(run_url).text:
+            break
+        time.sleep(0.05)
+    r = c.get(f"{run_url}/files/dl1_pdf")
+    assert r.status_code == 200 and not any(k.lower().startswith("x-tb-made") for k in r.headers)
+    for record in box["dir"].glob("cascade/*/out/made.json"):
+        record.unlink()
+    assert c.get(f"{run_url}/files/dl1_pdf").status_code == 409
+
+
+def test_a_sponsor_pack_with_a_file_that_is_not_its_record_is_refused(box: dict[str, Any]) -> None:
+    job, _url = _job_pdf(box, _planted_pdf("MRN: 70000054 Robin Example"))
+    c, _ = login(box["app"])
+    r = c.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip")
+    assert r.status_code == 409 and b"70000054" not in r.content

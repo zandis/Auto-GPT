@@ -1,0 +1,81 @@
+{
+ "card": "H94",
+ "title": "on a PoC box the install stops for five things only",
+ "date": "2026-11-23",
+ "source": "docs/handover/poc-stops-h94-2026-11-23.md",
+ "note": "basis 'shown' means shown by the card's local runs (no Docker, no GPU, stand-ins); the container rehearsal was not run by the card.",
+ "findings": [
+  {
+   "id": "H94-01",
+   "severity": "High",
+   "claim": "on a PoC box deploy/install.sh stopped at every one of its guards (each walk failure of the day was one of them); now 74 of its stop points warn, are written to deploy/site/poc-stops.jsonl, which doctor shows, and the install goes on, 37 are kept as one of the five refusals and named so, and 15 stay stops marked depends; on PRODUCTION every stop prints master's words with master's exit code",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 63e0e371d8c6f28f34e136c80f3b96da71a439a1"
+  },
+  {
+   "id": "H94-02",
+   "severity": "Low",
+   "claim": "the ruling names the rehearsal mark or TB_ENV DEV and VALIDATION as a PoC box; the card counts TEST with them (looser than VALIDATION): a ruling is wanted",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H94-03",
+   "severity": "Medium",
+   "claim": "15 stops of install.sh stay stops because the lines after them depend on them (a command line not understood, Docker or its compose plugin, the host's python3 modules, a second installer, no settings and no terminal, the operator's no, the database, the stack's health, and the finish check, whose only refusal on a PoC box is an anchor folder that root's nightly signer would mount read-write); each waits for the integrator's ruling",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H94-04",
+   "severity": "Low",
+   "claim": "18 converted points of install.sh are not driven by the PoC test: 7 whose condition is PRODUCTION, 3 whose value makes a box that cannot be told, 2 a PoC run cannot reach, 4 root's only (the tests run as a user), and 2 that cannot be forced without root (an unreadable deploy folder, a file of another owner)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H94-05",
+   "severity": "Medium",
+   "claim": "the files after install.sh are not converted: deploy/bootstrap.sh, deploy/launcher.sh, deploy/check_host.sh, deploy/settings_guard.sh, tools/rehearsal_real.py and tools/trialbox/launch.py keep their stops (the ratchet holds each to its count); the walk's third failure (a half-done install's link refused at the start path) can still happen there; part 2 converted deploy/box-install.sh and tools/apply_update.sh",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H94-06",
+   "severity": "Low",
+   "claim": "the container rehearsal (tools/rehearse_box) was not run by the card (no Docker): its new check that the rehearsal's own install lists nothing rides on CI's rehearse jobs",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open"
+  },
+  {
+   "id": "H94-07",
+   "severity": "Medium",
+   "claim": "four install.sh stops the lane H lead listed are kept as refusals and named as one of the four, though the ruling's words do not plainly cover them: a caller's own compose override with the real servers (3), a profile not opened for the real servers, the 64 GB class and the draft 48 GB profile (2); the integrator's ruling is asked",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H94-08",
+   "severity": "Low",
+   "claim": "install.sh's other readers of TB_ENV in deploy/.env (ENV-EARLY, the REHEARSAL step, the environment gate, the settings step) still take only lines that start exactly TB_ENV=, as on master; the PoC rule now reads it as compose does (review H-1 of #1396), so on a .env with an exported or blank-led TB_ENV line those readers and compose can differ; not changed by this card (outside the ruling's two places)",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  },
+  {
+   "id": "H94-09",
+   "severity": "Low",
+   "claim": "two stops of deploy/settings_guard.sh (every start that is not install.sh) are left bare in part 2 and asked: an anchor folder that no longer passes the rule at a start (there is no step to skip there: the anchors' compose file is already in COMPOSE_FILE) and a box whose site settings exist while compose would mount the example's (converting it changes the VALIDATION and TEST cases of test_settings_file_every_start.py, which needs a ruling); ruled by the integrator (7102087475): both warn on a PoC box and stay stops on PRODUCTION, converted in part 2",
+   "lane": "H",
+   "basis": "not stated",
+   "state": "open"
+  }
+ ]
+}

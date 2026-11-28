@@ -53,6 +53,7 @@ from console.backend import Problem, Unavailable, service_and_status
 from console.home import Helpers
 from console.i18n import lookup, translate
 from console.oidc import OidcError
+from console.refusals import EDC_SETUP_GAPS
 from console.studies import known_study
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -273,6 +274,7 @@ SEND_RESULTS = (
     "source_changed",  # NEW-EDC-4 (D-694): the source changed since the value was decided
     "changed_in_redcap",  # NEW-EDC-5 (D-695): a value TrialBox sent that REDCap now holds differently
     "direct_source",  # EDC-023 (D-859): the protocol names the field as recorded directly in the EDC
+    "withdrawn",  # V15-06 (M7): the subject withdrew and the data may not be used
 )  # T-115: held back, with the reason
 
 
@@ -820,7 +822,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         try:
             return fn(*args)
         except Problem as exc:
-            status = exc.status if 400 <= exc.status < 500 else 502
+            status = exc.status if 400 <= exc.status < 500 else 409 if exc.code in EDC_SETUP_GAPS else 502
             raise h.problem(status, "request.refused", code=exc.code, reason=exc.message,
                             fields=", ".join(exc.fields)) from exc  # fmt: skip
         except Unavailable as exc:

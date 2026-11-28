@@ -15,6 +15,8 @@ writes ``status.json``, which is what the console's screens show. No operation i
                     ``when: quiet`` (T-730b, D-731) it waits for the quiet hour and for no job running
 ``logs_collect``    ``trialbox logs collect`` (yesterday's service logs)
 ``network_sheet``   ``tools/network_sheet.py`` into ``<ops>/network/`` (en, ja, zh-TW)
+``site_needs``      one answer of "Information still needed" into ``deploy/.env`` and ``settings.yaml``
+                    (``tools/box/needs_apply.py``), then the services on it
 ==================  ==========================================================================================
 
 The status and the results never hold a secret: secrets are listed by name, presence and age
@@ -38,6 +40,7 @@ import secrets
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -54,6 +57,7 @@ ACTIONS: tuple[str, ...] = (
     "update_apply",
     "logs_collect",
     "network_sheet",
+    "site_needs",  # M1 (D-1280): one item of "Information still needed" into the box's settings
 )
 COMPOSE_ONLY = frozenset({"update_apply", "logs_collect"})
 REQ_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
@@ -71,6 +75,30 @@ Runner = Callable[[Sequence[str], int | None], str]  # (argv, timeout seconds) -
 
 class OpsFailed(RuntimeError):
     pass
+
+
+LIMIT_LINES = 20  # H-114e: the update's last lines a result keeps when its time limit stopped it
+
+
+class _LimitReached(OpsFailed):
+    """H-114e (review 1472-2; the integrator's ruling 7139911468): the update's time limit stopped it. ``lines`` are
+    its last :data:`LIMIT_LINES` lines, each scrubbed (``tb_common.logging.redact``): the outcome its rollback said
+    ("rolled back", or "ROLLBACK FAILED") reaches the console's result, which a failure's summary of 300 characters
+    would cut."""
+
+    def __init__(self, limit: int | None, out: Any, err: Any) -> None:
+        super().__init__(f"the update's time limit ({limit} s) was reached; it was stopped. Its last output:")
+        from tb_common.logging import redact
+
+        def text(v: Any) -> str:
+            return v.decode("utf-8", "replace") if isinstance(v, bytes) else (v or "")
+
+        # the progress (stderr) first, then what it printed last (stdout: "update FAILED: ... rolled back"), so a
+        # long rollback's progress does not push the outcome out of the lines kept
+        said = [ln for ln in (text(err) + "\n" + text(out)).splitlines() if ln.strip()]
+        # a result's line is cut at 300 characters; the outcome ends the updater's line ("update FAILED: ... failed
+        # (<the reason>); rolled back; <the box's state>"), so a long line keeps its start and its end
+        self.lines = [ln if len(ln) <= 290 else f"{ln[:110]} … {ln[-170:]}" for ln in map(redact, said[-LIMIT_LINES:])]
 
 
 def _now() -> str:
@@ -476,7 +504,7 @@ class OpsRunner:
             self.ops.write_result(req, False, msg, [], str(begun), state="interrupted")
         else:
             queued = req.get("queued")
-            if not isinstance(queued, int | float) or time.time() - queued <= MAX_AGE_MIN * 60:
+            if not isinstance(queued, int | float) or self.now().timestamp() - queued <= MAX_AGE_MIN * 60:
                 return None
             msg = f"not run: asked more than {MAX_AGE_MIN} minutes before the runner reached it; ask again"
             self.ops.write_result(req, False, msg, [], _now(), state="expired")
@@ -517,6 +545,8 @@ class OpsRunner:
             ok = True
         except Exception as exc:  # every failure is a result the console shows, never a crash of the timer
             summary, lines, ok = f"{type(exc).__name__}: {exc}"[:300], [], False
+            if isinstance(exc, _LimitReached):  # H-114e: its last lines are the result's lines
+                lines = exc.lines
         self.ops.write_result(req, ok, summary, lines, started)
         with contextlib.suppress(OSError):
             self.ops.marker(str(req["id"])).unlink()
@@ -525,6 +555,11 @@ class OpsRunner:
         return out
 
     # -------------------------------------------------------------------------------------------- actions
+    def do_site_needs(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        from tools.box import needs_apply
+
+        return needs_apply.run(self.box.deploy, args, restart=self.box.kind == "compose")
+
     def do_backup(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
         targets = self.box.targets()
         if not targets:
@@ -650,7 +685,25 @@ class OpsRunner:
 
     def do_update_apply(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
         p = self._bundle(args)
-        out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p)], self.apply_limit())
+        argv = ["sh", str(ROOT / "tools" / "apply_update.sh"), str(p)]
+        limit = self.apply_limit()
+        if self.box.run is not run_cmd:  # a stand-in runner (the console's tests): as before
+            out = self.box.run(argv, limit)
+            return f"{p.name}: applied", out.strip().splitlines()
+        from tools.trialbox import procgroup
+
+        # H-114b (the review of #1461, 1461-3): on the limit the update's SIGTERM starts its rollback, which must not
+        # be killed part way. The rollback redoes at most what the update did (the same restores, models, host tree
+        # and restart, each command under its own limit), so it gets the update's own limit again before the SIGKILL;
+        # no limit (sizes not readable): no SIGKILL at all, the updater ends by itself
+        try:
+            r = procgroup.run(argv, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                              timeout=limit, grace=limit)  # fmt: skip
+        except subprocess.TimeoutExpired as exc:  # H-114e: the result says what the stopped update said last
+            raise _LimitReached(limit, exc.output, exc.stderr) from None
+        out = (r.stdout or "") + (r.stderr or "")
+        if r.returncode != 0:
+            raise OpsFailed(f"exit {r.returncode}: {out.strip()[-600:]}")
         return f"{p.name}: applied", out.strip().splitlines()
 
     def do_logs_collect(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
@@ -858,6 +911,20 @@ def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
             os.chmod(d, mode)
             if sub == "requests" and uid is not None:
                 os.chown(d, uid, uid)
+
+
+def refresh_status(deploy: Path) -> None:
+    """E2E P-33: the Operations page's status (``status.json``) written once, as the runner writes it each round.
+    ``trialbox update`` calls it at its end, applied or rolled back, so the page names the bundle at once and also on
+    a box whose ops timer does not run (the poc profile has no units; a timer left off). Never fails the caller: a
+    status that cannot be written is said, and the timer's next round writes it."""
+    try:
+        box = Box.compose(deploy)
+        ops = OpsDir(Path(box.env.get("TB_OPS_DIR") or deploy / "ops"))
+        prepare(ops)
+        OpsRunner(box, ops).write_status()
+    except Exception as exc:  # the update's own outcome stands; the page catches up at the runner's next round
+        print(f"note: the Operations page's status was not refreshed ({type(exc).__name__}: {exc})", file=sys.stderr)
 
 
 def metrics_token(deploy: Path) -> Path:

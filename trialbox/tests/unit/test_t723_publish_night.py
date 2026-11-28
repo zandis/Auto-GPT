@@ -65,11 +65,25 @@ class Fhir:
         self.down = False
         self.bad: set[str] = set()  # nights the store refuses part-way (it is up: a put-back works)
         self.holds: str | None = None  # the night the store holds now
+        self.verified: list[str] = []  # the nights the store was checked against (P-03)
+        self.home = home
         monkeypatch.setattr(home, "sync_snapshot", self)
+        if hasattr(home, "verify_fhir"):  # P-03: the store's check against a night is answered from what it holds
+            monkeypatch.setattr(home, "verify_fhir", self.verify)
+
+    def verify(self, cfg: AdapterConfig, folder: Path, *, ids: bool = False, also: Any = ()) -> dict[str, int]:
+        self.verified.append(folder.name)
+        if self.down:
+            raise ConnectionError("the FHIR store did not answer")
+        nothing = ("", "fhir-nothing-served")
+        holds, night = self.holds or "", folder.name
+        if holds != night and not (holds in nothing and night in nothing):
+            raise self.home.FhirMismatch(f"the store holds {holds or 'nothing'}, not {night}")
+        return {}
 
     def __call__(
         self, base: str, folder: Path, ledger: Path, previous: Path | None = None, full: bool = False,
-        back: bool = False,
+        back: bool = False, finish: bool = True,
     ) -> tuple[int, int]:  # fmt: skip
         self.calls.append(folder.name)
         self.full.append(full)
@@ -141,12 +155,21 @@ def test_a_fhir_store_failure_does_not_promote_and_the_next_call_resumes_at_that
     out = publish_night(cfg, N2, folder, last_good=N1, on_step=lambda step, _steps: seen.append(step))
     assert out.ok and out.promoted and lakes.lake.current() == N2
     assert "omop" not in seen and seen[0] == "fhir" and seen[-1] == "pidmap"  # the pid map last
-    assert fhir.calls == [N1, N2, N1, N2] and lakes.calls == [N1, N2] and fhir.holds == N2
+    # P-03 (reviews R2, N1): the put-back that failed is owed (FHIR_STATE) and done first, then the night is loaded
+    assert fhir.calls == [N1, N2, N1, N1, N2] and lakes.calls == [N1, N2] and fhir.holds == N2
     assert (folder / "passed.json").exists() and set(_record(folder).values()) <= {"done", "skipped"}
     assert _resolves(cfg, "10000001")
     # a third call does nothing at all
+    marker, record, checks = (
+        (cfg.lake_dir / "FHIR_STATE").read_bytes(),
+        (folder / "publish.json").read_bytes(),
+        len(fhir.verified),
+    )
     again = publish_night(cfg, N2, folder, last_good=N1)
-    assert again.ok and fhir.calls == [N1, N2, N1, N2] and lakes.calls == [N1, N2]
+    assert again.ok and fhir.calls == [N1, N2, N1, N1, N2] and lakes.calls == [N1, N2]
+    # P-03 (review D7): it asks the store nothing and rewrites neither the marker nor the record
+    assert fhir.verified[checks:] == [] and (cfg.lake_dir / "FHIR_STATE").read_bytes() == marker
+    assert (folder / "publish.json").read_bytes() == record
 
 
 def test_the_same_night_run_again_resumes_and_a_changed_night_starts_over(

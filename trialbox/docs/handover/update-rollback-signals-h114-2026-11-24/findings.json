@@ -1,0 +1,188 @@
+{
+ "card": "H114",
+ "title": "the update's rollback finishes whatever signal arrives",
+ "date": "2026-11-24",
+ "source": "docs/handover/update-rollback-signals-h114-2026-11-24.md",
+ "findings": [
+  {
+   "id": "H114-01",
+   "severity": "Medium",
+   "claim": "a second Ctrl-C during the update's rollback escaped it (Exception caught only) and SIGTERM and SIGHUP had no handler on the update path: no ROLLBACK FAILED line, no update.rolled_back event, a half restored box (external review ESC-4)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3fe71fb368958a477ba89a33a593416145d96d0c",
+   "fix": "tools/trialbox/update.py Stops: INT, TERM and HUP alike, raised once at a stoppable step, every later signal and every signal during a rollback said and ignored; the rollback catches BaseException; the error line and the audit event say the release; tests/unit/test_update_signals_h114.py",
+   "from": "the external review's escape pass (ledger 7122387629), 2026-11-24"
+  },
+  {
+   "id": "H114-02",
+   "severity": "Low",
+   "claim": "tools/apply_update.sh: a signal to the shell before the update path only removed the stage folder and the script went on to the next commands, the update path included",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3fe71fb368958a477ba89a33a593416145d96d0c",
+   "fix": "the shell ends on INT, TERM or HUP before the update path (130, 143, 129, nothing was changed) and leaves one during it to the update path; tests/unit/test_update_signals_h114.py test_s1, test_s2",
+   "from": "card H-114, 2026-11-24"
+  },
+  {
+   "id": "H114-03",
+   "severity": "Low",
+   "claim": "streamed_payloads dropped in silence a signed payload that was no longer a file on the second read of the stick (external review 1409-2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3fe71fb368958a477ba89a33a593416145d96d0c",
+   "fix": "refused as UpdateFailed; tests/unit/test_update_signals_h114.py test_1409_2; the rehearsal's swapped-stream step (tools/rehearse_box/h95_probe.py)",
+   "from": "the external review's ledger 7122383360, row 1409-2, 2026-11-24"
+  },
+  {
+   "id": "H114-04",
+   "severity": "Medium",
+   "claim": "the host restore took only restore.lock, so the nightly backup could run over the folders it was restoring (external review 1421-3)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 3fe71fb368958a477ba89a33a593416145d96d0c",
+   "fix": "the restore holds deploy/site/backup.lock for its whole run; tests/unit/test_update_signals_h114.py test_1421_3",
+   "from": "the external review's ledger 7122383360, row 1421-3, 2026-11-24"
+  },
+  {
+   "id": "H114-05",
+   "severity": "Low",
+   "claim": "an update run on the console's time limit (procgroup) gets SIGTERM, then SIGKILL 10 s later: a rollback the SIGTERM starts is killed part way and the box is between releases until tools/apply_update.sh rollback is run (review 1461-3)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 12dc8611f6c5a3771ae113c4a5d6cee9fe5ddec9",
+   "from": "card H-114, reproduced by the external review of #1461 (7124127048), 2026-11-24",
+   "fix": "card H-114b (the integrator's ruling 7124945074): procgroup.run takes an optional grace (default ten seconds, as before); ops.do_update_apply passes the update's own limit; tests/unit/test_update_grace_h114b.py. The put-back left by a killed updater holds the recovery (H114-08)"
+  },
+  {
+   "id": "H114-06",
+   "severity": "Medium",
+   "claim": "a signal inside the first host-tree switch on a copied install left the moved files out of the rollback record: the compose file a dangling link while the update said back on the release before (review 1461-1)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f5deeece69bb5d3535adc1fb1c966aa29aa7ddfc",
+   "fix": "host_tree install/switch/sync fill the caller's record as each file moves; test_1461_1",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-07",
+   "severity": "Medium",
+   "claim": "apply_update.sh ospatch: a signal while the OS patch was applied said nothing was changed and exited 130/143/129 (review 1461-2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f5deeece69bb5d3535adc1fb1c966aa29aa7ddfc",
+   "fix": "the update path's mark is set before the OS patch tool runs; test_1461_2",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-08",
+   "severity": "Medium",
+   "claim": "a put-back command left running by a killed updater ran beside the put-back of tools/apply_update.sh rollback (review 1461-3)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f5deeece69bb5d3535adc1fb1c966aa29aa7ddfc",
+   "fix": "run_cmd records each command's process group while it runs; recover refuses while one is alive; test_1461_3",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-09",
+   "severity": "Low",
+   "claim": "an update started under nohup was rolled back when the session closed: Stops replaced the inherited ignore of SIGHUP (review 1461-4)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed f5deeece69bb5d3535adc1fb1c966aa29aa7ddfc",
+   "fix": "a signal the caller ignores stays ignored; test_1461_4",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-10",
+   "severity": "Low",
+   "claim": "the nightly that meets a host restore says another backup run holds the lock, and the night has no backup without saying so (review 1461-5)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "fix": "the reviewer's patch is for backup_schedule.py, which #1455 holds",
+   "from": "the external review of #1461 (7124127048), 2026-11-24"
+  },
+  {
+   "id": "H114-11",
+   "severity": "Medium",
+   "claim": "a rollback cut short (SIGKILL) after a stop inside the host-tree switch left recover a point.json without the moved files: previous release said with the compose file still set aside (review 1461-1, the part left)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "the rollback saves the rollback point before its put-back; test_1461_1_a_rollback_killed_after_a_stop_in_the_switch_is_finished_by_recover",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-12",
+   "severity": "Low",
+   "claim": "a running-command record was trusted by its group id alone (an earlier boot's record, or the id now another's, held the recovery) and sat in a folder a bundle named running could own (review 1461-6)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "the record names the boot and the leader's start time, in deploy/updates/.running; test_1461_6",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-13",
+   "severity": "Low",
+   "claim": "the host-tree rollback lost a site's own link at a release path, and left aside a site file a new release path displaced on a box already on a host tree (review 1461-7)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "sync sets a site's link aside as a file; restore after a switch puts back what was moved; test_1461_7",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-14",
+   "severity": "Low",
+   "claim": "test_1461_1 sent its signal to the test run itself: a regression would end the whole run instead of failing one test (review 1461-8)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "the case runs in a child process",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-15",
+   "severity": "Low",
+   "claim": "a first signal while a command's running record was written left the command running and the rollback waiting for it (review 1461-9)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 2b0bb669ff8bcddca30b6d1656d086a08585557b",
+   "fix": "the record is written inside the try whose handler kills the group; test_1461_9",
+   "from": "the second external review of #1461 (7125647317), 2026-11-24"
+  },
+  {
+   "id": "H114-16",
+   "severity": "High",
+   "claim": "a SIGKILL inside the host-tree switch itself, before any rollback, left point.json with the record of before the switch: tools/apply_update.sh rollback said the previous release with the copied files still set aside (the half of review 1461-1 ruled to H-114c, High-class)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed d28a19bed6f6391cadf6c3e664bf8aecce2ed825",
+   "fix": "the switch saves the rollback point before each move; undoing a copied install's first host tree removes the links through current a cut-short switch never recorded; tests/unit/test_host_tree_switch_kill_h114c.py",
+   "from": "the integrator's ruling 7129325585 on the second review of #1461, 2026-11-24"
+  },
+  {
+   "id": "H114-17",
+   "severity": "Low",
+   "claim": "in the grace after the limit's SIGTERM nobody read the group's pipes: a put-back that wrote more than a pipe holds blocked on its write and was SIGKILLed at the grace's end, part way (review 1472-1; update.run_cmd the same, ten seconds' grace)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 4096baee5e796fafb843ff2e6903da3cfa8506ab",
+   "fix": "procgroup._stop reads the pipes through the grace and ends it with the leader's exit or its time; procgroup.run and update.run_cmd use it; tests/unit/test_update_grace_output_h114d.py and the reviewer's test in test_update_grace_h114b.py",
+   "from": "the external review of #1472 (7136336525), 2026-11-24"
+  },
+  {
+   "id": "H114-18",
+   "severity": "Low",
+   "claim": "after the console's time limit the result was TimeoutExpired with no lines: the update's own outcome (rolled back, or ROLLBACK FAILED) was dropped and only tools/apply_update.sh status on the host told (review 1472-2)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 666bd09969cb7596a523c4cbea471f49bc7755cf",
+   "fix": "procgroup.run raises TimeoutExpired with the output it read; ops.do_update_apply raises _LimitReached (a private OpsFailed) whose last 20 lines, each through tb_common.logging.redact, are the result's lines; tests/unit/test_update_limit_output_h114e.py",
+   "from": "the external review of #1472 (7136336525); the integrator's ruling 7139911468, 2026-11-24"
+  }
+ ]
+}

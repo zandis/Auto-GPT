@@ -40,6 +40,9 @@ STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
      ("stub", "oidc")),  # T-213a (D-410)
     ((BASE, "docker-compose.secrets.yml", "docker-compose.shared-quota.yml", "platform/docker-compose.platform.yml"),
      ("gpu", "doctor")),
+    # H-112: the second serving profile, bench host only, last over the bench host's GPU overlay (tools/serving_profile.py)
+    ((BASE, "docker-compose.secrets.yml", "docker-compose.shared-quota.yml", "platform/docker-compose.platform.yml",
+      "docker-compose.serving-second.yml"), ("gpu", "doctor")),
     (("docker-compose.testbench.yml",), ("dev",)),
 ]  # fmt: skip
 # the two-device form (T-214, D-373): each device's stack, as its file's header gives it (H58-03)
@@ -172,7 +175,10 @@ def test_the_database_is_reported_not_restarted_and_vllm_is_restarted() -> None:
     for stack, _ in LINTED_STACKS:
         for svc, body in _merge(stack).items():
             if svc.startswith("llm-") and svc != "llm-stub":
-                assert _bytes(body["mem_limit"]) >= 32 * 2**30, (stack, svc)  # a sleeping judge's weights fit
+                # the unified-memory profile's verifier only: its measured need is 7.8 GiB of weights plus ~4.3 GiB of
+                # KV for 8 seqs x 16k, ~12.1 GiB (the floor is 20 GiB, as ruled); a judge and every other stack keep 32
+                floor = 20 if ("docker-compose.gb10.yml" in stack and svc == "llm-verifier") else 32
+                assert _bytes(body["mem_limit"]) >= floor * 2**30, (stack, svc)  # a sleeping judge's weights fit
 
 
 def test_the_jvm_caps_are_above_their_heaps() -> None:

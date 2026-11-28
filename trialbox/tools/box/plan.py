@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import math
 import os
 import platform
 import re
@@ -38,8 +39,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from tb_common import site_country
-from tb_common.box_answers import BackupKind, OwnerAnswers, SourceKind
+from tb_common import host_zone, site_country, site_needs
+from tb_common.box_answers import BackupKind, OwnerAnswers, SourceKind, person_name, stand_ins
+
+from tools.trialbox import memcaps
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / "deploy"
@@ -57,6 +60,9 @@ SECOND_DISK_MOUNT = "/srv/trialbox-backup"
 SHARE_MOUNT = "/mnt/trialbox-share"
 FIRSTRUN_DIR = "/run/trialbox-firstrun"  # tmpfs: the answers (and a passphrase) never reach a disk
 BOX_MAPPING = "mapping/tw_core/box_site.yaml"
+PROVISIONAL_MAIL = "owner@box.invalid"
+SAMPLE_FEED = "./site/sample"  # M1: the sample hospital (synthetic, tools/site_seed.py)
+SHIPPED_DEPARTMENTS = "shipped"  # the wizard reads the shipped list (M2's): it is in the image, not on the host
 BOX_SOURCE_MOUNT = "/data/source/site"  # where compose mounts the feed folder, read-only (TB_SOURCE_MOUNT)
 # OD-10: below half of the compose files' own caps the services were never measured: such a machine is refused
 MIN_SERVICE_SHARE = 0.5
@@ -105,6 +111,7 @@ class BoxPlan:
     env_extra: dict[str, str]
     files: dict[str, str]  # path under deploy/ -> text
     warnings: list[str] = field(default_factory=list)
+    stand_ins: frozenset[str] = frozenset()  # M1 (D-1280): items of site_needs the box runs on its own value for
 
     @property
     def install_args(self) -> list[str]:
@@ -164,12 +171,6 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
     )[:3]
     meminfo = (host_root / "proc/meminfo").read_text(encoding="utf-8") if (host_root / "proc/meminfo").exists() else ""
     kib = re.search(r"MemTotal:\s+(\d+)", meminfo)
-    tz = ""
-    with_tz = host_root / "etc/timezone"
-    if with_tz.is_file():
-        tz = with_tz.read_text(encoding="utf-8").strip()
-    elif (host_root / "etc/localtime").is_symlink():
-        tz = str(os.readlink(host_root / "etc/localtime")).split("zoneinfo/")[-1]
     return Hardware(
         arch=platform.machine(),
         cpu_count=os.cpu_count() or 1,
@@ -186,7 +187,7 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
             _run(["ip", "-j", "-6", "route", "show", "default"]),
         ),
         hostname=socket.gethostname().split(".")[0].lower() or "trialbox",
-        host_tz=tz,
+        host_tz=host_zone.read(host_root),  # the one reading check_host.sh does too
         mem_total_kib=int(kib.group(1)) if kib else 0,
     )
 
@@ -343,7 +344,9 @@ def compose_caps(files: list[Path]) -> tuple[dict[str, float], float]:
     return var, fixed
 
 
-def memory_caps(ram_gib: float, profile: str, deploy: Path = DEPLOY) -> tuple[dict[str, str], list[str]]:
+def memory_caps(
+    ram_gib: float, profile: str, deploy: Path = DEPLOY, patients: int = 0, users: int = 0
+) -> tuple[dict[str, str], list[str]]:
     """``TB_MEM_*`` for this machine (OD-10): no cap is a constant. The compose files' defaults give each service's
     share; the RAM, less what the system keeps (a tenth, at least 4 GiB) and the fixed small caps, is shared out in
     those proportions. When the defaults do not fit, every cap shrinks by the same factor, and a machine where that
@@ -351,9 +354,14 @@ def memory_caps(ram_gib: float, profile: str, deploy: Path = DEPLOY) -> tuple[di
     there). When they fit with room to spare, the services grow into it (the lake and the database use it) and the
     model servers keep their default (their weights are on the card; more host memory does not serve them faster).
     The Spark (``gb10``) is one machine: its profile (``deploy/gb10-profile.yaml``) is its caps, so nothing is
-    derived for it."""
+    derived for it.
+
+    E2E P-02: then each cap of a service in the measured-peak table holds 1.5 times its peak for a hospital of
+    ``patients`` (``TB_SITE_PATIENTS``; not given: the smallest measured class), as :func:`measured_floors` says;
+    the console's for ``users`` people opening the largest study's lists at once (``TB_SITE_USERS``; not given:
+    one, E2E P-06)."""
     if profile == "gb10":
-        return {}, []
+        return {}, spark_short(deploy, patients, users)
     files = [deploy / "docker-compose.yml", deploy / "docker-compose.identity.yml"]
     # dgpu48: the UNMEASURED 48 GB draft (card 24-5): arithmetic only, never detected, refused by install.sh
     overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090", "dgpu48": "dgpu48"}.get(profile)
@@ -384,7 +392,105 @@ def memory_caps(ram_gib: float, profile: str, deploy: Path = DEPLOY) -> tuple[di
         rest = avail - sum(mod.values())
         caps = {k: v * rest / sum(svc.values()) for k, v in svc.items()} | mod
     notes = [f"memory: {ram_gib:g} GiB, {reserve:g} GiB kept for the system, the caps at {factor:.2f} of the defaults"]
-    return {k: f"{int(v * 1024)}m" for k, v in sorted(caps.items())}, notes
+    caps, said = measured_floors(caps, var, *site_floors(deploy, patients, users))
+    return {k: f"{int(v * 1024 + 1e-6)}m" for k, v in sorted(caps.items())}, notes + said
+
+
+def site_floors(deploy: Path, patients: int, users: int = 0) -> tuple[dict[str, float], int, list[str]]:
+    """E2E P-02: ``(HEADROOM times each measured peak in GiB, the hospital's size, notes)`` from the measured-peak table
+    (``deploy/measured/site_peaks.json``) for ``patients``, the nearest larger size class (not given: the smallest
+    class); E2E P-06: the console's for ``users`` people at once (not given: one); none without the table."""
+    peaks = memcaps.load_peaks(deploy / "measured" / memcaps.PEAKS_NAME)
+    if not peaks:
+        return {}, 0, []
+    n = patients or peaks[0][0]
+    said = []
+    if n > peaks[-1][0]:
+        said.append(
+            f"memory: {n:,} patients is above the largest measured size ({peaks[-1][0]:,}): the caps follow the line "
+            "through the measured peaks; measure a night at this size (tools/scale_gate.py)"
+        )
+    names = sorted({k for _, row in peaks for k in row})
+    floor = {k: math.ceil(memcaps.HEADROOM * memcaps.peak_mib(peaks, k, n)) / 1024 for k in names}
+    people = memcaps.load_users(deploy / "measured" / memcaps.PEAKS_NAME)
+    if people:
+        u = users or 1
+        if u > people[-1][0]:
+            said.append(
+                f"memory: {u} people at once is above the most measured ({people[-1][0]}): the console's cap "
+                "follows the line through the measured peaks"
+            )
+        mib = memcaps.peak_mib(people, "TB_MEM_CONSOLE", u)
+        floor["TB_MEM_CONSOLE"] = math.ceil(memcaps.HEADROOM * mib) / 1024
+    return floor, n, said
+
+
+#: the compose service of each cap the measured-peak table holds (the Spark's overlay writes most of them as literals)
+PEAK_SERVICES = {
+    "TB_MEM_ADAPTER": "adapter",
+    "TB_MEM_CONSOLE": "console",
+    "TB_MEM_LAKE": "lake",
+    "TB_MEM_ORCH": "orchestrator",
+}
+
+
+def spark_short(deploy: Path, patients: int, users: int) -> list[str]:
+    """Review P06-1: the Spark's caps are its profile's (``docker-compose.gb10.yml``), fixed, never derived; a note for
+    each that is under its measured floor for the site's size and people at once (none when all hold)."""
+    floor, n, said = site_floors(deploy, patients, users)
+    text = (deploy / "docker-compose.gb10.yml").read_text(encoding="utf-8")
+    var, _ = compose_caps([deploy / "docker-compose.gb10.yml"])
+    low = []
+    for k, f in sorted(floor.items()):
+        m = re.search(rf"^  {PEAK_SERVICES.get(k, '-')}: \{{[^}}]*mem_limit: ([0-9.]+[mgMG])\}}", text, re.M)
+        have = _gib(m.group(1)) if m else var.get(k)
+        if have is not None and have < f:
+            low.append(f"{k} {int(have * 1024)}m < {int(f * 1024)}m")
+    if not low:
+        return said
+    who = f"{n:,} patients" + (f" and {users} people at once" if users > 1 else "")
+    return [
+        *said,
+        f"memory: the Spark's fixed caps {', '.join(low)} ({memcaps.HEADROOM:g} x the measured peak for {who}): its "
+        "profile does not hold a hospital of that size; the service is killed at its cap (E2E P-02, P-06)",
+    ]
+
+
+def measured_floors(
+    caps: dict[str, float], defaults: dict[str, float], floor: dict[str, float], n: int, said: list[str]
+) -> tuple[dict[str, float], list[str]]:
+    """E2E P-02: a cap below its ``floor`` (HEADROOM times the measured peak for a hospital of ``n`` patients) is
+    raised to it, the other caps giving the same memory back from what each has above its own lowest (its floor, and
+    :data:`MIN_SERVICE_SHARE` of its default), in proportion to that surplus, so the total stays what the machine has.
+    When the surplus of all of them is less than what is missing, the caps stay as they were and a note says so: the
+    machine's caps do not hold a hospital of that size (``(caps, notes)``, in GiB)."""
+    floor = {k: f for k, f in floor.items() if k in caps}
+    short = {k: floor[k] - caps[k] for k in floor if caps[k] < floor[k]}
+    if not short:
+        return caps, said
+    spare = {k: caps[k] - max(MIN_SERVICE_SHARE * defaults[k], floor.get(k, 0.0)) for k in caps if k not in short}
+    spare = {k: v for k, v in spare.items() if v > 0}
+    if sum(short.values()) <= sum(spare.values()):
+        take = sum(short.values()) / sum(spare.values())
+        return {k: caps[k] + short.get(k, 0.0) - spare.get(k, 0.0) * take for k in caps}, said
+    under = ", ".join(f"{k} {int(caps[k] * 1024)}m < {int(floor[k] * 1024)}m" for k in sorted(short))
+    return caps, [
+        *said,
+        f"memory: {under} ({memcaps.HEADROOM:g} x the measured peak for {n:,} patients): this machine's caps do not "
+        "hold a night or a SCREEN of a hospital that size; the service is killed at its cap (E2E P-02)",
+    ]
+
+
+def site_patients(deploy: Path, var: str = "TB_SITE_PATIENTS") -> int:
+    """The hospital's size the box was given (``TB_SITE_PATIENTS``: the environment, else ``deploy/.env``); 0: none.
+    ``var="TB_SITE_USERS"``: the staff who use the console at once (E2E P-06)."""
+    raw = os.environ.get(var, "").strip()
+    env = deploy / ".env"
+    if not raw and env.is_file():
+        raw = memcaps._parse_env(env.read_text(encoding="utf-8")).get(var, "")
+    if raw and not (raw.isascii() and raw.isdigit()):
+        raise PlanError(f"{var}={raw!r}: a whole number")
+    return int(raw or 0)
 
 
 # ------------------------------------------------------------------------------------------------ the plan
@@ -494,7 +600,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         warnings.append(SMALL_SPARK)
     elif mode == "stub":
         warnings.append(f"no GPU of a TrialBox profile ({hw.gpu_name or 'none'}): structured criteria only")
-    caps, notes = memory_caps(hw.ram_gib, profile if mode == "gpu" else "stub", deploy)
+    patients, users = site_patients(deploy), site_patients(deploy, "TB_SITE_USERS")
+    caps, notes = memory_caps(hw.ram_gib, profile if mode == "gpu" else "stub", deploy, patients, users)
     warnings += notes
     if not hw.lan:
         warnings.append(LAN_UNKNOWN)  # D-629
@@ -516,7 +623,10 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
             "SS-MIX2: the shipped Japanese code tables (JLAC10, byomei, YJ) are sample rows marked verify: check them "
             "and load the site's licensed releases (services/adapter/mapping/jp_core/ssmix2_site.yaml)"
         )
-    ds: dict[str, Any] = {"data_source_host_dir": "./site/feed", "mapping": mapping}
+    # M1: a box that is not in use reads the sample hospital (tools/site_seed.py) until a source is given
+    sample = a.source is SourceKind.LATER and a.environment != "PRODUCTION"
+    feed = a.source_dir or (SAMPLE_FEED if sample else "./site/feed")
+    ds: dict[str, Any] = {"data_source_host_dir": feed, "mapping": mapping}
     if a.source is SourceKind.SSMIX2:
         # 10K-1: the SS-MIX2 storage's root folder, mounted read-only where the adapter reads it (the ssmix2 reader)
         ds |= {
@@ -534,6 +644,10 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         if a.source is not SourceKind.LATER:
             warnings.append(f"data source {a.source.value}: its connector and mapping step are on the box (T-731)")
     env: dict[str, str] = dict(caps)
+    if patients:  # E2E P-02: memcaps and doctor size and judge the caps by the same number
+        env["TB_SITE_PATIENTS"] = str(patients)
+    if users:  # E2E P-06
+        env["TB_SITE_USERS"] = str(users)
     # 10K-4 (D-1390): the folder the owner chose for the disk or the share, else the fixed mount point
     if a.backup.kind is BackupKind.SECOND_DISK:
         folder = a.backup_dir or SECOND_DISK_MOUNT
@@ -545,8 +659,11 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     env["TB_BACKUP_MAILTO"] = email  # OD-16: the owner is told (the message path itself is T-730's)
     env["TB_BACKUP_ALERT_ROUTE"] = "health-page"  # D-735: without a mail agent the health tab carries the alert
     # 10K-21 (D-1365): the first-run page's answers, written only when given (a box that was not asked: as before)
-    if a.health_page_person:
-        env["TB_BACKUP_ALERT_WATCHER"] = a.health_page_person  # who opens the health tab every working day
+    # M1 (UX finding 6): who opens the health tab every working day; the first administrator until one is named
+    provisional_owner = email == PROVISIONAL_MAIL  # before the owner's answers: nobody stands in for anybody
+    watcher = a.health_page_person or ("" if provisional_owner else person_name(a.owner.full_name))
+    if watcher:
+        env["TB_BACKUP_ALERT_WATCHER"] = watcher
     if a.tls_root_confirmed_by:  # who in hospital IT confirmed the box's root certificate is on the PCs, and when
         env["TB_TLS_ROOT_CONFIRMED_BY"] = a.tls_root_confirmed_by
         env["TB_TLS_ROOT_CONFIRMED_ON"] = a.tls_root_confirmed_on
@@ -575,7 +692,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "alliance_sites": [],
         **ds,
         "registry_type": "none",
-        "departments": {},
+        "departments": SHIPPED_DEPARTMENTS,
         "practitioners": {},
         "llm_mode": mode,
         "cloud_enabled": "no",
@@ -584,7 +701,11 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "twpas_enabled": "no",
         "alliance_root": "no",
         "cohort_rulesets": [],
-        "smtp_host": "",
+        "smtp_host": a.smtp_host,
+        **({"smtp_port": a.smtp_port} if a.smtp_port else {}),
+        "sae_office_mailbox": a.sae_office_mailbox
+        or ("" if provisional_owner else email),  # D-1280: the administrator's mail stands in
+        "stand_ins": sorted(stand_ins(a)),
         "imap_host": "",
         "mta_authserv_id": a.mta_authserv_id,  # D-825: the owner's answer; empty: mail stays closed (D-369)
         "tls_hostname": a.hostname,
@@ -605,7 +726,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
             "no usable TPM (systemd-creds has-tpm2): the site keys are sealed under a passphrase the owner "
             "sets, typed after every restart"
         )
-    return BoxPlan(profile, mode, wizard, env, files, warnings)
+    return BoxPlan(profile, mode, wizard, env, files, warnings, stand_ins(a))
 
 
 def provisional(hw: Hardware) -> OwnerAnswers:
@@ -615,7 +736,7 @@ def provisional(hw: Hardware) -> OwnerAnswers:
 
     a, problems = parse({
         "site_name": "TrialBox", "tz": hw.host_tz or "UTC", "language": "en",
-        "owner": {"full_name": "owner", "username": "owner", "email": "owner@box.invalid"},
+        "owner": {"full_name": "owner", "username": "owner", "email": PROVISIONAL_MAIL},
         "box_name": hw.hostname, "backup": {"kind": "later"}, "source": "later",
     })  # fmt: skip
     if a is None:
@@ -623,12 +744,16 @@ def provisional(hw: Hardware) -> OwnerAnswers:
     return a
 
 
-def write(p: BoxPlan, deploy: Path, answers_out: Path) -> None:
-    """The site files under ``deploy`` and the wizard's answers file (JSON, which is YAML), 0600."""
+def write(p: BoxPlan, deploy: Path, answers_out: Path, *, keep: bool = False) -> None:
+    """The site files under ``deploy`` (``keep``: one that is there stays as it is) and the wizard's answers file (JSON,
+    which is YAML), 0600."""
     for rel, text in p.files.items():
         f = deploy / rel
+        if keep and f.exists():
+            continue
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(text, encoding="utf-8")
     answers_out.parent.mkdir(parents=True, exist_ok=True)
     answers_out.write_text(json.dumps(p.wizard_answers, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     answers_out.chmod(0o600)
+    site_needs.write_stand_ins(deploy, p.stand_ins)

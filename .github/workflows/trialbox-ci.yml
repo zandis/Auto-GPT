@@ -1,5 +1,6 @@
 # TrialBox CI gate v1 (D-206, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
-# push to master runs these jobs (in tiers: D-564, D-578); `make ci` runs the same list locally. Job names are stable: branch protection on
+# push to master runs these jobs (in tiers: D-564, D-578); the unit shards and `unit` run on every pull request
+# whatever it touches (H-120, D-1324). `make ci` runs the same list locally. Job names are stable: branch protection on
 # master requires unit, checks, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3). D-725: a
 # matrix job (goldens, e2e-simple) reports under an unexpanded expression when it is skipped, so it cannot be required
 # by name; require goldens-gate and e2e-simple-gate instead (with property and security, D-501). Since D-578
@@ -55,6 +56,9 @@ jobs:
       full: ${{ steps.tier.outputs.full }}
       # D-970: 'true' when the scenario jobs (goldens, e2e-simple, demo-boot) run: as `full`, except D's case
       scenarios: ${{ steps.tier.outputs.scenarios }}
+      # H-120 (D-1324): 'true' on every pull request, whatever its tier; otherwise as `full`. The unit jobs run unless
+      # it says 'false', so a `changes` that failed or said nothing runs them too
+      unit: ${{ steps.tier.outputs.unit }}
       # D-969: the tests that read the documents of a docs-only pull request (empty otherwise), run by `cross-card`
       docs_tests: ${{ steps.diff.outputs.docs_tests }}
     steps:
@@ -88,7 +92,8 @@ jobs:
       # unit, property, goldens, e2e-simple, demo-boot, security, standards, images. tests/unit/test_ci_tiers.py
       # holds the two lists; a new job is put in one. Which tier a run gets: tools/ci_tier.py (D-970): a train,
       # master and a run by hand everything; a card the fast tier unless it is on the full-tier list or labelled
-      # ci:full (CARD_TIER above); a draft and a docs-only card (D-969) the fast tier.
+      # ci:full (CARD_TIER above); a draft and a docs-only card (D-969) the fast tier. H-120 (D-1324): the unit
+      # shards and `unit` are taken out of that rule for a pull request: they run on every one (output `unit`).
       - id: tier
         working-directory: .
         env:
@@ -283,6 +288,12 @@ jobs:
         run: .venv/bin/python -m tools.twcore_check --json "$RUNNER_TEMP/twcore.json"
       - name: Five rulesets through the pinned jars and the CQL engine; the UTC-edge and censored cases
         run: .venv/bin/python -m tools.cql_path_check --json "$RUNNER_TEMP/cql-path.json"
+      # inv-j5 (review INVJ5-7): the visit-count test holds the SQL and the CQL to one answer. The unit shards skip its
+      # CQL half (no local engine there); here the engine is fetched, so a skip is a failure (TB_STRICT_SKIPS=1)
+      - name: A condition count counts visits, in SQL and CQL (no skip allowed)
+        run: |
+          env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_STRICT_SKIPS=1 TB_ENV=TEST \
+            .venv/bin/python -m pytest -q -n 0 -p no:cacheprovider tests/unit/test_visits_counted_once.py
       - name: Keep the results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
@@ -307,7 +318,10 @@ jobs:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
+    # H-120 (D-1324): on every pull request, whatever its tier, draft state, labels or paths (tools/ci_tier.py
+    # `unit`); a push or a run by hand with the full tier. Not 'false' rather than 'true': a `changes` that failed or
+    # said nothing runs them. tests/unit/test_h120_unit_shards_every_pr.py holds this condition.
+    if: ${{ !cancelled() && needs.changes.outputs.unit != 'false' }}
     # D-564, from the shards' own times (142 green shard jobs of the 40 runs before 2026-11-12 14:00 UTC): the slowest
     # shard (3/6) has a median of 24.8 minutes and reached 29.6; a slow runner took up to 1.5 times a shard's median
     # (6/6: 18.6 against 12.4). 24.8 x 1.5 = 37.2, rounded up to the next five. At 30 a shard that had passed its
@@ -322,6 +336,13 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # HYG5: tests/unit/test_standing_release_gates_hyg5.py holds the standing-gates baseline against the one on the
+      # pull request's base branch (a count may not be raised again after it went down); the checkout is depth 1
+      - name: Fetch the base branch
+        env:
+          BASE: ${{ github.base_ref }}  # empty outside a pull request
+        run: |
+          if [ -n "$BASE" ]; then git fetch --depth=1 origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"; fi
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
@@ -371,11 +392,12 @@ jobs:
   # T-747 (D-475): the required check `unit` (branch protection and the project's tooling read this name). It passes
   # only when every shard passed, the shards together ran every collected test exactly once, and the coverage ratchet
   # (T-651, unchanged) holds on the combined coverage of all shards. It runs when a shard failed too, so the check
-  # turns red instead of staying skipped; it is skipped only with the rest of the gate (no trialbox/ change).
+  # turns red instead of staying skipped. H-120 (D-1324): it runs on every pull request, as the shards do; it is
+  # skipped only on a push or a run by hand that the tier leaves without the shards (a proved master push, D-578).
   unit:
     runs-on: ubuntu-latest
     needs: [changes, unit-shard]
-    if: ${{ !cancelled() && needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.unit != 'false' }}
     timeout-minutes: 15
     steps:
       - name: Every shard passed

@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from console import firstrun as page
 from console.i18n_firstrun import EN, JA, ZH
-from tb_common import box_answers, firstrun
+from tb_common import box_answers, firstrun, site_needs
 
 from tests.console.test_firstrun import _answers, _box, _with_code
 
@@ -44,16 +44,25 @@ def _written(b: dict[str, Any]) -> dict[str, Any]:
     return got
 
 
-def test_production_refuses_a_silent_chart_number_rule_and_an_unnamed_health_page(tmp_path: Path) -> None:
+def test_production_marks_a_silent_chart_number_rule_and_an_unnamed_health_page_for_the_run_gate(
+    tmp_path: Path,
+) -> None:
+    """M1 (the integrator's ruling 7108528293, D-1280): the refusal moved from this page to the first run on real data,
+    which refuses both by name (``site_needs.gate``, the same items, below; the run's own refusal is
+    ``test_run_gate_u5.py``)."""
     b = _box(tmp_path, TB_ENV="PRODUCTION")
     c = _with_code(b)
     shown = c.get("/login/first-run/answers").text
-    assert "This box is in use, so this must be answered" in shown and 'name="health_page_person"' in shown
+    assert "loads no real patient data until this is answered" in shown and 'name="health_page_person"' in shown
     r, _ = _answers(c)
-    assert r.status_code == 422 and b["users"].count() == 0
-    assert 'data-testid="err-chartno_rule"' in r.text and "choose kept as written" in r.text
-    assert 'data-testid="err-health_page_person"' in r.text
-    assert not (tmp_path / "firstrun" / firstrun.ANSWERS).exists()
+    assert r.status_code == 200, r.text[-600:]
+    a, problems = box_answers.parse(_written(b), disks=("/dev/sdb",))
+    assert a is not None, problems
+    marked = box_answers.stand_ins(a)
+    assert {"chart_number", "backup_alarm"} <= marked
+    env = {"TB_CHARTNO_RULE": "asis", "TB_BACKUP_ALERT_WATCHER": "Dr Owner"}
+    refused = {n.key for n, _ in site_needs.gate("first_real_run", production=True, env=env, stand_ins=marked).blocking}
+    assert {"chart_number", "backup_alarm"} <= refused
 
 
 def test_production_takes_kept_as_written_chosen_and_a_named_person(tmp_path: Path) -> None:

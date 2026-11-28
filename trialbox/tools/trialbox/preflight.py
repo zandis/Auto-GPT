@@ -82,6 +82,30 @@ def _own_addrs() -> set[str] | None:
     return {str(a.get("local")) for link in links for a in link.get("addr_info") or () if a.get("local")}
 
 
+_BRIDGES = ("lo", "docker", "br-", "veth")  # the host's own container bridges are not the hospital's ranges
+
+
+def _host_nets() -> list[str] | None:
+    """H-137: the ranges this host is on (its addresses with their prefix, and its routes), container bridges left
+    out; None when they cannot be read."""
+    from tools.box.plan import _run
+
+    try:
+        links = json.loads(_run(["ip", "-j", "addr", "show"]) or "null")
+        routes = json.loads(_run(["ip", "-j", "route", "show"]) or "null")
+    except ValueError:
+        return None
+    if not isinstance(links, list) or not isinstance(routes, list):
+        return None
+    kept = [link for link in links if not str(link.get("ifname", "")).startswith(_BRIDGES)]
+    out = [
+        f"{a['local']}/{a.get('prefixlen', 32)}" for link in kept for a in link.get("addr_info") or () if a.get("local")
+    ]
+    out += [str(r["dst"]) for r in routes if r.get("dst") not in (None, "default")
+            and not str(r.get("dev", "")).startswith(_BRIDGES)]  # fmt: skip
+    return out
+
+
 def _banner(host: str, port: int, timeout: float) -> str:
     """Opens a connection (TLS first on port 465), reads the server's greeting, sends ``QUIT`` and closes."""
     with socket.create_connection((host, port), timeout=timeout) as raw:
@@ -98,18 +122,42 @@ def _banner(host: str, port: int, timeout: float) -> str:
         return line
 
 
+def _mail_cert(host: str, port: int, cafile: str, timeout: float) -> str:
+    """H-137: the relay's certificate checked as the mail gateway checks it (the public CAs plus the hospital's CA
+    file when one is named), over TLS on port 465 and after STARTTLS on any other port. Raises when it fails."""
+    import smtplib
+
+    ctx = ssl.create_default_context()
+    if cafile:
+        ctx.load_verify_locations(cafile)
+    if port == SMTPS_PORT:
+        with smtplib.SMTP_SSL(host, port, timeout=timeout, context=ctx) as s:
+            s.noop()
+    else:
+        with smtplib.SMTP(host, port, timeout=timeout) as s:
+            s.starttls(context=ctx)
+    return "verified"
+
+
 def _reach(host: str, port: int, timeout: float) -> str:
     with socket.create_connection((host, port), timeout=timeout):
         return "open"
 
 
-def _gpus() -> list[tuple[str, float]]:
-    """Every card: (name, memory MiB)."""
+#: what nvidia-smi says for the card memory of a unified-memory device (it shares the host's memory)
+NO_CARD_MEMORY = ("[N/A]", "[Not Supported]")
+
+
+def _gpus() -> list[tuple[str, float | None]]:
+    """Every card: (name, memory MiB); memory None on a unified-memory device, which reports no card memory."""
     from tools.box.plan import _run
 
-    out = []
+    out: list[tuple[str, float | None]] = []
     for line in _run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]).splitlines():
         name, _, mem = line.partition(",")
+        if name.strip() and mem.strip() in NO_CARD_MEMORY:
+            out.append((name.strip(), None))
+            continue
         with contextlib.suppress(ValueError):
             out.append((name.strip(), float(mem.strip())))
     return out
@@ -147,9 +195,11 @@ class Probes:
     writable: Callable[[Path], bool] = _writable
     resolve: Callable[[str], list[str]] = _resolve
     own_addrs: Callable[[], set[str] | None] = _own_addrs
+    host_nets: Callable[[], list[str] | None] = _host_nets  # the ranges this host is on (H-137)
     banner: Callable[[str, int, float], str] = _banner  # the mail relay's greeting
+    mail_cert: Callable[[str, int, str, float], str] = _mail_cert  # the mail relay's certificate (H-137)
     reach: Callable[[str, int, float], str] = _reach  # a Tang server's port
-    gpus: Callable[[], list[tuple[str, float]]] = _gpus  # every card: (name, memory MiB)
+    gpus: Callable[[], list[tuple[str, float | None]]] = _gpus  # every card: (name, memory MiB or None: unified)
     tpm: Callable[[], bool] = _tpm
     disk_usage: Callable[[Path], Any] = shutil.disk_usage
     docker_root: Callable[[], Path | None] = _docker_root
@@ -214,6 +264,16 @@ def check_name_cert(inp: DoctorInputs, p: Probes) -> Check:
     own = {a for a in own if _routable(a)} if own is not None else None
     if own is not None and not set(addrs) & own:
         return Check("name_cert", "FAIL", f"{where}: not an address of this box ({', '.join(sorted(own)) or 'none'})")
+    # H-137 (the owner's decision, #639 7156806411 item 7): behind Caddy the box's internal network has a fixed range
+    # (Caddy's address is the one trusted proxy); it must not be a range of the hospital's that this host is on
+    from tb_common import trusted_proxy as tp
+
+    subnet = (inp.env.get("TB_NET_SUBNET") or "").strip() or tp.DEFAULT_SUBNET
+    nets = p.host_nets()
+    clash = tp.clashes(subnet, nets) if nets is not None else []
+    if clash:
+        why = f"the box's internal range {subnet} clashes with this host's {', '.join(clash)}"
+        return Check("name_cert", "FAIL", f"{where}; {why}: set TB_NET_SUBNET and TB_PROXY_ADDR to a free range")
     try:
         from console.identity import check_tls
     except ImportError as e:  # a host python without the console's libraries
@@ -421,7 +481,32 @@ def check_mail_relay(inp: DoctorInputs, p: Probes) -> Check:
         return Check("mail_relay", "FAIL", f"{host}:{port} did not answer ({type(e).__name__}: {e})")
     if not first.startswith("220"):
         return Check("mail_relay", "FAIL", f"{host}:{port} answered {first[:60]!r}, not a mail greeting (220)")
-    return Check("mail_relay", "PASS", f"{host}:{port} answers" + (" (TLS)" if port == SMTPS_PORT else ""))
+    # H-137 (the owner's decision, #639 7156806411 item 6): the certificate is tested as the mail gateway will
+    starttls = _on(inp.env.get("SMTP_STARTTLS"), True)
+    if port != SMTPS_PORT and not starttls:
+        return Check("mail_relay", "WARN", f"{host}:{port} answers, without TLS (SMTP_STARTTLS=false): each start of "
+                     "the mail gateway is audited (mail.plaintext)")  # fmt: skip
+    if not _on(inp.env.get("SMTP_TLS_VERIFY"), True):
+        why = "its certificate is not checked (SMTP_TLS_VERIFY=false)"
+        return Check("mail_relay", "WARN", f"{host}:{port} answers; {why}: each start is audited (mail.tls_unverified)")
+    cafile = (inp.env.get("TB_EXTRA_CA") or "").strip()
+    try:
+        p.mail_cert(host, port, cafile, CONNECT_TIMEOUT_S)
+    except (ssl.SSLError, ssl.CertificateError) as e:
+        how = "name the hospital's CA in TB_EXTRA_CA, or turn the check off for it (SMTP_TLS_VERIFY=false, audited)"
+        return Check("mail_relay", "FAIL", f"{host}:{port}: its certificate is not trusted ({e}); {how}")
+    except (OSError, ValueError) as e:  # smtplib's errors are OSErrors; a relay without STARTTLS raises one too
+        return Check(
+            "mail_relay", "FAIL", f"{host}:{port}: the certificate could not be tested ({type(e).__name__}: {e})"
+        )
+    return Check("mail_relay", "PASS", f"{host}:{port} answers" + (" (TLS)" if port == SMTPS_PORT else "")
+                 + ", certificate verified")  # fmt: skip
+
+
+def _on(value: str | None, default: bool) -> bool:
+    """A yes/no setting as tb_common.config reads it; empty is the default."""
+    v = (value or "").strip().lower()
+    return default if not v else v in ("1", "true", "yes", "on")
 
 
 def check_disk(inp: DoctorInputs, p: Probes) -> Check:
@@ -552,11 +637,12 @@ def check_gpu_tier(inp: DoctorInputs, p: Probes) -> Check:
     names = [str(n) for n in stated("card_names") or ()]
     want = stated("card_memory_mib")
 
-    def fits(card: str, mem: float) -> list[str]:
+    def fits(card: str, mem: float | None) -> list[str]:
         why = []
         if names and not any(n.lower() in card.lower() for n in names):
             why.append(f"the card is {card!r}, the record names {' or '.join(names)}")
-        if isinstance(want, int | float) and want and abs(mem - want) / want > GPU_MEM_TOLERANCE:
+        # a unified-memory device has no card memory to compare: the host's memory (below) is its memory
+        if mem is not None and isinstance(want, int | float) and want and abs(mem - want) / want > GPU_MEM_TOLERANCE:
             why.append(f"{card!r} has {mem:.0f} MiB, the record {want} MiB")
         return why
 
@@ -570,7 +656,8 @@ def check_gpu_tier(inp: DoctorInputs, p: Probes) -> Check:
             bad.append(f"the host has {ram:.0f} GiB, the record asks {ram_min} GiB or more")
         return Check("gpu_tier", "FAIL", f"tier record {profile}: " + "; ".join(bad))
     card, mem = good[0]
-    facts = f"{card}, {mem:.0f} MiB: as the tier record {profile} states"
+    size = "unified memory (no card memory reported)" if mem is None else f"{mem:.0f} MiB"
+    facts = f"{card}, {size}: as the tier record {profile} states"
     soft = [f"another card does not match: {'; '.join(bad)}"] if bad else []
     if ram is None:
         soft.append(f"the host's memory could not be read ({inp.proc / 'meminfo'}): not compared")

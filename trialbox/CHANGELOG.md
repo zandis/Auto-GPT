@@ -10,6 +10,9 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The night's report and its audit event say how long each stage took and how much memory the process had peaked
+  at when it ended (`stages` in `ingest_report.json`, now schema 1.7.0, and in the `ingest.done` detail): seconds
+  and megabytes per stage, no patient data. A night that slows or grows is seen on the night it happens.
 - The audit chain is held to its signed heads (R22-36). A chain that lost `HEAD.json` after a head was signed is no
   longer adopted by the next write, and a chain cut below a signed head is refused even when `HEAD.json` was written
   to match, wherever the writer or the check is given the anchor folder. **An installed box that an earlier release

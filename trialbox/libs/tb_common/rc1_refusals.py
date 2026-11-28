@@ -122,7 +122,8 @@ REFUSALS: tuple[Refusal, ...] = (
     Refusal(
         name="key_ceremonies",
         what="the backup key ceremony, the backup key pair (trialbox backup-keygen), and the KEK's rotation, ceremony "
-        "record, escrow shares, restic key and pid map key (tools.keys; its init stays allowed)",
+        "record, escrow shares, restic key and pid map key (tools.keys; its init stays allowed, and so does the "
+        "rotation of a passphrase KEK to a new passphrase from a root-only file or stdin, audited: D-1092)",
         sites=(
             "tools.backup_key_ceremony:run",
             "tools.trialbox.__main__:_backup_cmd",

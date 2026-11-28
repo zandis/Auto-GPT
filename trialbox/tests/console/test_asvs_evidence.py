@@ -164,7 +164,8 @@ def _trusted_proxies_as_configured() -> str:
     """What uvicorn in the console container trusts for forwarded headers, as the files a box is installed from set it:
     the base file's ``--forwarded-allow-ips`` (its ``${TB_CONSOLE_FORWARDED_ALLOW_IPS:-...}`` default), a value the
     installer writes for that variable into deploy/.env, or, in the identity overlay's console block, a command with
-    the flag or uvicorn's own ``FORWARDED_ALLOW_IPS`` variable. Any of these ways counts."""
+    the flag or uvicorn's own ``FORWARDED_ALLOW_IPS`` variable. Any of these ways counts. H-137: a
+    ``${TB_CONSOLE_FORWARDED_ALLOW_IPS:-...}`` default in the overlay is what a box behind Caddy runs with too."""
     base = (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
     m = re.search(r'"--forwarded-allow-ips",\s*"\$\{TB_CONSOLE_FORWARDED_ALLOW_IPS:-([^}]*)\}"', base)
     assert m, "the base file's console command no longer names --forwarded-allow-ips"
@@ -175,20 +176,29 @@ def _trusted_proxies_as_configured() -> str:
     overlay = (DEPLOY / "docker-compose.identity.yml").read_text(encoding="utf-8")
     block = overlay[overlay.index("\n  console:\n") :]
     for pat in (r"--forwarded-allow-ips[\"',\s=]+([^\"'\]\s,]+)", r"\bFORWARDED_ALLOW_IPS:\s*\"?([^\"\s]+)",
-                r"TB_CONSOLE_FORWARDED_ALLOW_IPS:\s*\"?([^\"\s]+)"):  # fmt: skip
+                r"(?<!\{)TB_CONSOLE_FORWARDED_ALLOW_IPS:\s*\"?([^\"\s]+)"):  # fmt: skip
         m = re.search(pat, block)
         if m and not m.group(1).startswith("$"):
             value = m.group(1)
+        elif m and (d := re.fullmatch(r"\$\{TB_CONSOLE_FORWARDED_ALLOW_IPS:-([^}]+)\}", m.group(1))):
+            value = d.group(1)
     return value
 
 
+def _caddy_address_as_configured() -> str:
+    """H-137: Caddy's fixed address on the box's internal network, as the identity overlay sets it."""
+    overlay = (DEPLOY / "docker-compose.identity.yml").read_text(encoding="utf-8")
+    m = re.search(r'ipv4_address:\s*"\$\{TB_PROXY_ADDR:-([^}]+)\}"', overlay)
+    assert m, "the identity overlay gives Caddy no fixed address"
+    return m.group(1)
+
+
 @pytest.mark.nodb
-@pytest.mark.xfail(strict=True, reason="V3-01: as the files configure it, the console behind Caddy sees one address for "
-                   "every browser, so the sign-in lock counts them as one (ASVS 2.2.1; full review J-4)")  # fmt: skip
 def test_v2_2_1_behind_caddy_two_browsers_are_two_addresses() -> None:
     """Behaviour, not a variable name: uvicorn's own proxy-header middleware, with the trust the files configure, in
-    front of an app that answers the client address it sees; Caddy at an address of a compose bridge network sends
-    two requests forwarded for two different browsers."""
+    front of an app that answers the client address it sees; Caddy at its fixed address on the box's internal network
+    (H-137, closing V3-01) sends two requests forwarded for two different browsers, and another container's
+    forwarded header is not believed."""
     from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
     async def echo(scope: Any, receive: Any, send: Any) -> None:
@@ -196,10 +206,12 @@ def test_v2_2_1_behind_caddy_two_browsers_are_two_addresses() -> None:
         await send({"type": "http.response.body", "body": str(scope["client"][0]).encode()})
 
     app = ProxyHeadersMiddleware(echo, trusted_hosts=_trusted_proxies_as_configured())
-    caddy = TestClient(cast(Any, app), client=("172.18.0.3", 41000))
+    caddy = TestClient(cast(Any, app), client=(_caddy_address_as_configured(), 41000))
     a = caddy.get("/", headers={"X-Forwarded-For": "10.20.0.11", "X-Forwarded-Proto": "https"}).text
     b = caddy.get("/", headers={"X-Forwarded-For": "10.20.0.12", "X-Forwarded-Proto": "https"}).text
     assert a != b, (a, b)
+    other = TestClient(cast(Any, app), client=("172.31.252.7", 41000))  # another container on the same network
+    assert other.get("/", headers={"X-Forwarded-For": "10.20.0.13"}).text == "172.31.252.7"
 
 
 def test_v2_2_1_five_wrong_passwords_lock_the_name_from_that_address(tmp_path: Path) -> None:
@@ -229,6 +241,7 @@ def _problem_text(r: Any) -> str:
     return m.group(1) if m else ""
 
 
+@pytest.mark.usefixtures("held_dir")
 def test_v4_2_2_every_changing_page_route_refuses_a_post_without_the_csrf_token(
     box: dict[str, Any],  # noqa: F811
 ) -> None:

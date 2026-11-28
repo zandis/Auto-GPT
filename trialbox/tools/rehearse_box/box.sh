@@ -3,7 +3,7 @@
 # rehearse.sh starts, one phase per call, and exits non-zero when the phase's assertion fails. Every TrialBox file it
 # uses comes from the offline media in $TB_RH_MEDIA (the release tree, the signed bundle, the vendor key).
 #
-#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key
+#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key|test-boxes|live-restore
 #
 # Environment (set by rehearse.sh): TB_RH_DIR (work dir, the same path on the Docker host), TB_RH_MEDIA (the media
 # folder), TB_RH_BUNDLE (the bundle file name), TB_RH_BOX (where the box is installed: the site's /opt/trialbox).
@@ -16,7 +16,21 @@ fail() { echo "REHEARSAL FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
 dc() { (cd "$BOX" && docker compose --project-directory deploy "$@"); }   # COMPOSE_FILE comes from deploy/.env
 envget() { sed -n "s/^$1=//p" "$BOX/deploy/.env" | tail -1; }
-envset() { sed -i "/^$1=/d" "$BOX/deploy/.env"; [ -z "${2+x}" ] || printf '%s=%s\n' "$1" "$2" >> "$BOX/deploy/.env"; }
+# H-148 (7170464780): the site's day, as the product reads it with no settings object (tb_common.config.site_tz: TB_TZ,
+# which compose requires to be site.tz, D-315); no zone is no day, never UTC's (an ingest after the site's midnight
+# under UTC's day is older than the box's own nightly snapshot)
+site_day() { local z; z="$(envget TB_TZ)"; [ -n "$z" ] || fail "TB_TZ is not set in deploy/.env (the site's zone, D-315)"; TZ="$z" date +%F; }
+# H-142 (.k): the new file written whole beside deploy/.env (its owner and mode) and renamed over it, never in place
+envset() {
+  local e="$BOX/deploy/.env" t
+  t="$(mktemp "$BOX/deploy/.env.XXXXXX")" || return 1
+  if { sed "/^$1=/d" "$e"; [ -z "${2+x}" ] || printf '%s=%s\n' "$1" "$2"; } > "$t" \
+      && chmod --reference="$e" "$t" && chown --reference="$e" "$t" && mv -f "$t" "$e"; then
+    return 0
+  fi
+  rm -f "$t"
+  return 1
+}
 IMAGE_PY="trialbox-py:1.0.0"
 
 # install_box: the real installer as a site runs it (--rehearsal). The rehearsal box is VALIDATION (D-887, the
@@ -27,17 +41,95 @@ install_box() (
   cd "$BOX" || exit 1
   # the host's zone is the site's, as a site's IT sets it (doctor's site_tz, D-315); this host has no timedatectl
   tz="$(sed -n "s/^tz: *['\"]\{0,1\}\([A-Za-z0-9_+\/-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)"
-  [ -n "$tz" ] && printf '%s\n' "$tz" > /etc/timezone
+  # both, as timedatectl set-timezone leaves them: the active /etc/localtime link first, the text file as a fallback
+  [ -z "$tz" ] || { printf '%s\n' "$tz" > /etc/timezone; ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime; }
   if [ "${TB_RH_VARIANT:-test}" = validation ]; then
     # a site's IT makes deploy/site as root; the pin step's container must still write there (I-4, D-835)
     install -d -m 0755 deploy/site && chown -R root:root deploy/site
   fi
-  # The driver passes the same throwaway passphrase through the environment on a reinstall.
-  : "${TB_KEK_PASSPHRASE:?missing rehearsal passphrase}"
-  export TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase
-  TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
-    deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes
+  # H-96 (F-45; the integrator's ruling 7094934985): the driver writes the same throwaway passphrase to a root-only
+  # file before the install and the reinstall; the install keeps it for the reinstall, the reinstall's seal step
+  # removes it. The installer runs under the stand-in sudo, which logs its arguments and environment as sudo does
+  [ -f "$KEK_PASS" ] || { echo "missing the rehearsal passphrase file $KEK_PASS" >&2; exit 1; }
+  local keep=(); [ "$PHASE" = reinstall ] || keep=(--keep-kek-passphrase-file)
+  standin_sudo TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" \
+    TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
+    deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes \
+    --kek-passphrase-file "$KEK_PASS" "${keep[@]}"
 )
+KEK_PASS=/root/rehearsal-kek.pass
+SUDO_LOG="$W/standin-sudo.log"
+# standin_sudo VAR=value... COMMAND ARGS...: what sudo logs (its command line and, for a kept variable, ENV=name=value)
+# to a file of the rehearsal's own, then the command with those variables. H-96: the rehearsal looks there for the
+# passphrase (never printing it)
+standin_sudo() {
+  { printf 'COMMAND='; printf ' %q' "$@"; printf '\n'; env | sed 's/^/ENV=/'; } >> "$SUDO_LOG"
+  env "$@"
+}
+# no_passphrase_left PASSFILE: the passphrase (read from its file by grep -F -f, never printed) is in no sudo log line,
+# no argument the stand-in saw, no deploy/.env and no box container's configuration
+no_passphrase_left() {
+  local f="$1" ids
+  grep -qF -f "$f" "$SUDO_LOG" && fail "the passphrase is in the stand-in sudo's log (arguments or environment)"
+  grep -qF -f "$f" "$BOX/deploy/.env" && fail "the passphrase is in deploy/.env"
+  ids="$(dc ps -aq)"
+  # shellcheck disable=SC2086 # the container ids, one word each
+  [ -z "$ids" ] || ! docker inspect --format '{{json .Config.Env}} {{json .Args}}' $ids | grep -qF -f "$f" \
+    || fail "the passphrase is in a box container's configuration"
+  ok "the passphrase is in no sudo log line, no argument, no deploy/.env, no container configuration"
+}
+
+# H-96 (7097514776; H-94 (5)): the installer shows the administrator's first password and enrolment code on a terminal
+# once and writes them to no log; with no terminal (docker exec without -t, as here) they are in a root-only file.
+# The install and reinstall phases keep the installer's output (the step log's lines) in a file for the check below
+ONCE_FILE=/root/trialbox-admin-first-sign-in  # root's home, as the passwd entry names it in the box
+# no_once_value_left OUT MIN: the root-only file holds at least MIN one-time values; none of them (read by grep -F -f,
+# never printed) is in the install's output, the stand-in sudo's log or deploy/.env. The file is removed after, as
+# RUNBOOK §1 says
+# H-94, H-97 part D (the integrator's ruling 7104745003): the rehearsal box is a PoC box whose keys are sealed under
+# the passphrase. With no TPM device here (the host check reads the same /dev) it lists exactly that stop
+# (check_host.sh/no-tpm-sealed), and doctor shows it in the install's own output; any other line of the PoC list is
+# a stop the rehearsal's own install must not have. $1: the list, $2: which install, $3: that install's output
+only_the_expected_poc_stops() {
+  local other key='"key": "check_host.sh/no-tpm-sealed"' line
+  if [ -s "$1" ]; then
+    other="$(grep -v -F "$key" "$1" || true)"
+    # H-110 (M-LH-2, OCR 1455-2 (A)): a compose file in a folder that is not root's alone is a stop on every box now,
+    # never a listed warning: the work dir is root's while the box runs (rehearse.sh host_up)
+    other="$(printf '%s\n' "$other" | while IFS= read -r line; do
+      case "$line" in
+        # H-110 (M-SC-3, the integrator's ruling 7122559749): a box with no cron daemon running warns and lists it;
+        # this container runs none, so the line is expected exactly when no cron daemon runs here
+        *'"key": "install.sh/cron-daemon"'*)
+          if ! pgrep -x cron >/dev/null 2>&1 && ! pgrep -x crond >/dev/null 2>&1; then continue; fi ;;
+      esac
+      [ -z "$line" ] || printf '%s\n' "$line"
+    done)"
+    [ -z "$other" ] || { printf '%s\n' "$other"; fail "the $2 warned and listed the stops above ($1)"; }
+  fi
+  if [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ]; then
+    return 0  # a TPM here: nothing of part D's is due (the list was checked above)
+  fi
+  grep -q -F "$key" "$1" 2>/dev/null \
+    || fail "the $2 on a box with no TPM did not list check_host.sh/no-tpm-sealed in $1 (H-97 part D)"
+  grep -q 'poc_stop .*check_host.sh/no-tpm-sealed.*reseal the site keys under a TPM' "$3" \
+    || fail "doctor did not show the PoC stop check_host.sh/no-tpm-sealed with its action in the $2's output ($3)"
+  ok "the $2 listed only the expected PoC stop, and doctor showed it: keys sealed under the passphrase with no TPM (H-97 part D)"
+}
+no_once_value_left() {
+  local out="$1" min="$2" pat
+  [ -f "$ONCE_FILE" ] && [ "$(stat -c '%a %u' "$ONCE_FILE")" = "600 0" ] \
+    || fail "the administrator's one-time values are not in a root-only file ($ONCE_FILE, 0600)"
+  grep -q "no terminal to show it on: it is in $ONCE_FILE" "$out" || fail "the install's output does not name $ONCE_FILE"
+  pat="$(mktemp)"
+  sed -n 's/.*(shown once[^)]*): *//p' "$ONCE_FILE" | grep . > "$pat"
+  [ "$(wc -l < "$pat")" -ge "$min" ] || { rm -f "$pat"; fail "fewer than $min one-time values in $ONCE_FILE"; }
+  if [ -s "$pat" ] && grep -qF -f "$pat" "$out" "$SUDO_LOG" "$BOX/deploy/.env"; then
+    rm -f "$pat"; fail "a one-time value (the first password or the enrolment code) is in the install's output or a log"
+  fi
+  rm -f "$pat" "$ONCE_FILE"
+  ok "the first password and enrolment code: in a root-only file, in no install output, sudo log or deploy/.env"
+}
 
 unpack_release() {  # the release tree from the media into a fresh folder: what the site copies to /opt/trialbox
   local to="$1"
@@ -62,8 +154,13 @@ doctor() {  # the model key as the gateway reads it: the key file only (D-437, D
     case "$cf" in "$BOX/deploy/"*) ;; /*) [ -f "$cf" ] && more+=(-v "$cf:$cf:ro") ;; esac
   done
   unset IFS
+  # H-136: the hold after a restore as the host check hands it in: read through the box (compose exec db), on the host
+  local hold
+  hold="$(cd "$BOX" && python3 -m tools.trialbox.box_hold "$BOX/deploy")" || hold=""
+  [ -n "$hold" ] || hold='{"state": "unread", "cause": "the rehearsal could not run python3 -m tools.trialbox.box_hold"}'
   docker run --rm --network trialbox-model-net --env-file "$BOX/deploy/.env" -v "$BOX/deploy:/app/deploy:ro" \
     ${more[@]+"${more[@]}"} -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
+    -e TB_DOCTOR_RESTORE_HOLD="$hold" \
     --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml \
     --env-file /app/deploy/.env "$@"   # D-887: as the host check gives it (db_passwords, chartno_rule read the box)
 }
@@ -169,6 +266,23 @@ bootstrap)
   [ -f "$opt/deploy/install.sh" ] && cmp -s "$pub" "$opt/deploy/keys/vendor_ed25519.pub" \
     || fail "the bootstrap left no host tree or no vendor key in $opt"
   echo "$out" | grep -q "^running: $opt/deploy/install.sh $BUNDLE --ctgov-check" || fail "the bootstrap did not run the tree's installer"
+  # H-110 (a): the same command on the tree it left: kept, as this release's tree, and its installer runs
+  out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
+  [ "$rc" = 0 ] && echo "$out" | grep -q "^kept: $opt already holds this release's host tree" \
+    || { echo "$out"; fail "the bootstrap did not keep and run this release's own tree (exit $rc)"; }
+  # H-110 (a; the integrator's ruling 7119913331): a kept tree is the site's data, never code. Its box-install.sh and
+  # install.sh replaced by planted ones (the harm: code the vendor key's signature does not cover, run as root): the
+  # signed release is staged (LR-18: nothing switched before the update step) and its own installer runs from there;
+  # the planted never
+  planted="$W/bootstrap/planted-installer-ran"
+  for f in box-install.sh install.sh; do printf '#!/bin/sh\ntouch "%s"\n' "$planted" > "$opt/deploy/$f"; done
+  out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
+  echo "$out" | tail -4
+  staged="$(echo "$out" | sed -n "s#^running: \($opt/releases/[^/ ]*\)/deploy/install.sh $BUNDLE --ctgov-check\$#\1#p")"
+  [ "$rc" = 0 ] && echo "$out" | grep -q "^staged: the signed release " && [ -n "$staged" ] && [ ! -e "$planted" ] \
+    && ! grep -qs "$planted" "$staged/deploy/install.sh" "$staged/deploy/box-install.sh" && [ ! -e "$opt/current" ] \
+    || fail "a kept tree with planted installers: the signed release was not staged and run, a planted installer ran, or the box was switched before its update step (exit $rc)"
+  ok "a kept tree with planted installers: the signed release staged and its installer run, the planted never run, nothing switched"
   rm -rf "$W/bootstrap"
   ok "RUNBOOK §1's first command: bootstrap signature checked, bundle verified, host tree unpacked, key placed, installer run"
   ;;
@@ -190,13 +304,22 @@ media-negative)
   [ "$rc" != 0 ] && echo "$out" | grep -q "not a valid signed TrialBox release" || fail "a forged bundle was not refused"
   [ ! -e deploy/.env ] || fail "the installer wrote settings for a forged bundle"
   ok "forged media: exit $rc, 'not a valid signed TrialBox release; nothing was changed'"
+  # H-95: the software pack alone, without the model pack it names: refused by the verifier (H-94 (1)), by the model
+  # pack's signed identity, before anything is loaded
+  mkdir -p "$W/lone" && { ln "$BUNDLE" "$W/lone/" 2>/dev/null || cp "$BUNDLE" "$W/lone/"; }
+  out="$(deploy/install.sh "$W/lone/$(basename "$BUNDLE")" --tier large --yes 2>&1)"; rc=$?
+  echo "$out" | tail -5
+  [ "$rc" != 0 ] && echo "$out" | grep -q "this software pack needs model pack .* (signed manifest sha256 [0-9a-f]\{64\})" \
+    || fail "a software pack without its model pack was not refused by the model pack's identity"
+  [ ! -e deploy/.env ] && [ ! -e deploy/updates/installed.json ] || fail "the installer wrote or loaded for a software pack without its model pack"
+  ok "software pack without its model pack: exit $rc, refused by the model pack's signed identity, nothing loaded"
   # the vendor key missing from the box (it comes out of band, and on the media)
   rm -f deploy/keys/vendor_ed25519.pub
   out="$(deploy/install.sh "$BUNDLE" --tier large --yes 2>&1)"; rc=$?
   echo "$out" | tail -3
   [ "$rc" != 0 ] && echo "$out" | grep -q "vendor public key missing" || fail "a missing vendor key was not refused"
   ok "missing vendor key: exit $rc, 'vendor public key missing'"
-  cd / && rm -rf "$NEG" "$W/forged" "$W/forged.tar"
+  cd / && rm -rf "$NEG" "$W/forged" "$W/forged.tar" "$W/lone"
   ;;
 
 # ------------------------------------------------------------------------------------------------ install
@@ -209,7 +332,23 @@ install)
   # T-632: the site's feed folder on the host (a copy of the synthetic export), never the fixture in the release
   install -d deploy/site && rm -rf deploy/site/feed-a && cp -r tests/fixtures/synthetic_patients/site-a deploy/site/feed-a \
     || fail "cannot stage the feed folder"
-  install_box || fail "deploy/install.sh failed"
+  # H-96: a passphrase in the environment is refused by the real installer before anything (the value given is
+  # synthetic and not the rehearsal's)
+  out="$(TB_KEK_PASSPHRASE=synthetic-env-form-h96 deploy/install.sh "$BUNDLE" --tier large --yes 2>&1)"; rc=$?
+  [ "$rc" = 2 ] && echo "$out" | grep -q "TB_KEK_PASSPHRASE is set in the environment: refused" \
+    && ! echo "$out" | grep -q synthetic-env-form-h96 && [ ! -e current ] && [ ! -e deploy/.env ] \
+    || fail "the environment form was not refused before anything (exit $rc)"
+  ok "the environment form is refused by install.sh (exit 2, nothing loaded or written)"
+  : > "$SUDO_LOG"
+  rc=0; install_box > "$W/install-output.log" 2>&1 || rc=$?
+  cat "$W/install-output.log"; [ "$rc" = 0 ] || fail "deploy/install.sh failed"
+  no_once_value_left "$W/install-output.log" 2
+  [ -f "$KEK_PASS" ] && [ "$(stat -c %a "$KEK_PASS")" = 600 ] || fail "--keep-kek-passphrase-file did not keep the file"
+  no_passphrase_left "$KEK_PASS"
+  ok "first install through the signed re-run: sealed from --kek-passphrase-file, the file kept as asked"
+  # H-94: the rehearsal box is a PoC box, where a stop that is not one of the five warns and is listed; the
+  # rehearsal's own install lists only the expected one (as before, when each of them stopped it)
+  only_the_expected_poc_stops deploy/site/poc-stops.jsonl install "$W/install-output.log"
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
   grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
@@ -239,7 +378,15 @@ reinstall)
   [ -f "$sec/kek.json" ] || fail "the first install sealed no keys (no kek.json in $sec)"
   before="$(sha256sum "$sec/kek.json" | cut -d' ' -f1)"
   ok "first install: keys sealed under the passphrase KEK (kek.json)"
-  install_box || fail "the second install of the same bundle failed"
+  pp_copy="$(mktemp)"; cp "$KEK_PASS" "$pp_copy"   # the patterns for the checks after the file is removed (0600)
+  : > "$SUDO_LOG"
+  rc=0; install_box > "$W/reinstall-output.log" 2>&1 || rc=$?
+  cat "$W/reinstall-output.log"; [ "$rc" = 0 ] || { rm -f "$pp_copy"; fail "the second install of the same bundle failed"; }
+  no_once_value_left "$W/reinstall-output.log" 0
+  [ ! -e "$KEK_PASS" ] || { rm -f "$pp_copy"; fail "the seal step did not remove the passphrase file"; }
+  no_passphrase_left "$pp_copy"; rm -f "$pp_copy"
+  ok "second install: the passphrase file removed after sealing"
+  only_the_expected_poc_stops "$BOX/deploy/site/poc-stops.jsonl" "second install" "$W/reinstall-output.log"
   [ "$(sha256sum "$sec/kek.json" | cut -d' ' -f1)" = "$before" ] || fail "the second install replaced the KEK"
   [ "$(stat -c %u "$BOX/deploy/site")" = 0 ] || fail "deploy/site is no longer root's"
   grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"
@@ -273,10 +420,42 @@ doctor)
   echo "$out" | grep -q "^WARN  rehearsal .*REHEARSAL BOX: placeholder models, synthetic data only" \
     || fail "the doctor does not carry the standing REHEARSAL BOX line"
   echo "$out" | grep -q "^PASS  serving" || fail "the live serving check did not PASS"
+  # H-136: the image's doctor is handed the hold the host read through the box; a fresh box is not held
+  echo "$out" | grep -qE "^PASS  restore_hold +released" \
+    || fail "doctor did not read the hold after a restore through the box (H-136): an operator would be told nothing is held while the screening hold is on"
   echo "$out" | grep -q "^PASS  registry_pins" || fail "registry_pins did not PASS"
   # D-887: the pins are the media's placeholders, and the doctor says so where it shows them
   echo "$out" | grep -q "^PASS  serving.*rehearsal placeholder" || fail "the serving line does not name the rehearsal placeholder"
   ok "trialbox doctor --live: passed"
+  # H-110 (e): the start path refuses a deploy/.env group or others can read (the services' passwords, H-94 (5)): the
+  # real host command on this box, then the file's mode put back
+  m="$(stat -c %a "$BOX/deploy/.env")"; chmod 0644 "$BOX/deploy/.env"
+  out="$(cd "$BOX" && env -i PATH=/usr/bin:/bin python3 -m tools.trialbox backup-status 2>&1)"; rc=$?
+  chmod "$m" "$BOX/deploy/.env"
+  [ "$rc" = 2 ] && echo "$out" | grep -q "deploy/.env can be read by group or others (chmod 600 it): nothing was run" \
+    || { echo "$out" | tail -3; fail "a deploy/.env others can read did not stop the host command (exit $rc)"; }
+  ok "a deploy/.env others can read: the host command refused it (exit 2), nothing run"
+  # H-110 (f): a plain site key that others can read FAILs the real host check on this PoC box (a synthetic key in a
+  # folder of the rehearsal's own, never the box's secrets volume); the install keeps that FAIL (tb_kept_fails)
+  fk="$(mktemp -d)"; head -c 32 /dev/urandom > "$fk/site_hmac.key"; chmod 0644 "$fk/site_hmac.key"
+  out="$(sh "$BOX/deploy/check_host.sh" --env "$BOX/deploy/.env" --secrets "$fk" 2>&1)"; rm -rf "$fk"
+  echo "$out" | grep -q "^FAIL  site_hmac.key mode 644: a plain site key that group or others can read" \
+    || fail "a plain site key others can read did not FAIL the host check"
+  ok "a plain site key others can read: the host check FAILs it on this PoC box"
+  # H-121: the update's size check (tools/trialbox/update.py db_size, as space_needs and the backup read it) on this
+  # box's own database roles, through the box's own command line. The roles are a site's: `trialbox` may not connect
+  # to `hapi` (30-service-roles.sh), so a read of `hapi` as `trialbox` fails here as on a site's box
+  if dc exec -T db psql -X -At -U trialbox -d hapi -c 'SELECT 1' >/dev/null 2>&1; then
+    fail "trialbox connects to hapi: the rehearsal's database roles are not a site's"
+  fi
+  sizes="$(cd "$BOX" && python3 -c 'from pathlib import Path
+from tools.trialbox import update as up
+box = up.ComposeBox(Path("deploy"))
+sizes = {db: box.db_size(db, user) for db, user in up.DB_SIZE_ROLES}
+print(" ".join(f"{db}={n}" for db, n in sizes.items()))
+raise SystemExit(0 if all(isinstance(n, int) and n > 0 for n in sizes.values()) else 1)' 2>&1)" \
+    || fail "the update's size check failed on the box's own roles (H-121): $sizes"
+  ok "the update's size check read both databases on a site's roles (H-121): $sizes"
   ;;
 
 # ------------------------------------------------------------------------------------------------ served names
@@ -475,8 +654,10 @@ EOF
 screen)
   tag="${2:-first}"
   if [ ! -f "$W/ingested" ]; then
-    # D-887: today's snapshot, as the nightly ingest makes it (a fixed date grew older than the box accepts, D-383)
-    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot "$(date -u +%F)" \
+    # D-887: today's snapshot, as the nightly ingest makes it (a fixed date grew older than the box accepts, D-383),
+    # in the site's day (H-148: UTC's day is the day before from the site's midnight until UTC's)
+    snap="$(site_day)" || exit 1
+    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot "$snap" \
       | tail -5 || fail "ingest of synthetic hospital A failed"
     touch "$W/ingested"
   fi
@@ -645,6 +826,155 @@ print(f"ok: restored by the custodians path: {n} lake files from restic snapshot
   ok "the live lake was only read; the throwaway keys and the rehearsal's backup removed"
   ;;
 
+# ------------------------------------------------------------------------------------------------ live-restore
+live-restore)
+  # H-100: the restore over the live stack by the one command RUNBOOK §5 documents, typed on the box's host as root:
+  # the nightly (--deploy deploy, a relative folder) to a rehearsal folder under a throwaway key pair, backup-verify,
+  # then `trialbox restore --last --key <key> --yes --restart`; every service that ran before runs again and is
+  # healthy, and the restored rows equal backup-verify's. Before it, a restore made to fail after it replaced the
+  # databases must leave every table as it was. The box's own key, targets, records and role script are put back.
+  # Last of the box's steps: a restore that ends held (D-522) leaves the list jobs held for a person.
+  cd "$BOX" || fail "no box at $BOX"
+  command -v trialbox >/dev/null || fail "no trialbox on PATH (install.sh links it)"
+  rr="$W/live-restore"
+  rm -rf "$rr" && mkdir -p "$rr/nas" && chmod 0700 "$rr" || fail "no work folder"
+  cp -p deploy/.env "$rr/env.before" || fail "cannot keep deploy/.env"
+  for f in backup-last.json backup-verified.json; do
+    if [ -f "deploy/site/$f" ]; then cp -p "deploy/site/$f" "$rr/$f.before"; fi
+  done
+  put_back() {
+    # H-142 (.k): a copy with its owner and mode beside deploy/.env, renamed over it (never rewritten in place)
+    cp -p "$rr/env.before" "$BOX/deploy/.env.put-back" && mv -f "$BOX/deploy/.env.put-back" "$BOX/deploy/.env"
+    for f in backup-last.json backup-verified.json; do
+      if [ -f "$rr/$f.before" ]; then cp -p "$rr/$f.before" "$BOX/deploy/site/$f"; else rm -f "$BOX/deploy/site/$f"; fi
+    done
+  }
+  trap put_back EXIT
+  img="$(envget TB_BACKUP_IMAGE)"; img="${img:-trialbox-backup:1.0.0}"
+  docker run --rm --network none --user 0 -e TB_ENV="$(envget TB_ENV)" -v "$rr:$rr" "$img" python -m tools.trialbox backup-keygen \
+    --private "$rr/backup.key" --public "$rr/backup.pub" >/dev/null || fail "cannot make the throwaway backup key pair"
+  : > "$rr/nas/.trialbox-offbox"
+  envset TB_BACKUP_TARGETS "$rr/nas"; envset TB_BACKUP_OFFBOX "$rr/nas"; envset TB_BACKUP_PUBKEY "$rr/backup.pub"
+  ok "a throwaway backup key pair and a rehearsal target: never the box's"
+  before="$(dc ps --services --status running | sort)"
+  python3 -m tools.trialbox backup-nightly --deploy deploy > "$rr/nightly.log" 2>&1 \
+    || { cat "$rr/nightly.log"; fail "backup-nightly --deploy deploy failed"; }
+  file="$(python3 -c 'import json,sys; print(sys.argv[2] + "/" + json.load(open(sys.argv[1]))["good_file"]["name"])' \
+    deploy/site/backup-last.json "$rr/nas")" || fail "the nightly recorded no good backup"
+  ok "backup-nightly --deploy deploy (a relative folder): $(basename "$file")"
+  python3 -m tools.trialbox backup-verify "$file" --key "$rr/backup.key" > "$rr/verify.json" \
+    || { cat "$rr/verify.json"; fail "backup-verify failed"; }
+  # H-100 (review F2): a restore that fails after it replaced the databases leaves the box as it was. The services
+  # are stopped first (the restore is typed without --restart), every table's rows counted, the role step made to
+  # fail (the box's role script, put back on the way out), the restore run, the rows counted again: equal but for
+  # the flags store (the hold the failed restore takes); then the services start again as they were.
+  roles="deploy/docker/db-init/30-service-roles.sh"
+  cp -p "$roles" "$rr/roles.before" || fail "cannot keep the role script"
+  put_back_all() { cat "$rr/roles.before" > "$BOX/$roles"; put_back; }
+  trap put_back_all EXIT
+  rows() {  # every base table's rows in both databases, the flags store (schema app) left out
+    local db q
+    q="SELECT table_schema||'.'||table_name||' '||(xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I.%I', table_schema, table_name), false, true, '')))[1]::text FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema', 'app') ORDER BY 1"
+    for db in trialbox_wf hapi; do dc exec -T db psql -X -At -U hapi -d "$db" -c "$q" | sed "s/^/$db /"; done
+  }
+  mapfile -t stopped < <(dc ps --services --status running | grep -vx db | sort)
+  [ "${#stopped[@]}" -gt 0 ] || fail "no service runs but db before the failing restore"
+  dc stop "${stopped[@]}" > "$rr/stop.log" 2>&1 || { cat "$rr/stop.log"; fail "cannot stop the services for the failing restore"; }
+  rows > "$rr/rows.before" || fail "cannot count the rows before the failing restore"
+  # review R1: one Ctrl-C under the engine can arrive twice: the role step interrupts the restore (PID 1 of its
+  # container) with SIGINT, then sends SIGTERM while the databases are being put back; the second must not stop it
+  printf '#!/bin/sh\necho "synthetic: the role step interrupts the restore twice (rehearsal)" >&2\nkill -INT 1\nsleep 3\nkill -TERM 1\nsleep 1\nexit 1\n' > "$roles"
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes > "$rr/failed.json" 2> "$rr/failed.err" || rc=$?
+  cat "$rr/failed.err"
+  cat "$rr/roles.before" > "$roles"
+  [ "$rc" = 1 ] || fail "the restore with a failing role step ended $rc, not 1"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("state") == "rolled_back", d' "$rr/failed.json" \
+    || fail "the failed restore did not say rolled_back"
+  rows > "$rr/rows.after" || fail "cannot count the rows after the failing restore"
+  diff "$rr/rows.before" "$rr/rows.after" > "$rr/rows.diff" || { cat "$rr/rows.diff"; fail "the failed restore did not leave the box as it was"; }
+  ok "a restore that failed after replacing the databases put them back: $(wc -l < "$rr/rows.before") tables, each the same rows as before"
+  # as the product's --restart starts them (box_restore.start_and_wait): only these, waited for until healthy
+  dc up -d --no-deps --wait --wait-timeout 600 "${stopped[@]}" > "$rr/start.log" 2>&1 \
+    || { cat "$rr/start.log"; fail "cannot start the services again after the failing restore"; }
+  wait_healthy 900
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/restore.json" 2> "$rr/restore.err" || rc=$?
+  cat "$rr/restore.err"
+  python3 - "$rr/verify.json" "$rr/restore.json" "$rc" <<'EOF' || fail "the restore over the live stack did not end complete or held, or its rows differ"
+import json, sys
+verify, out, rc = json.load(open(sys.argv[1])), json.load(open(sys.argv[2])), int(sys.argv[3])
+assert rc == 0 or (rc == 4 and out.get("hold") == "held"), (rc, out.get("hold"), out.get("optouts_after_backup"))
+assert out["rows"] == verify["databases"], (out["rows"], verify["databases"])
+print(f"ok: restored over the live stack (exit {rc}, hold {out.get('hold')}): rows equal backup-verify's {out['rows']}")
+EOF
+  grep -q "the services run again and are healthy" "$rr/restore.err" || fail "the restore did not start the services again"
+  wait_healthy 900
+  after="$(dc ps --services --status running | sort)"
+  [ "$before" = "$after" ] || fail "the services after the restore differ: before [$before] after [$after]"
+  ok "$(printf '%s\n' "$after" | wc -l) services run again after the restore, each healthy, as before it"
+  # H-126: the walk's case. The same command signalled after its data part (the restore's container has ended; the
+  # host's step is starting the services), the site's services left stopped as the walk's interrupted run left them,
+  # then the same command again: every service that ran before runs again healthy, the line says "N of N" (never a
+  # shortfall called healthy) and the site answers through caddy.
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/interrupted.json" 2> "$rr/interrupted.err" &
+  pid=$!
+  stop_bg() { kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; }
+  seen=0
+  for _ in $(seq 1 9000); do  # every 0.2 s, up to 30 minutes
+    if docker ps --no-trunc --format '{{.Command}}' | grep -q 'tools.trialbox restore'; then seen=1
+    elif [ "$seen" = 1 ]; then break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  [ "$seen" = 1 ] || { stop_bg; fail "the restore's container was never seen running"; }
+  kill -0 "$pid" 2>/dev/null || fail "the restore had ended before it could be signalled after its data part"
+  kill -TERM "$pid" 2>/dev/null || true; sleep 0.2; kill -TERM "$pid" 2>/dev/null || true  # the walk's two
+  wait "$pid" || rc=$?
+  cat "$rr/interrupted.err"
+  case "$rc" in
+    1|130) echo "the restore signalled after its data part ended $rc" ;;
+    *) fail "the restore signalled after its data part ended $rc, not 130 or 1 (the signal came too late?)" ;;
+  esac
+  if grep -q "are healthy" "$rr/interrupted.err"; then fail "the interrupted restore said healthy"; fi
+  grep -q "restore: the box now:" "$rr/interrupted.err" || fail "the interrupted restore did not say the box's state"
+  mapfile -t stopped_again < <(dc ps --services --status running | grep -xE 'caddy|console|llm-verifier')
+  if [ "${#stopped_again[@]}" -gt 0 ]; then dc stop "${stopped_again[@]}" > "$rr/left.log" 2>&1 || { cat "$rr/left.log"; fail "cannot stop ${stopped_again[*]}"; }; fi
+  [ "$(dc ps --services --status running | sort)" != "$before" ] || fail "no service was left stopped for the re-run"
+  rc=0
+  trialbox restore --last --key "$rr/backup.key" --yes --restart > "$rr/rerun.json" 2> "$rr/rerun.err" || rc=$?
+  cat "$rr/rerun.err"
+  [ "$rc" = 0 ] || [ "$rc" = 4 ] || fail "the re-run after the interrupted restore ended $rc"
+  grep -Eq 'the services run again and are healthy: ([0-9]+) of \1 \(' "$rr/rerun.err" \
+    || fail "the re-run did not say every expected service healthy (N of N)"
+  wait_healthy 900
+  after="$(dc ps --services --status running | sort)"
+  [ "$before" = "$after" ] || fail "the services after the re-run differ: before [$before] after [$after]"
+  host="$(envget TB_TLS_HOSTNAME)"
+  curl -fsS -m 10 --cacert "$BOX/deploy/secrets/tls/caddy-root.crt" --resolve "$host:443:${TB_RH_TLS_ADDR:-127.0.0.1}" \
+    "https://$host/healthz" > /dev/null || fail "the site does not answer after the re-run"
+  ok "a restore signalled after its data part, then run again: every service runs healthy and the site answers"
+  # H-136: the walk's check right after a restore, typed on the box's host as RUNBOOK §5 says (the installed command,
+  # the host's python3): the doctor reads the hold through the box and says what the flag on the box says (held: a
+  # WARN with the reason; released: a PASS), never "cannot read". The harm it guards: an operator told nothing is
+  # held while the screening hold is on
+  flag="$(dc exec -T db psql -X -At -U trialbox -d trialbox_wf -c "SELECT value FROM app.flag WHERE name = 'screening.after_restore'")" \
+    || fail "cannot read the hold on the box's database"
+  trialbox doctor --env-file deploy/.env > "$rr/doctor.out" 2>&1 || true
+  line="$(grep -E '^(PASS|WARN|FAIL) +restore_hold ' "$rr/doctor.out")" \
+    || { cat "$rr/doctor.out"; fail "the installed trialbox doctor printed no restore_hold line"; }
+  echo "$line"
+  case "${flag:-released}" in
+    held) echo "$line" | grep -qE '^WARN +restore_hold +HELD ' \
+      || fail "the hold is held on the box; the installed trialbox doctor said: $line" ;;
+    released) echo "$line" | grep -qE '^PASS +restore_hold +released' \
+      || fail "the hold is released on the box; the installed trialbox doctor said: $line" ;;
+    *) fail "the hold holds a value the box does not declare: $flag" ;;
+  esac
+  ok "the installed trialbox doctor on the host shows the hold after the restore as the box holds it (${flag:-released})"
+  ;;
+
 # ------------------------------------------------------------------------------------------------ negative: name
 wrong-name)
   # someone changes the served name of the judge (deploy/.env JUDGE_MODEL) and restarts its server; the pins keep
@@ -701,6 +1031,107 @@ missing-key)
   doctor --serving >/dev/null || fail "the box did not recover with the key back"
   gateway_probe ok || fail "the gateway does not answer with the key back"
   ok "key restored: doctor --serving passes, both builds answer through the gateway"
+  ;;
+
+# ------------------------------------------------------------------------------------------------ test boxes
+test-boxes)
+  # H-106 (the owner's ruling 7117794599): a second box, a TEST box, installed by the real installer beside the first
+  # (CPU only: the stub models), from the same media. Read from the container engine, not from the configuration: the
+  # two share no volume, network, published port or secrets volume; both are healthy; a PRODUCTION install beside
+  # them refuses, before anything is loaded; removing the test box leaves the first whole. Harms: a test box taken
+  # for the real one (data typed into it, a restore or update aimed at it), two boxes sharing a key, a volume or an
+  # audit chain, and a test-mode switch that weakens PRODUCTION's one-box rule
+  t0=$SECONDS
+  B2="$W/box-rh2"; B3="$W/box-prod2"; P1=trialbox
+  dc2() { (cd "$B2" && docker compose --project-directory deploy "$@"); }
+  gone2() {  # the test box removed whole on any way out of this phase, so no later phase meets it
+    (cd "$BOX" && python3 -m tools.trialbox.testbox remove --name rh2 --yes) >/dev/null 2>&1 || true
+    rm -rf "$B3"
+  }
+  trap gone2 EXIT
+  before1="$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  unpack_release "$B2"
+  cp "$MEDIA/linux/vendor_ed25519.pub" "$B2/deploy/keys/"
+  install -d "$B2/deploy/site" && cp -r "$BOX/tests/fixtures/synthetic_patients/site-a" "$B2/deploy/site/feed-a" \
+    || fail "cannot stage the second box's feed folder"
+  # a CPU-only box answers so: the stub models and the embedder's hash stub (the media carries no embedder weights)
+  # in a folder of its own with the site mapping (mapping/, which the settings step copies in from beside the answers
+  # file): the box's tools/ becomes links into the signed release at the load, so nothing is written there
+  rm -rf "$W/test-box-site" && mkdir -p "$W/test-box-site" && cp -r "$B2/tools/rehearse_box/mapping" "$W/test-box-site/" \
+    || fail "cannot stage the test box's answers"
+  ANS2="$W/test-box-site/answers.yaml"
+  sed 's/^llm_mode: gpu$/llm_mode: stub/' "$B2/tools/rehearse_box/site_answers.yaml" > "$ANS2"
+  grep -q '^llm_mode: stub$' "$ANS2" || fail "the test box's answers do not say llm_mode: stub"
+  rc=0
+  (cd "$B2" && TB_HOST_PROFILE=poc TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_INSTALL_UP_TIMEOUT=900 \
+    deploy/install.sh "$BUNDLE" --test-box rh2 --port-offset 3 --mode stub --environment TEST --ctgov offline --yes \
+    --answers "$ANS2") > "$W/test-box-install.log" 2>&1 || rc=$?
+  tail -n 40 "$W/test-box-install.log"
+  [ "$rc" = 0 ] || fail "the test box's install failed (exit $rc; $W/test-box-install.log)"
+  grep -q "TEST BOX rh2: one of several boxes on this host" "$W/test-box-install.log" \
+    || fail "the test box's install does not say what it is in its last lines"
+  P2="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "$B2/deploy/.env" | tail -1)"
+  case "$P2" in tbt-rh2-??????) ok "the test box's project: $P2" ;; *) fail "the test box's project is '$P2'" ;; esac
+  wait_healthy 600
+  n2="$(dc2 ps -q | wc -l)"; bad2="$(dc2 ps --format '{{.Service}} {{.State}} {{.Health}}' | awk '$2 != "running" || ($3 != "" && $3 != "healthy")')"
+  if [ "$n2" -lt 10 ] || [ -n "$bad2" ]; then
+    dc2 ps
+    for svc in $(echo "$bad2" | awk '{print $1}'); do dc2 logs --tail 40 "$svc"; done
+    fail "the test box is not healthy: $bad2"
+  fi
+  ok "both boxes healthy: the first's containers and the test box's $n2"
+  # the engine's own answer: volumes, networks, ports, mounts, each container's networks
+  v1="$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  v2="$(docker volume ls -q --filter label=com.docker.compose.project="$P2" | sort)"
+  [ -n "$v2" ] && [ -z "$(comm -12 <(echo "$v1") <(echo "$v2"))" ] || fail "a volume is in both projects"
+  m1="$(for v in $v1; do docker volume inspect -f '{{.Mountpoint}}' "$v"; done | sort)"
+  m2="$(for v in $v2; do docker volume inspect -f '{{.Mountpoint}}' "$v"; done | sort)"
+  [ -z "$(comm -12 <(echo "$m1") <(echo "$m2"))" ] || fail "a volume folder is shared"
+  echo "$v2" | grep -qx "${P2}_tb-secrets" || fail "the test box has no secrets volume of its own"
+  n1="$(docker network ls -q --filter label=com.docker.compose.project=$P1 | sort)"
+  n2n="$(docker network ls -q --filter label=com.docker.compose.project="$P2" | sort)"
+  [ -n "$n2n" ] && [ -z "$(comm -12 <(echo "$n1") <(echo "$n2n"))" ] || fail "a network is in both projects"
+  for c in $(dc2 ps -q); do
+    nets="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c")"
+    for k in $nets; do case "$k" in "$P2"-*) ;; *) fail "test box container $c is on network $k" ;; esac; done
+    srcs="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{else}}{{.Source}} {{end}}{{end}}' "$c")"
+    for x in $srcs; do
+      case "$x" in "${P2}"_*|"$B2"/*|/etc/localtime|/etc/timezone|/run/trialbox-firstrun*) ;;
+        "$P1"_*|"$BOX"/*) fail "test box container $c mounts the first box's $x" ;; esac
+    done
+  done
+  for c in $(dc ps -q); do
+    srcs="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{end}}{{end}}' "$c")"
+    for x in $srcs; do case "$x" in "$P2"_*) fail "first box container $c mounts the test box's $x" ;; esac; done
+  done
+  ports() { docker ps --filter label=com.docker.compose.project="$1" --format '{{.Ports}}' | tr ',' '\n' \
+    | sed -n 's/.*:\([0-9][0-9]*\)->.*/\1/p' | sort -u; }
+  p1="$(ports $P1)"; p2="$(ports "$P2")"
+  [ -n "$p2" ] && [ -z "$(comm -12 <(echo "$p1") <(echo "$p2"))" ] || fail "a published port is in both ($p1 / $p2)"
+  ok "no shared volume ($(echo "$v2" | wc -l) of the test box's own), network, published port ($(echo $p2)) or secrets volume (engine)"
+  out="$(trialbox doctor 2>&1)"; rc=$?
+  [ "$rc" = 2 ] && echo "$out" | grep -q "boxes .*name one" || fail "trialbox without --box guessed (exit $rc): $out"
+  trialbox --box rh2 doctor > "$W/test-box-doctor.txt" 2>&1
+  grep -q "TEST BOX rh2" "$W/test-box-doctor.txt" || { tail -n 40 "$W/test-box-doctor.txt"; fail "trialbox --box rh2 doctor does not say TEST BOX rh2"; }
+  ok "trialbox refuses to guess between two boxes; --box rh2 runs the test box's own doctor, which says TEST BOX rh2"
+  # PRODUCTION: refuses the option, and refuses a host where a test box runs; nothing is loaded either way
+  unpack_release "$B3"; cp "$MEDIA/linux/vendor_ed25519.pub" "$B3/deploy/keys/"
+  out="$(cd "$B3" && deploy/install.sh "$BUNDLE" --environment PRODUCTION --test-box p3 --port-offset 4 --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "test-box makes a TEST box, not PRODUCTION" && [ ! -e "$B3/current" ] \
+    || fail "a PRODUCTION install took --test-box (exit $rc): $out"
+  out="$(cd "$B3" && COMPOSE_PROJECT_NAME=trialbox TB_ENV=TEST deploy/install.sh "$BUNDLE" --environment PRODUCTION --mode stub --yes 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && echo "$out" | grep -q "this host runs test boxes ($P2)" && [ ! -e "$B3/current" ] && [ ! -e "$B3/deploy/.env" ] \
+    || fail "a PRODUCTION install went on beside a test box (exit $rc): $out"
+  ok "PRODUCTION refuses --test-box and refuses a host where a test box runs (variables planted), nothing loaded"
+  # remove the test box: its own objects and folder only; the first box whole
+  (cd "$BOX" && python3 -m tools.trialbox.testbox remove --name rh2 --yes) || fail "the test box could not be removed"
+  left="$(docker ps -aq --filter label=com.docker.compose.project="$P2"; docker volume ls -q --filter label=com.docker.compose.project="$P2"; docker network ls -q --filter label=com.docker.compose.project="$P2")"
+  [ -z "$left" ] && [ ! -e "$B2" ] || fail "the test box's objects or folder are left: $left"
+  [ "$(docker volume ls -q --filter label=com.docker.compose.project=$P1 | sort)" = "$before1" ] || fail "the first box's volumes changed"
+  wait_healthy 300
+  ok "removed: the test box's containers, networks, volumes and folder; the first box's $(echo "$before1" | wc -l) volumes and containers whole"
+  trap - EXIT; rm -rf "$B3"
+  ok "test boxes: $((SECONDS - t0)) s"
   ;;
 
 *) echo "box.sh: unknown phase $PHASE" >&2; exit 2 ;;

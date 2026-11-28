@@ -45,7 +45,10 @@ PYPROJECT = ROOT / "pyproject.toml"
 IMAGES_LOCK = ROOT / "deploy" / "images.lock"
 FORMAT = "trialbox-release/1"
 TAG_PREFIX = "trialbox-v"
-KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host", "terminology")
+# V-18 (D-1182): a terminology payload is a code system the box may carry, under the loader command that loads it
+# (``<command>/<file>``); a licensed system (LOINC, WHO ICD-10, ATC, SNOMED CT, the UMLS) never goes in a bundle
+TERMINOLOGY_COMMANDS = ("icd10cm", "icd10pcs", "nhi-drugs", "nhi-services")
 # what the bundle carries next to the image SBOMs (tools/supply_chain release-gates writes them in the SBOM folder)
 SBOM_EXTRAS = ("requirements.lock.cdx.json", "licences.md", "index.json")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -130,7 +133,11 @@ def parse_item(text: str) -> tuple[str, Path, str]:
     src, _, dest = rest.partition("=")
     if kind not in KINDS or not src:
         raise ReleaseError(f"bad bundle item {text!r} (kind:path[=dest], kind one of {', '.join(KINDS)})")
-    return kind, Path(src), dest or Path(src).name
+    out = dest or Path(src).name
+    if kind == "terminology" and (out.split("/", 1)[0] not in TERMINOLOGY_COMMANDS or "/" not in out):
+        raise ReleaseError(f"bad bundle item {text!r}: a terminology file goes in as <command>/<file>, the command one "
+                           f"of {', '.join(TERMINOLOGY_COMMANDS)} (a licensed code system never ships)")  # fmt: skip
+    return kind, Path(src), out
 
 
 def archive_configs(archive: Path) -> dict[str, str]:
@@ -163,6 +170,22 @@ def _manifest_entries(archive: Path) -> list[dict[str, Any]]:
     except (OSError, KeyError, tarfile.TarError, json.JSONDecodeError) as exc:
         raise ReleaseError(f"{archive.name}: cannot read its manifest.json ({exc})") from exc
     return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+
+
+def archive_platform(archive: Path) -> str | None:
+    """``os/architecture`` of the image in a ``docker save`` archive, from its config (what the box will load), or
+    None when the config names none."""
+    entries = _manifest_entries(archive)
+    if not entries:
+        return None
+    try:
+        with tarfile.open(archive) as tf:
+            member = tf.extractfile(str(entries[0].get("Config", "")))
+            cfg = json.loads(member.read()) if member is not None else {}
+    except (OSError, KeyError, tarfile.TarError, json.JSONDecodeError):
+        return None
+    arch = cfg.get("architecture") if isinstance(cfg, dict) else None
+    return f"{cfg.get('os') or 'linux'}/{arch}" if arch else None
 
 
 def archive_image_count(archive: Path) -> int:
@@ -272,10 +295,14 @@ def build(
     pyproject: Path = PYPROJECT,
     rehearsal: bool = False,
     jobs: Collection[str] = (),
+    platform: str | None = None,
 ) -> dict[str, Any]:
     """Check the bundle's images against the gate record, collect their SBOMs, write release.json and images.lock.
 
-    ``images``: (requested reference, saved archive); the archive must also be one of ``items`` (kind ``image``)."""
+    ``images``: (requested reference, saved archive); the archive must also be one of ``items`` (kind ``image``).
+    ``platform`` (``os/arch``, make_bundle.sh ``--platform``): every archive must be an image of it, and release.json
+    records it at its top, which the update path compares with the host; each image's ``platform`` is its archive's
+    own."""
     now = now or dt.datetime.now(dt.UTC)
     v = version(pyproject)
     if stray := sorted(set(jobs) - {ref for ref, _ in images}):
@@ -300,6 +327,12 @@ def build(
         if count != 1:
             raise ReleaseError(f"{archive.name}: one image per archive (found {count})")
         tag, digest = sorted(configs.items())[0]
+        got = archive_platform(archive)
+        if platform and got != platform:
+            raise ReleaseError(
+                f"{ref}: its archive is an image for {got or 'no named platform'}, the bundle is for {platform} (a "
+                "local image of another architecture: pull it with --platform)"
+            )
         saved.append((ref, archive, tag, digest))
     problems = gate_problems(record, {f"{ref} ({tag})": archive_identities(a) for ref, a, tag, _ in saved}, now=now)
     if problems:
@@ -342,7 +375,7 @@ def build(
             "image": tag,
             "digest": digest,
             "source": ref,
-            "platform": entry.get("platform"),
+            "platform": archive_platform(archive) or entry.get("platform"),
             "repo_digests": sorted(entry.get("repo_digests") or []),
             "archive": dest_of[archive.resolve()],
             "sbom": f"sbom/{entry['sbom']}",
@@ -395,6 +428,8 @@ def build(
     }
     if rehearsal:  # D-726: a bundle for a rehearsal box; a PRODUCTION or VALIDATION box refuses it
         rel["rehearsal"] = True
+    if platform:  # every archive was checked against it above; the update path refuses it on another architecture
+        rel["platform"] = platform
     from tb_contracts import validate
 
     validate("release", rel)
@@ -462,6 +497,9 @@ def embedder_problems(
     from tools.pin_model import EMBED_BUILD, expected_of, manifest_sha256_of_files
 
     if release.get("rehearsal") is True:
+        return []
+    # H-95: a software pack carries no weights; the embedder's ride in its model pack, checked there
+    if (manifest.get("pack") or {}).get("kind") == "software":
         return []
     # TB_RELEASE_REGISTRY: the unit tests' synthetic registry only (a release reads the one it ships)
     path = registry_path or Path(os.environ.get("TB_RELEASE_REGISTRY") or ROOT / "models" / "registry.yaml")
@@ -537,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--image", action="append", default=[], metavar="REF=ARCHIVE")
     b.add_argument("--rehearsal", action="store_true", help="a bundle for a rehearsal box only (D-726)")
     b.add_argument("--job", action="append", default=[], metavar="REF", help="an --image the box runs as a job (D-968)")
+    b.add_argument("--platform", default=None, help="os/arch every image archive must be (make_bundle.sh --platform)")
     b.add_argument("items", nargs="*", help="kind:path[=dest], every payload file of the bundle")
     c = sub.add_parser("check", help="does a built bundle's release.json name every component?")
     c.add_argument("bundle", type=Path)
@@ -564,6 +603,7 @@ def main(argv: list[str] | None = None) -> int:
                 images_lock=args.images_lock,
                 rehearsal=args.rehearsal,
                 jobs=args.job,
+                platform=args.platform,
             )
             print(
                 f"release: {rel['version']} {rel['release_id']} (seq {rel['release_seq']}): {len(rel['images'])} "

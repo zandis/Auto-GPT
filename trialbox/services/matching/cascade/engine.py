@@ -31,6 +31,7 @@ import json
 import random
 import re
 import threading
+import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -90,6 +91,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
+from matching.note_answer import note_answer_may
 from matching.notelang import LANGS, family, main_language, notes_language
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.recorded import NO_RECORD, Recorded
@@ -207,9 +209,9 @@ class CascadeConfig:
     stored: Any = None
     # D-103 (SCREEN runs the cascade): the population is given by the caller instead of POP_SQL (the practitioner /
     # appointment scope of a screening run); a note ``fail`` is soft (review, never exclusion) when ``note_block`` is
-    # False (D-95/D-97 single-model fallback); zero-hit pairs below the S2b threshold go to the judge instead of
-    # taking absence semantics when ``absence_semantics`` is False (screening spends the tokens, feasibility saves
-    # them).
+    # False (D-95/D-97 single-model fallback), and an inclusion's always (R22-17); zero-hit pairs below the S2b
+    # threshold go to the judge instead of taking absence semantics when ``absence_semantics`` is False (screening
+    # spends the tokens, feasibility saves them).
     population: Sequence[str] | None = None
     note_block: bool = True
     absence_semantics: bool = True
@@ -219,6 +221,9 @@ class CascadeConfig:
     # T-708 (D-477): the consent state of S0, given by the caller's decision context (the orchestrator). None: a
     # caller with no job (a tool) and S0 reads the lake by the same rule (``tb_common.optout.registry_state``).
     registry: Callable[[], RegistryState | None] | None = None
+    # R1-P2 (lane DB): the wall time of each stage, for the time per chart (``tools.chart_times``). Off by default: no
+    # clock is read and every output is as before; on, ``CascadeResult.timing`` holds counts and seconds only
+    timing: bool = False
 
 
 @dataclass
@@ -239,6 +244,9 @@ class CascadeResult:
     note_criteria: list[str]
     human_criteria: list[str]
     data_class: str = PATIENT_CLASS
+    # R1-P2: each stage's seconds and patients, when ``CascadeConfig.timing`` is on; None when off (never in the
+    # manifest, the stage log or the traces)
+    timing: dict[str, Any] | None = None
 
     def stage(self, name: Stage) -> StageLog:
         return next(s for s in self.stages if s.stage == name)
@@ -436,6 +444,17 @@ class _Run:
         self._uncarried_index: set[str] = set()  # index conditions whose list no row can carry: absence never excludes
         self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
+        self.seconds: dict[str, float] | None = {} if cfg.timing else None  # R1-P2: stage -> wall seconds
+
+    def timed[**P, T](self, name: str, fn: Callable[P, T], *args: P.args, **kw: P.kwargs) -> T:
+        """R1-P2: ``fn(*args, **kw)``, its wall seconds added to stage ``name`` when timing is on (else no clock)."""
+        if self.seconds is None:
+            return fn(*args, **kw)
+        t0 = time.perf_counter()
+        try:
+            return fn(*args, **kw)
+        finally:
+            self.seconds[name] = self.seconds.get(name, 0.0) + time.perf_counter() - t0
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
         self.stages.append(StageLog(stage, p_in, p_out, q_in, q_out, PATIENT_CLASS, self.ir_hash, dict(detail)))
@@ -1082,8 +1101,8 @@ class _Run:
         are the same for any batch size."""
         size = self.cfg.note_batch
         if size is None:
-            routes, zero = self.s2(note_crit)
-            self.s2b(zero, routes)
+            routes, zero = self.timed("S2", self.s2, note_crit)
+            self.timed("S2b", self.s2b, zero, routes)
             return routes
         if size < 1:
             raise CascadeError("note_batch must be at least 1 patient")
@@ -1096,13 +1115,13 @@ class _Run:
         after_s2: set[str] = set(order)
         for start in range(0, len(order), size):
             batch = set(order[start : start + size])
-            routes, zero = self.s2(note_crit, batch, record=False)
+            routes, zero = self.timed("S2", self.s2, note_crit, batch, record=False)
             n_s2_out += len(routes) + len(zero)
             n_zero += len(zero)
             after_s2 -= {p for p in batch if self.traces[p].exit_stage is not None}
             s2_routes += routes
             before = len(routes)
-            self.s2b(zero, routes, record=False)
+            self.timed("S2b", self.s2b, zero, routes, record=False)
             s2b_routes += routes[before:]
         # the stage logs of an unbatched run: S2 counted before any S2b exclusion, S2b from S2's survivors
         exited_s2b = {p for p in order if self.traces[p].exit_stage == "S2b"}
@@ -1194,6 +1213,10 @@ class _Run:
     def _map(
         self, c: CriterionIR, reply: JudgeReply, span: dict[str, Any] | None, stage: Stage, left_out: int = 0
     ) -> Outcome:
+        sentence = ""
+        if span is not None and "sentence" in span:  # R22-16: read by the one rule below, never published
+            sentence = str(span["sentence"] or "")
+            span = {k: v for k, v in span.items() if k != "sentence"}
         ev = [span] if span else []
         meta = {
             "call_id": reply.call_id,
@@ -1210,9 +1233,13 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason=why)
         if span is None:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason="insufficient")
-        condition_present = reply.verdict == "pass"
-        eligible = condition_present if c.kind == "inclusion" else not condition_present
-        if eligible:
+        quoted = str(span.get("quote") or reply.quote or "")
+        sentence = " ".join(s for s in (sentence, reply.sentence) if s)  # L3: the verifier's too
+        # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16)
+        may = note_answer_may(c.kind, reply.verdict == "pass", quoted, c.text, sentence, affirmed=reply.affirmed)
+        # round 5 (#639 7115208555): the stored row says the models affirmed this note exclusion (decision.answer_of)
+        affirmed = True if may.effect == "excludes" and c.kind == "exclusion" else None
+        if may.effect == "keeps":
             if left_out:
                 # T-603 (review LLM-016, CR-004 flag half): the answer that keeps the patient stands, flagged; the
                 # caller marks the patient (PatientTrace.notes_over_budget) and the tier is never "strong"
@@ -1226,14 +1253,16 @@ class _Run:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
-        from matching.inferred import inferred  # D-985; local, beside the one rule that reads it
-
-        quoted = str((span or {}).get("quote") or reply.quote or "")
-        if c.kind == "exclusion" and condition_present and inferred(quoted, c.text):
-            # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a drug, a
-            # value, findings counted into one) is the models' inference (both agreed on four on jmed): a person looks
-            why = "inferred: the quote does not state the condition; review"
-            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
+        if may.effect == "review" and may.reading_stands:
+            # D-1069: a "not met" from the notes the one rule sends to review (an inclusion, R22-17, the owner's ruling
+            # of 2026-11-22; a renewal or documentation criterion, #639 7107834329 L2) is never a hard fail, whatever
+            # the policy: the patient stays in the cascade, the other criteria are judged, and the tier is review
+            return Outcome(c.id, "fail", stage, hard=False, evidence=[*ev, meta], reason=may.reason)
+        if may.effect == "review":
+            # D-985 (F6 of the P1b review): an exclusion present on a quote that does not state its condition (a
+            # negated, a relative's, a suspected condition, a drug, a value, findings counted into one) is the
+            # models' inference (both agreed on four on jmed): a person looks
+            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=may.reason)
         if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
             return Outcome(
                 c.id,
@@ -1242,8 +1271,18 @@ class _Run:
                 hard=False,
                 evidence=[*ev, meta],
                 reason="not_met (single model: review, not exclusion)",
+                affirmed=affirmed,
             )
-        return Outcome(c.id, "fail", stage, hard=True, stratum=STRATUM_S3, evidence=[*ev, meta], reason="not_met")
+        return Outcome(
+            c.id,
+            "fail",
+            stage,
+            hard=True,
+            stratum=STRATUM_S3,
+            evidence=[*ev, meta],
+            reason="not_met",
+            affirmed=affirmed,
+        )
 
     def s3(self, routes: list[_Route]) -> list[_Route]:
         by_pid: dict[str, list[_Route]] = {}
@@ -1492,20 +1531,21 @@ def run_cascade(
 ) -> CascadeResult:
     """Run S0 → S5 for one study. ``lake`` is a ``lake.client.LakeAPI`` on the pinned L5 snapshot. ``s2b_source``
     (T-203b, flag ``vec.s2b``): S2b ranks from stored vectors where they answer, else on the fly (D-449)."""
+    t_run = time.perf_counter() if cfg.timing else 0.0
     run = _Run(lake, rs, cfg, judge, embedder, s2b_source)
-    idx = run.s0()
-    applied = run.s1(idx)
+    idx = run.timed("S0", run.s0)
+    applied = run.timed("S1", run.s1, idx)
     note_crit = [c for c in rs.active() if c.class_ in JUDGED and c.kind in ("inclusion", "exclusion")]
     human = [c for c in rs.active() if c.class_ == "human"]
     run.metrics.note_criteria = len(note_crit)
     routes = run.note_stage(note_crit)
     alive = {t.pid for t in run.alive()}
     routes = [r for r in routes if r.pid in alive]
-    run.sample(routes)
-    judged = run.s3(routes)
-    run.s4(judged)
-    run.tiers(human)
-    queue, final = run.s5(reviewer)
+    run.timed("sample", run.sample, routes)
+    judged = run.timed("S3", run.s3, routes)
+    run.timed("S4", run.s4, judged)
+    run.timed("tiers", run.tiers, human)
+    queue, final = run.timed("S5", run.s5, reviewer)
     denom = run.metrics.n_after.get("S1", 0) * len(note_crit)
     run.metrics.llm_share = round(run.metrics.pairs_judged["S3"] / denom, 4) if denom else 0.0
     if [s.stage for s in run.stages] != list(STAGES):
@@ -1526,11 +1566,27 @@ def run_cascade(
         applied=[c.id for c in applied],
         note_criteria=[c.id for c in note_crit],
         human_criteria=[c.id for c in human],
+        timing=None if run.seconds is None else timing_doc(run.seconds, run.stages, time.perf_counter() - t_run),
     )
 
 
+def timing_doc(seconds: Mapping[str, float], stages: Sequence[StageLog], wall: float) -> dict[str, Any]:
+    """R1-P2: the run's timing as ``cascade_timing.json`` holds it: per stage its wall seconds and, for the stages of
+    the stage log, its patients and pairs; the run's wall seconds. Counts and seconds only, never a patient."""
+    counts: dict[str, StageLog] = {str(s.stage): s for s in stages}
+    out: dict[str, Any] = {}
+    for name, secs in seconds.items():
+        row: dict[str, Any] = {"seconds": round(secs, 3)}
+        if (s := counts.get(name)) is not None:
+            row.update(patients_in=s.patients_in, patients_out=s.patients_out, pairs_in=s.pairs_in)
+        out[name] = row
+    return {"timing": "R1-P2", "stages": out, "wall_seconds": round(wall, 3), "rounds": 1}
+
+
 def write_outputs(result: CascadeResult, out_dir: Path) -> dict[str, Path]:
-    """Patient-level files (D3, perimeter only): traces, the review queue and the final list, plus the stage log."""
+    """Patient-level files (D3, perimeter only): traces, the review queue and the final list, plus the stage log;
+    with the run's timing on (R1-P2), ``cascade_timing.json`` too, its writes timed (counts and seconds only)."""
+    t_write = time.perf_counter() if result.timing is not None else 0.0
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {
         "traces": out_dir / "cascade_traces.jsonl",
@@ -1555,6 +1611,14 @@ def write_outputs(result: CascadeResult, out_dir: Path) -> dict[str, Path]:
         for s in result.manifest_block()["stages"]:
             fh.write(json.dumps(s, sort_keys=True, default=str) + "\n")
     paths["manifest"].write_text(json.dumps(result.manifest_block(), indent=1, sort_keys=True, default=str) + "\n")
+    if result.timing is not None:
+        doc = {
+            **result.timing,
+            "stages": {**result.timing["stages"], "writes": {"seconds": round(time.perf_counter() - t_write, 3)}},
+        }
+        paths["timing"] = out_dir / "cascade_timing.json"
+        with paths["timing"].open("w", encoding="utf-8") as fh:  # the stage log's own way of writing (R1-P2)
+            fh.write(json.dumps(doc, indent=1, sort_keys=True) + "\n")
     return paths
 
 

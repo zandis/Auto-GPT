@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, MutableSequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
@@ -34,6 +34,8 @@ from matching import verdict as verdict_table
 from matching.batches import query_by_patients
 from matching.carried import Carried
 from matching.coverage import Coverage
+from matching.inferred import sentence_of
+from matching.note_answer import affirms, note_answer_may
 from matching.proposed import Proposed
 from matching.recorded import Recorded
 from matching.stored_scores import apply_rows
@@ -41,8 +43,8 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
 from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
-from tb_common.quotes import quote_in
-from tb_common.reasons import Reason
+from tb_common.quotes import as_in
+from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
 from tb_llm.budget import shown as shown_excerpt
@@ -223,6 +225,12 @@ class NoteResult:
     tokens_out: int = 0
     # D-120: when the two checks disagree, each model's answer and verified quote, so a person sees both
     opinions: list[dict[str, Any]] = field(default_factory=list)
+    # R22-16: the record's sentence the quote was verified in, read by the one rule of what a note answer may do
+    # (``matching.note_answer``); never published
+    sentence: str = ""
+    # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
+    # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
+    affirmed: bool = False
 
 
 def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
@@ -489,7 +497,19 @@ class NoteJudge:
                 opinions=opinions,
                 calls=calls,
             )
-        return replace(first, confidence=d.confidence, reason=d.reason, tokens_in=t_in, tokens_out=t_out, calls=calls)
+        # L3 (#639 7107834329): the pair's answer rests on both quotes, so the one rule reads the verifier's sentence
+        # too (never published)
+        sentence = " ".join(s for s in (first.sentence, second.sentence if second else "") if s)
+        return replace(
+            first,
+            confidence=d.confidence,
+            reason=d.reason,
+            tokens_in=t_in,
+            tokens_out=t_out,
+            calls=calls,
+            sentence=sentence,
+            affirmed=first.affirmed and (second is None or second.affirmed),  # round 5: both models said it
+        )
 
 
 # a few unanswered note checks stay "unknown" (manual review); more than this share means the model was down and the
@@ -532,16 +552,30 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
     did = None
     if verdict != "unknown":
         q = str(quote or "")
-        match = next((e for e in excerpts if quote_in(q, str(e["text"]))), None)
-        if match is None:
+        found = next(((e, f) for e in excerpts if (f := as_in(q, str(e["text"]))) is not None), None)
+        if found is None:
             return NoteResult("unknown", 0.0, reason=Reason.QUOTE_NOT_FOUND.value, source=source)
+        match, q = found
+        quote = q  # as the note holds it: one enclosing 「」 or "" dropped (#639 7113069462)
         if planted_in(str(match["text"]), q):  # T-606 (D-359): an instruction found in a note is never evidence
             return NoteResult("unknown", 0.0, reason=Reason.PLANTED_INSTRUCTION.value, source=source)
         did = match.get("did")
+    else:
+        match = None
     why = Reason.NOTE.value if verdict in ("pass", "fail") else Reason.ABSTAINED.value
     model_reason = str(d.get("reason") or "")
+    sentence = sentence_of(str(quote or ""), str(match["text"])) if match is not None else ""
     return NoteResult(
-        verdict, conf, quote, d.get("quote_date"), why, source, [str(did)] if did else [], model_reason=model_reason
+        verdict,
+        conf,
+        quote,
+        d.get("quote_date"),
+        why,
+        source,
+        [str(did)] if did else [],
+        model_reason=model_reason,
+        sentence=sentence,
+        affirmed=affirms(d),  # an abstention never excludes, whatever it says
     )
 
 
@@ -561,7 +595,7 @@ def is_pair(judge: NoteJudge | None) -> bool:
 @dataclass
 class PatientVerdicts:
     pid: str
-    verdicts: list[CriterionVerdict]
+    verdicts: MutableSequence[CriterionVerdict]  # screen_cascade.Verdicts holds shared answers once (prof16)
     tier: str
     actions: list[str]
     n_unknown: int
@@ -606,6 +640,18 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
     pred = {"pass": True, "fail": False}.get(r.predicate)
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
+    why = r.reason
+    affirmed: bool | None = None  # round 5: set on a note exclusion that may exclude (both models affirmed it)
+    if pred is not None:
+        # what this answer may do: the one rule of every path (``matching.note_answer``; D-1069, D-985, R22-16). An
+        # exclusion "present" on a quote that does not state its condition is the models' inference: a person looks,
+        # as on the cascade, published with the cascade's code for its reason. The quote and its notes stay
+        may = note_answer_may(c.kind, pred, r.quote, c.text, r.sentence, affirmed=r.affirmed)
+        if may.effect == "review" and not may.reading_stands:
+            verdict, why = "unknown", code_of(may.reason, "unknown")
+        affirmed = True if may.effect == "excludes" and c.kind == "exclusion" else None
+        # a "not met" the rule sends to review keeps its row: the status rule (``decision.answer_of``) reads the same
+        # function and says review
     return CriterionVerdict(
         id=c.id,
         verdict=verdict,
@@ -614,11 +660,12 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
             quote=r.quote,
             quote_date=r.quote_date,
             confidence=r.confidence,
-            reason=r.reason,
+            reason=why,
             opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
         basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
         prov=note_calls(r),
+        affirmed=affirmed,
     )
 
 

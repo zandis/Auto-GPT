@@ -14,6 +14,8 @@ from typing import Any
 
 import pytest
 
+from tests import pg_client
+
 TZ = "Asia/Taipei"
 A, B = "P-OUT", "P-STAYS"
 # job ids are ULIDs
@@ -205,7 +207,7 @@ def test_a_restore_keeps_the_opt_outs_recorded_after_the_backup(tmp_path: Path, 
 
     reg, _jobs, dirs = _box(db_url, tmp_path)
     priv, pub, keep = _keys(tmp_path)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     time.sleep(1.1)  # the register's times and the snapshot's are a second apart at least
     now = datetime.now(UTC)
@@ -240,7 +242,10 @@ def test_a_restore_keeps_the_opt_outs_recorded_after_the_backup(tmp_path: Path, 
 
 
 def test_a_restore_that_kept_every_later_opt_out_is_complete(
-    tmp_path: Path, db_url: str, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    db_url: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tb_common.optout import OptOutRegister
 
@@ -249,9 +254,12 @@ def test_a_restore_that_kept_every_later_opt_out_is_complete(
 
     reg, _jobs, dirs = _box(db_url, tmp_path)
     priv, pub, keep = _keys(tmp_path)
-    f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs=dirs)[0]
+    f = bk.backup(
+        [tmp_path / "nas"], pub, env={**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs=dirs
+    )[0]
     time.sleep(1.1)
     reg.add("P-LATER-1", "office", "", "office:a", datetime.now(UTC).isoformat())
+    pg_client.setenv(monkeypatch)  # H-139: the CLI takes the process environment's client tools
     rc = cli(["restore", str(f), "--key", str(priv), "--yes", "--services-stopped", "--public", str(pub), "--keep-to", str(keep),
               "--dir", f"audit={dirs['audit']}"])  # fmt: skip
     err = capsys.readouterr().err
@@ -268,7 +276,7 @@ def test_no_copy_is_refused_when_a_person_typed_an_opt_out_after_the_backup(tmp_
 
     reg, _jobs, dirs = _box(db_url, tmp_path)
     priv, pub, _keep = _keys(tmp_path)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     time.sleep(1.1)
     reg.add("P-LATER-1", "office", "", "office:a", datetime.now(UTC).isoformat())
@@ -288,7 +296,7 @@ def test_a_restore_that_fails_still_keeps_and_audits_the_later_opt_outs(
 
     reg, _jobs, dirs = _box(db_url, tmp_path)
     priv, pub, keep = _keys(tmp_path)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     time.sleep(1.1)
     reg.add("P-LATER-1", "office", "", "office:a", datetime.now(UTC).isoformat())
@@ -318,6 +326,7 @@ def test_the_command_says_the_opt_outs_before_it_stops_for_the_reference_data(
     out = {"warnings": [], "refdata": {"missing": ["vocab"], "reloaded": []}, "optouts_after_backup": lost,
            "jobs_failed": [], "to_reapply": [], "reapply_since": "", "complete": False}  # fmt: skip
     monkeypatch.setattr(bk, "restore", lambda *a, **kw: out)
+    pg_client.setenv(monkeypatch)  # H-139: the CLI takes the process environment's client tools
     rc = cli(["restore", str(tmp_path / "x.tbk"), "--key", str(tmp_path / "k"), "--yes"])
     err = capsys.readouterr().err
     assert rc == 3 and "are unknown" in err and "check the office's records" in err
@@ -333,7 +342,7 @@ def test_events_written_to_the_audit_after_its_backup_copy_are_listed(tmp_path: 
     _reg, _jobs, dirs = _box(db_url, tmp_path)
     AuditLog(dirs["audit"]).append("job.created", actor="x")  # the folder holds a chain at the backup
     priv, pub, keep = _keys(tmp_path)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     time.sleep(1.1)
     AuditLog(dirs["audit"]).append("edc.erase_hidden", actor="steward:b", detail={"pid": "P-GONE"})
@@ -354,7 +363,7 @@ def test_a_restore_fails_the_jobs_that_were_running_at_the_backup(tmp_path: Path
     assert sorted(jobs.interrupted()) == [J_RUNNING, J_REPORTING]
     priv, pub = tmp_path / "it.key", tmp_path / "box.pub"
     bk.keygen(priv, pub)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     out = bk.restore(f, priv, env=env, dirs=dirs, no_copy=True)
     assert out["ok"] and out["warnings"] == []  # the row check against the manifest ran before the jobs were failed
@@ -378,7 +387,10 @@ def test_a_restore_fails_the_jobs_that_were_running_at_the_backup(tmp_path: Path
 
 
 def test_a_box_without_a_register_says_the_later_opt_outs_are_unknown(
-    tmp_path: Path, db_url: str, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    db_url: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Review H1: a restore onto a new machine (or a box that never held a register) cannot know what the old box
     recorded after the backup. It says "unknown", never "none", and it is not complete."""
@@ -393,13 +405,14 @@ def test_a_box_without_a_register_says_the_later_opt_outs_are_unknown(
     dirs["audit"].mkdir()
     priv, pub = tmp_path / "it.key", tmp_path / "box.pub"
     bk.keygen(priv, pub)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    env = {**pg_client.env(), "TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     out = bk.restore(f, priv, env=env, dirs=dirs, no_copy=True)
     lost = out["optouts_after_backup"]
     assert (lost["readable"], lost["events"], lost["state"]) == (False, None, "unknown")
     assert lost["why"] == "the box holds no register"
     assert out["jobs_failed"] == [] and out["complete"] is False
+    pg_client.setenv(monkeypatch)  # H-139: the CLI takes the process environment's client tools
     rc = cli(
         [
             "restore",

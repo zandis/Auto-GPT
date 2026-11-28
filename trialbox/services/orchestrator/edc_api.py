@@ -33,9 +33,11 @@ missing re-authentication is audited as ``edc.refused`` (SEC-7).
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, TypeVar
 
 from edc import copyassist
@@ -43,7 +45,7 @@ from edc.service import EdcService
 from edc.store import EdcError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from tb_common.authz import edc_role_may
+from tb_common.authz import STUDY_TASKS, conditional, edc_role_may, permit
 from tb_common.patient_reads import MONITOR as _MONITOR
 from tb_common.patient_reads import PHI as _PHI
 from tb_common.service_auth import (
@@ -57,9 +59,11 @@ from tb_common.service_auth import (
     verify_actor,
 )
 
+from orchestrator import grants
 from orchestrator.actor import require_actor as _require_actor
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
+log = logging.getLogger("orchestrator.edc")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _VISIT = re.compile(r"^([a-z][a-z0-9_]{0,99})?$")
 _USER = r"^[a-z0-9:._@-]{1,120}$"
@@ -222,6 +226,20 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         get().audit.append("edc.refused", ruleset=rid if _RS.match(rid) else "", actor=a.name or "unknown",
                            detail={"action": action, "code": code})  # fmt: skip
 
+    def logged(a: Actor, action: str, rs: str) -> bool:
+        """V2-05 (M7): where the delegation log decides the role's ``edc.*`` row (the investigator), the log is read
+        here, as the reveal route reads it (D-484): the study's PI holds every task. A log that cannot be read: no."""
+        rid = rs.strip().upper()
+        if not (a.role and a.name and _RS.match(rid) and conditional(a.role, f"edc.{action}")):
+            return False
+        try:
+            standing = grants.log_standing(a.name, rid, get().today())
+        except Exception:  # fail closed: no log, no right read from it
+            log.warning("edc.role: the delegation log could not be read", exc_info=True)
+            return False
+        held = frozenset(t for t in STUDY_TASKS if permit(a.role, f"task.{t}", standing).allowed)  # the PI: every task
+        return permit(a.role, f"edc.{action}", replace(standing, tasks=held)).allowed
+
     def who(request: Request, action: str, fallback: str | None = None, rs: str = "") -> Actor:
         """The verified person and role, allowed to take ``action`` (D-162). On a patient read (the copy sheet, the
         ODM export) the route's dependency verified the person's v3 claim already (NEW-SEC-1, D-717): that person."""
@@ -230,7 +248,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
             a = Actor(name=v3.sub.split(":", 1)[1], session=v3.session, verified=True, role=v3.role)
         else:
             a = claim(request, fallback)
-        if not a.role or not edc_role_may(a.role, action):
+        if not a.role or not (edc_role_may(a.role, action) or logged(a, action, rs)):
             refused(rs, a, action, "edc.role")
             raise HTTPException(status_code=403, detail={"code": "edc.role", "message": "this role may not do that"})
         return a
@@ -243,7 +261,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.get("/studies/{rs}/edc", dependencies=[MONITOR_READ])  # D-717 review: its subjects are patients' rows
     def status(rs: str) -> dict[str, Any]:
-        return get().status(_rs(rs))
+        return run(lambda: get().status(_rs(rs)))  # E2E P-12: a 4xx/5xx with its code, not a 500
 
     @r.post("/studies/{rs}/edc/switch")
     def switch(rs: str, body: SwitchBody, request: Request) -> dict[str, Any]:
@@ -270,7 +288,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.get("/studies/{rs}/edc/map/suggest")
     def suggest(rs: str) -> list[dict[str, Any]]:
-        return get().suggest(_rs(rs))
+        return run(lambda: get().suggest(_rs(rs)))
 
     @r.put("/studies/{rs}/edc/map")
     def put_map(rs: str, body: MapBody, request: Request) -> dict[str, Any]:
@@ -291,7 +309,9 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
     def list_drafts(rs: str, record: str | None = None, visit: str | None = None) -> list[dict[str, Any]]:
         if visit is not None and not _VISIT.match(visit):
             raise HTTPException(status_code=400, detail={"code": "edc.visit", "message": "not a visit name"})
-        rid = _rs(rs)
+        return run(lambda: _drafts(_rs(rs), record, visit))
+
+    def _drafts(rid: str, record: str | None, visit: str | None) -> list[dict[str, Any]]:
         store = get().store
         rows = store.drafts(rid, _rec(record) if record else None, visit or None)
         covered = store.covered_ids(rid, rows)  # D-461: "signed" only while an intact signature covers the value
@@ -384,6 +404,6 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.get("/studies/{rs}/edc/trail/{record}", dependencies=[MONITOR_READ])
     def trail(rs: str, record: str) -> dict[str, Any]:
-        return get().trail(_rs(rs), _rec(record))
+        return run(lambda: get().trail(_rs(rs), _rec(record)))
 
     return r

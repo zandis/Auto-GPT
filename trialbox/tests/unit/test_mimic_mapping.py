@@ -110,10 +110,11 @@ def test_icd9_dotted() -> None:
 
 
 def test_drug_names_to_atc() -> None:
-    assert T.atc_for("Furosemide") == ("C03CA01", "furosemide")
-    assert T.atc_for("Furosemide-Heart Failure") == ("C03CA01", "furosemide")
-    assert T.atc_for("MetFORMIN XR (Glucophage XR)") == ("A10BA02", "metformin")
-    assert T.atc_for("Sacubitril-Valsartan (24mg-26mg)") == ("C09DX04", "valsartan and sacubitril")
+    # V-18b (D-1183): the table's display is the code; WHOCC's names do not ship
+    assert T.atc_for("Furosemide") == ("C03CA01", "C03CA01")
+    assert T.atc_for("Furosemide-Heart Failure") == ("C03CA01", "C03CA01")
+    assert T.atc_for("MetFORMIN XR (Glucophage XR)") == ("A10BA02", "A10BA02")
+    assert T.atc_for("Sacubitril-Valsartan (24mg-26mg)") == ("C09DX04", "C09DX04")
     assert T.atc_for("Insulin") is None
     assert T.atc_for("Furosemidex") is None  # whole words only
 
@@ -309,7 +310,7 @@ def test_normalise_bundle(tmp_path: Path) -> None:
     assert _first(meds["r1"], "medicationCodeableConcept") == {
         "system": ATC,
         "code": "C03CA01",
-        "display": "furosemide",
+        "display": "C03CA01",  # V-18b (D-1183): the code; WHOCC's names do not ship
     }
     assert _first(meds["r2"], "medicationCodeableConcept")["code"] == "C03CA02"
     assert meds["r3"]["medicationCodeableConcept"]["text"] == "Torsemide + Sodium Chloride 0.9%"

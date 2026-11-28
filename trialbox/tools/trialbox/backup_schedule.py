@@ -80,6 +80,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from tools.update_status import write_atomic
+
 SUFFIX = ".tbbak"
 REFDATA = "refdata"
 BULK_REFDATA = ("ctgov_study", "trial", "term")  # the vendor pack's rows: left out, the site-fetch ones copied out
@@ -224,19 +226,31 @@ def _raise(e: OSError) -> None:
     raise e
 
 
+def volumes_root(env: Mapping[str, str]) -> Path:
+    return Path(env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+
+
+def host_volume(env: Mapping[str, str], vol: str) -> Path:
+    """The host folder of this box's compose volume ``vol``. H-139 (OCR 1498-1): the box's own project, from its
+    deploy/.env (``env``: COMPOSE_PROJECT_NAME), else ``trialbox``. A caller's exported project is never read (F1): on a
+    host that also runs a test stack, the box's backup reads the box's volumes, and the test stack's backup its own."""
+    project = (env.get("COMPOSE_PROJECT_NAME") or "").strip() or "trialbox"
+    return volumes_root(env) / f"{project}_{vol}" / "_data"
+
+
 def volume_bytes(env: Mapping[str, str], fallback: int | None) -> int | None:
     """What the backup container reads besides the dumps: the box's volumes, walked on the host (D-455). A volume the
     host cannot read counts as ``fallback`` (the last good backup's size) once; None when nothing is known."""
     from tools.trialbox import update
 
-    root = Path(env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
+    root = volumes_root(env)
     total, unknown = 0, False
     try:
         readable = root.is_dir() and os.access(root, os.R_OK | os.X_OK)
     except OSError:
         readable = False
     for vol in update.BACKUP_VOLUMES.values():
-        d = root / f"trialbox_{vol}" / "_data"
+        d = host_volume(env, vol)
         n = (0 if not d.parent.exists() else tree_bytes(d)) if readable else None  # a volume never made: 0 bytes
         if n is None:
             unknown = True
@@ -489,10 +503,20 @@ def _mounts(text: str | None) -> list[tuple[str, str, str, str]]:
     return out
 
 
+def _there(p: Path) -> bool:
+    """Whether ``p`` is there; below a folder this user may not search (the container engine's 0710 root, a 0700
+    parent) it is taken as not there, so a walk up stops at the last folder it can see (escape check (i): never
+    PermissionError)."""
+    try:
+        return p.exists()
+    except PermissionError:
+        return False
+
+
 def _resolve(path: Path) -> Path:
     """``path`` with the symlinks of its existing part resolved; a part not made yet is kept as written."""
     p, tail = Path(os.path.normpath(path.absolute())), list[str]()
-    while not p.exists() and p != p.parent:
+    while not _there(p) and p != p.parent:
         tail.insert(0, p.name)
         p = p.parent
     return p.resolve().joinpath(*tail)
@@ -500,7 +524,7 @@ def _resolve(path: Path) -> Path:
 
 def _existing(path: Path) -> Path:
     p = _resolve(path)
-    while not p.exists() and p != p.parent:
+    while not _there(p) and p != p.parent:
         p = p.parent
     return p
 
@@ -769,6 +793,13 @@ def _num(e: Mapping[str, str], key: str, default: float, errors: list[str], hi: 
     return v
 
 
+def absolute(path: Path) -> Path:
+    """H-100: ``path`` made absolute against the working folder, links kept (``--deploy deploy`` from the install
+    folder). The container engine reads a bind source that is not absolute (``deploy/secrets/backup.pub``) as the
+    name of a volume, so every folder and file the backup container binds goes through here first."""
+    return Path(os.path.abspath(path))
+
+
 def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Config:
     """The schedule's settings from ``deploy/.env`` (``env``, quotes removed), with the process environment winning
     (``process_env``; doctor passes its own merged settings and False)."""
@@ -778,7 +809,7 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
     return Config(
         deploy=deploy,
         targets=[Path(t) for t in _split(e.get("TB_BACKUP_TARGETS", ""))],
-        public_key=Path(e.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub"),
+        public_key=absolute(Path(e.get("TB_BACKUP_PUBKEY") or deploy / "secrets" / "backup.pub")),
         production=(e.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION",
         keep=int(e.get("TB_BACKUP_KEEP") or 14),
         max_age_hours=float(e.get("TB_BACKUP_MAX_AGE_HOURS") or MAX_AGE_HOURS),
@@ -1060,12 +1091,21 @@ ARCHIVER_SQL = (
 )
 
 
+def mode_of(path: Path, default: int = 0o644) -> int:
+    """The mode a file rewritten whole keeps (H-142 .k): its own, or ``default`` (``open``'s under umask 022)."""
+    try:
+        return path.stat().st_mode & 0o7777
+    except OSError:
+        return default
+
+
 class ComposeOps:
     """The nightly run's steps on a site box (``docker compose --project-directory deploy``)."""
 
     def __init__(self, deploy: Path, run: Callable[..., str] | None = None) -> None:
         from tools.trialbox import update
 
+        deploy = absolute(deploy)  # H-100: every folder the backup container binds is an absolute path
         self.deploy = deploy
         self.box = update.ComposeBox(deploy, run or update.run_cmd)
         self.env = self.box.env
@@ -1116,7 +1156,7 @@ class ComposeOps:
         if why:
             return False, why
         env: dict[str, str] = dict(os.environ)
-        env.update({k: self.env[k] for k in ("TB_KEK_FILE", "TB_KEK_PASSPHRASE") if k in self.env})
+        env.update({k: self.env[k] for k in ("TB_KEK_FILE",) if k in self.env})  # H-97: never the passphrase
         try:
             made = rr.make_key(sec, env)
         except Exception as e:  # a locked KEK, a plain key left there: named, never with a key in it
@@ -1204,14 +1244,21 @@ class ComposeOps:
             if src.is_file():
                 shutil.copy2(src, dest / name)
                 taken.append(name)
-        skip = shutil.ignore_patterns("backup.lock", ".audit-*", "*.tmp")
+        patterns = shutil.ignore_patterns("backup.lock", AUDIT_LOCK, ".audit-*", "*.tmp")
+        licensed = self.deploy / "site" / "terminology"
+
+        def skip(folder: str, names: list[str]) -> set[str]:
+            # V-18 (D-1182): the hospital's licensed copies (deploy/site/terminology, the default TB_LICENSED_DIR)
+            # never leave the box; a restore reloads them from the hospital's folder
+            out = set(patterns(folder, names))
+            return out | ({"terminology"} if Path(folder) == licensed.parent else set())
+
         for sub in ("site", "secrets"):
             if (self.deploy / sub).is_dir():
                 shutil.copytree(self.deploy / sub, dest / sub, symlinks=True, ignore=skip, dirs_exist_ok=True)
                 taken.append(sub)
         for vol in HOST_VOLUMES:
-            root = self.env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes"
-            src = Path(root) / f"trialbox_{vol}" / "_data"
+            src = host_volume(self.env, vol)
             try:
                 if not src.is_dir():
                     continue
@@ -1253,9 +1300,9 @@ class ComposeOps:
                             pit["beside_jobs"] = {"count": left, "jobs": self.running_job_list() if left else None,
                                                   "waited_s": waited, "bound_s": cfg.job_wait_s}  # fmt: skip
                     # every size first: a pause is only taken when every step under it has a limit (D-455, M4)
-                    sizes = {
-                        db: self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))
-                    }
+                    from tools.trialbox.update import DB_SIZE_ROLES  # OCR 1469-4: the one list of the update's
+
+                    sizes = {db: self.db_bytes(db, user) for db, user in DB_SIZE_ROLES}
                     prev = int((_read_json(cfg.last_file).get("good_file") or {}).get("bytes") or 0) or None
                     vols = volume_bytes(self.env, prev)
                     if mode == "pause":
@@ -1279,7 +1326,7 @@ class ComposeOps:
                             if paused:
                                 self.box.run(self.box._c("pause", *paused))
                             pit.update({"held": True, "paused": paused, "why": "TB_BACKUP_QUIESCE=pause"})
-                    for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
+                    for db, user in DB_SIZE_ROLES:
                         limit = cfg.timeout(sizes[db])
                         pit["limits"][db] = limit
                         at = datetime.now(UTC).isoformat(timespec="milliseconds")
@@ -1322,7 +1369,11 @@ class ComposeOps:
 
     def audit(self, event: str, detail: dict[str, Any]) -> None:
         """Append ``event`` to the box's audit log through the orchestrator. Events kept while it was down
-        (``deploy/site/backup-audit-pending.jsonl``) go first, in order (D-274, DI-10); what cannot be sent stays."""
+        (``deploy/site/backup-audit-pending.jsonl``) go first, in order (D-274, DI-10); what cannot be sent stays.
+        INT-M5 (PR1305-H6): the whole read, send and write holds ``deploy/site/backup-audit.lock`` (callers outside
+        ``backup.lock`` too: the nightly's alert, ``backup-status``, the host restore), and the queue with the new
+        event is written whole before anything is sent: a signal partway through loses no event (one sent and not
+        yet struck may be sent again; never one dropped)."""
         code = (
             "import json, sys\nfrom tb_common.audit_writer import open_audit\ns = json.load(sys.stdin)\n"
             "open_audit().append(s['event'], actor='backup', input_sha=s['sha'], detail=s['detail'])\n"
@@ -1330,25 +1381,50 @@ class ComposeOps:
         state = self.deploy / "site"
         state.mkdir(parents=True, exist_ok=True)
         pending = state / "backup-audit-pending.jsonl"
-        lines = [ln for ln in (pending.read_text(encoding="utf-8").splitlines() if pending.is_file() else []) if ln]
-        lines.append(json.dumps({"event": event, "sha": detail.get("sha256") or "", "detail": detail}))
-        left: list[str] = []
-        for ln in lines:
-            if left:  # keep the order: after one fails, the rest wait too
-                left.append(ln)
-                continue
-            f = state / f".audit-{json.loads(ln)['event']}.json"
-            f.write_text(ln, encoding="utf-8")
-            try:
-                self.box.run(self.box._c("exec", "-T", "orchestrator", "python", "-c", code), stdin_file=f)
-            except Exception:  # the orchestrator is down: keep the event for the admin, never lose it
-                left.append(ln)
-            finally:
-                f.unlink(missing_ok=True)
-        if left:
-            pending.write_text("".join(x + "\n" for x in left), encoding="utf-8")
-        else:
-            pending.unlink(missing_ok=True)
+        with _audit_lock(state):
+            lines = [ln for ln in (pending.read_text(encoding="utf-8").splitlines() if pending.is_file() else [])
+                     if ln]  # fmt: skip
+            lines.append(json.dumps({"event": event, "sha": detail.get("sha256") or "", "detail": detail}))
+            with contextlib.suppress(OSError):  # kept first; a full disk still lets the events be sent
+                write_atomic(pending, "".join(x + "\n" for x in lines), mode_of(pending))
+            left: list[str] = []
+            for ln in lines:  # a signal here: the queue on disk already holds this event and every later one
+                if left:  # keep the order: after one fails, the rest wait too
+                    left.append(ln)
+                    continue
+                f = state / f".audit-{json.loads(ln)['event']}.json"
+                write_atomic(f, ln)  # H-142 (.k): never a half-written event on the orchestrator's stdin
+                try:
+                    self.box.run(
+                        self.box._c("exec", "-T", "orchestrator", "python", "-c", code),
+                        stdin_file=f,
+                        timeout=query_timeout(getattr(self, "env", {})),
+                    )  # review 1534: bounded under the lock
+                except Exception:  # the orchestrator is down: keep the event for the admin, never lose it
+                    left.append(ln)
+                finally:
+                    f.unlink(missing_ok=True)
+            if left:  # H-142 (.k): written whole beside it, then renamed: a kill mid-write never empties the queue
+                write_atomic(pending, "".join(x + "\n" for x in left), mode_of(pending))
+            else:
+                pending.unlink(missing_ok=True)
+
+
+AUDIT_LOCK = "backup-audit.lock"  # INT-M5 (PR1305-H6): its own file, so a caller inside backup.lock never waits on it
+
+
+@contextlib.contextmanager
+def _audit_lock(state: Path) -> Iterator[None]:
+    """``deploy/site/backup-audit.lock`` held (``flock``, waiting for the holder: each holder's sends are bounded by
+    their own timeouts); released when the process ends, however it ends."""
+    import fcntl
+
+    fd = os.open(state / AUDIT_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
 
 
 @contextlib.contextmanager
@@ -1370,11 +1446,14 @@ CRON_NAME = "trialbox-backup"
 
 
 def set_env(path: Path, key: str, value: str) -> None:
-    """Set ``key=value`` in a ``deploy/.env`` (replaced in place, else appended); the file keeps its mode."""
+    """Set ``key=value`` in a ``deploy/.env`` (its old line dropped, the new one appended). H-110 (ESC-5): the file is
+    replaced whole, 0600, never rewritten in place (:func:`tools.trialbox.private_file.replace_private`)."""
+    from tools.trialbox.private_file import replace_private
+
     lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
     out = [ln for ln in lines if not ln.startswith(f"{key}=")]
     out.append(f"{key}={value}")
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    replace_private(path, "\n".join(out) + "\n")
 
 
 def cron_text(template: str, root: Path, mailto: str) -> str:
@@ -1528,7 +1607,9 @@ def _exec_start(script: str) -> str:
 def unit_files(text: str, mailto: str = "") -> dict[str, str]:
     """The service and timer of each job of the rendered cron file. ``mailto``: what cron's MAILTO did, mail what
     the command prints (it prints only when something is wrong) through the host's sendmail."""
-    if mailto and not re.fullmatch(r"[A-Za-z0-9._+@, -]+", mailto):
+    # H-110 (H-109): a name and an address ("IT <it@site>") as cron's MAILTO takes it; inside the double quotes of the
+    # mail's To: line the angle brackets are plain text
+    if mailto and not re.fullmatch(r"[A-Za-z0-9._+@, <>-]+", mailto):
         raise ValueError("a MAILTO the timer cannot carry: addresses only")
     out = {}
     for name, cal, cmd in timer_jobs(text):
@@ -1700,6 +1781,7 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
     PRODUCTION: no alert route)."""
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     cfg = config(deploy, update._env_file(deploy / ".env"))
     for x in cfg.setting_errors:  # D-735 (review): a bad setting is said where the backup is installed
         print(f"backup-install: bad setting: {x}")
@@ -1758,8 +1840,7 @@ def copy_night_length(env: Mapping[str, str], deploy: Path) -> str:
     from tools import night_length
     from tools.trialbox import update
 
-    root = Path(env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
-    src = root / f"trialbox_{update.BACKUP_VOLUMES['lake']}" / "_data" / "night_runs.json"
+    src = host_volume(env, update.BACKUP_VOLUMES["lake"]) / "night_runs.json"
     dst = deploy / "site" / night_length.FILE
     tmp = dst.with_name(f"{dst.name}.tmp")
     try:
@@ -1774,8 +1855,8 @@ def copy_night_length(env: Mapping[str, str], deploy: Path) -> str:
     # count. A box whose scheduler does not run has none: not a failure of the copy. A part that cannot be read
     # keeps the earlier copy of that part.
     days = {n.get("snapshot") for n in got["nights"] if isinstance(n, dict) and isinstance(n.get("snapshot"), str)}
-    for part, key in ((root / f"trialbox_{update.BACKUP_VOLUMES['orchestrator']}" / "_data" / "night_work.json",
-                       "nights"), (dst, "work")):  # fmt: skip
+    for part, key in ((host_volume(env, update.BACKUP_VOLUMES["orchestrator"]) / "night_work.json", "nights"),
+                      (dst, "work")):  # fmt: skip
         try:
             work = json.loads(part.read_bytes())[key]
             if not isinstance(work, list):
@@ -1807,6 +1888,7 @@ def run_backup(deploy: Path, ops: ComposeOps | None = None, quiesce: str | None 
     ``off``, no pgBackRest). Raises :class:`BackupBusy` when another run holds the lock."""
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     with _lock(deploy) as mine:
         if not mine:
             raise BackupBusy("another backup run holds deploy/site/backup.lock")
@@ -1841,6 +1923,7 @@ def main_nightly(deploy: Path) -> int:
 def main_status(deploy: Path, as_json: bool = False, quiet: bool = False, cron_dir: Path = Path("/etc/cron.d")) -> int:
     from tools.trialbox import update
 
+    deploy = absolute(deploy)
     cfg = config(deploy, update._env_file(deploy / ".env"))
     ops = ComposeOps(deploy)
     st = status(cfg, archiver=_try(ops.archiver) if cfg.archive_on else None)

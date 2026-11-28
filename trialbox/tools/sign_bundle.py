@@ -16,6 +16,10 @@ that accepts any installed state; a release that changes a schema or a pin ships
 ``tools/update_status.py``), and, for a bundle with images, ``release.json`` and ``images.lock`` (T-110's release build
 writes both; ``verify_update.py`` refuses images without them or with a null digest). ``--rotate-add`` makes a key
 rotation bundle: signed by a trusted key, it adds the new key and may retire one; a box accepts it once.
+
+H-95 (manifest 1.4.0): ``--pack model`` signs a model pack (the engine image and the weights only); ``--pack software
+--requires-model MODEL_PACK.tar`` signs a software pack that names that model pack by its signed identity (its
+bundle id and the sha256 of its signed manifest.json, read from the file given). Without ``--pack``: a whole bundle.
 """
 
 from __future__ import annotations
@@ -25,27 +29,63 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import tarfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host", "terminology")  # V-18 (D-1182)
 
 
-def keygen(out: Path) -> tuple[Path, Path]:
+class KeyExists(Exception):
+    """H-110 (M-BK-1): a vendor key is already in the folder: ``keygen`` on the command line never replaces it without
+    ``--force``."""
+
+
+def refuse_existing(out: Path) -> None:
+    there = [n for n in ("vendor_ed25519.key", "vendor_ed25519.pub") if (out / n).exists() or (out / n).is_symlink()]
+    if there:
+        raise KeyExists(
+            f"{out} already holds {', '.join(there)}: a vendor key is never replaced (boxes trust it, and only it can "
+            "sign a rotation away from it). Nothing was written. Give another --out, or --force"
+        )
+
+
+def keygen(out: Path, *, replace: bool = True) -> tuple[Path, Path]:
+    """A new vendor key pair in ``out``; the private key is made 0600 from its first byte (``O_EXCL``, a name of its
+    own, then renamed into place). The command line refuses a folder that already holds a pair
+    (:func:`refuse_existing`)."""
+    import secrets
+
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    out.mkdir(parents=True, exist_ok=True)
-    key = Ed25519PrivateKey.generate()
     priv = out / "vendor_ed25519.key"
     pub = out / "vendor_ed25519.pub"
-    priv.write_bytes(
-        key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-    )
-    priv.chmod(0o600)
+    out.mkdir(parents=True, exist_ok=True)
+    key = Ed25519PrivateKey.generate()
+    pem, pkcs8 = serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8
+    body = key.private_bytes(pem, pkcs8, serialization.NoEncryption())
+    tmp = out / f".{priv.name}.{secrets.token_hex(6)}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(body)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if replace:
+            os.replace(tmp, priv)
+        else:  # OCR 1455-6: put in place only if no key has that name now (a second keygen at the same moment)
+            try:
+                os.link(tmp, priv)
+            except FileExistsError:
+                raise KeyExists(f"{priv} appeared while the key was made: it is kept, nothing was written") from None
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    tmp.unlink(missing_ok=True)
     pub.write_bytes(
         key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
     )
@@ -145,6 +185,7 @@ def build(
     images_lock: dict[str, Any] | None = None,
     rotation: dict[str, Any] | None = None,
     valid_days: int = 365,
+    pack: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import load_pem_private_key
@@ -191,6 +232,8 @@ def build(
             manifest[field] = hashlib.sha256(meta[name]).hexdigest()
     if rotation is not None:
         manifest["rotation"] = rotation
+    if pack is not None:
+        manifest["pack"] = pack
     from tb_contracts import validate
 
     validate("update_manifest", manifest)
@@ -220,6 +263,22 @@ def build(
     return manifest
 
 
+def model_pack_identity(path: Path) -> dict[str, str]:
+    """H-95: a model pack's signed identity, read from the pack itself: its bundle id and the sha256 of its signed
+    manifest.json (the bytes its signature covers)."""
+    try:
+        with tarfile.open(path, "r:") as tf:
+            m = tf.extractfile("manifest.json")
+            body = m.read() if m is not None else b""
+    except (OSError, KeyError, tarfile.TarError) as exc:
+        raise SystemExit(f"{path}: not a signed bundle ({exc})") from exc
+    manifest = json.loads(body)
+    # a whole bundle (no pack) holds its models too (D-1094): a software pack may name it
+    if (manifest.get("pack") or {}).get("kind") not in ("model", None):
+        raise SystemExit(f"{path}: a software pack holds no models: name its model pack or a whole bundle")
+    return {"bundle_id": str(manifest["bundle_id"]), "manifest_sha256": hashlib.sha256(body).hexdigest()}
+
+
 def main(argv: list[str] | None = None) -> int:
     import sys
 
@@ -229,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     kg = sub.add_parser("keygen")
     kg.add_argument("--out", type=Path, required=True)
+    kg.add_argument("--force", action="store_true", help="replace a key pair already in --out (the old one is lost)")
     sf = sub.add_parser("sign-file", help="<file>.sig: a raw Ed25519 signature openssl checks (D-996)")
     sf.add_argument("--key", type=Path, required=True)
     sf.add_argument("file", type=Path)
@@ -246,10 +306,22 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--images-lock", type=Path, help="the release's deploy/images.lock (required with images)")
     b.add_argument("--rotate-add", type=Path, help="a key rotation bundle: the new vendor public key")
     b.add_argument("--rotate-retire", help="with --rotate-add: the key_id to retire")
+    b.add_argument("--pack", choices=("model", "software"), help="H-95: one half of a split release")
+    b.add_argument("--requires-model", type=Path, help="with --pack software: the model pack it needs")
     b.add_argument("items", nargs="+", help="kind:path[=bundle/path]")
     args = ap.parse_args(argv)
     if args.cmd == "keygen":
-        priv, pub = keygen(args.out)
+        try:
+            if not args.force:
+                refuse_existing(args.out)
+        except KeyExists as exc:
+            print(f"keygen: {exc}", file=sys.stderr)
+            return 1
+        try:
+            priv, pub = keygen(args.out, replace=args.force)
+        except KeyExists as exc:
+            print(f"keygen: {exc}", file=sys.stderr)
+            return 1
         print(f"wrote {priv} (keep offline) and {pub} (install on boxes as deploy/keys/vendor_ed25519.pub)")
         return 0
     if args.cmd == "sign-file":
@@ -264,10 +336,17 @@ def main(argv: list[str] | None = None) -> int:
     def load(p: Path | None) -> dict[str, Any] | None:
         return json.loads(p.read_text(encoding="utf-8")) if p else None
 
+    if (args.pack == "software") != (args.requires_model is not None):
+        raise SystemExit("--pack software and --requires-model MODEL_PACK go together")
+    pack: dict[str, Any] | None = {"kind": args.pack} if args.pack else None
+    if pack is not None and args.requires_model is not None:
+        pack["requires_model"] = model_pack_identity(args.requires_model)
+
     m = build(args.key, args.id, items, args.out, args.signer, args.description, release_seq=args.release_seq,
               min_installed_version=args.min_installed, valid_days=args.valid_days, compat=load(args.compat),
               release=load(args.release), images_lock=load(args.images_lock),
-              rotation=rotation_for(args.rotate_add, args.rotate_retire) if args.rotate_add else None)  # fmt: skip
+              rotation=rotation_for(args.rotate_add, args.rotate_retire) if args.rotate_add else None,
+              pack=pack)  # fmt: skip
     print(f"wrote {args.out}: {len(m['files'])} files, bundle {m['bundle_id']}")
     return 0
 

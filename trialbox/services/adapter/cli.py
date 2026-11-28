@@ -38,7 +38,15 @@ from tb_contracts import RebuildResult, dump
 from adapter import site_profile
 from adapter.governance import contracts_dir
 from adapter.mapping.site import resolve as resolve_mapping
-from adapter.pipeline import AdapterConfig, FutureNight, LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
+from adapter.pipeline import (
+    AdapterConfig,
+    FutureNight,
+    LakeBudgetError,
+    NoRoomForNight,
+    SiteKeyError,
+    SiteNeeded,
+    run_ingest,
+)
 
 MAPPING_ROOT = Path(__file__).resolve().parent  # the image's mappings (adapter.mapping.site: the site's come first)
 
@@ -203,6 +211,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         contracts_dir=contracts_dir(os.environ.get("TB_DATA_CONTRACTS")),  # T-659b
         site_profile=site_profile.find(),  # 10B-6 (D-1233): the site mapping folder's profile/, else none
         profile_standards=_standards(cfg.settings.profiles),  # 10B-6: a profile's versions agree with these
+        site_settings=cfg.settings.model_dump(),  # U-5 (D-1280): the run gate's items answered in settings.yaml
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")
     return ac, ds.type, default_path
@@ -273,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
             rebuild_lake=not args.no_lake,
             validate=not args.no_validate,
         )
-    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError) as exc:
+    except (SiteKeyError, SiteNeeded, FutureNight, NoRoomForNight, LakeBudgetError) as exc:
         print(f"night refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
@@ -295,7 +304,7 @@ def backfill_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespa
             validate=not args.no_validate,
             rebuild_lake=not args.no_lake,
         )
-    except (SiteKeyError, FutureNight) as exc:
+    except (SiteKeyError, SiteNeeded, FutureNight) as exc:
         print(f"back-fill refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(rep.as_dict(), ensure_ascii=False, indent=1))

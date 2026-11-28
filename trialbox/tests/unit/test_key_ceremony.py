@@ -82,9 +82,11 @@ def test_a_passphrase_box_gets_a_record_marked_not_a_site_ceremony(
     box: dict[str, Path],  # noqa: F811
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    phrase = {"TB_KEK_PASSPHRASE": "a long synthetic test phrase"}
+    phrase = box["sec"].parent / "kek.pass"  # H-96 (ruling 7094934985): a file only root can read, not the environment
+    phrase.write_text("a long synthetic test phrase\n", encoding="utf-8")
+    phrase.chmod(0o600)
     rc, _ = _cli(capsys, "init", "--secrets", str(box["sec"]), "--backend", "passphrase", "--scrypt-n", CHEAP_N,
-                 env=phrase)  # fmt: skip
+                 "--passphrase-file", str(phrase))  # fmt: skip
     assert rc == 0
     rc, out = _cli(capsys, *_record_args(box), "--custodian", "IT Lead", "--witness", "Owner")
     assert rc == 0 and "NOT a site's key ceremony" in out

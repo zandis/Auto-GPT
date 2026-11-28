@@ -28,6 +28,8 @@ def _box(tmp: Path) -> tuple[Path, dict[str, str], Path]:
     (box / "deploy" / "site").mkdir()
     (box / "deploy" / "keys" / "vendor_ed25519.pub").write_text("stand-in key\n", encoding="utf-8")
     (box / "deploy" / "site" / "rehearsal.json").write_text('{"rehearsal": true}\n', encoding="utf-8")
+    # H-94: the box records PRODUCTION, so the mark stops the run (kept refusal 3); on a PoC box it would go on
+    (box / "deploy" / ".env").write_text("TB_ENV=PRODUCTION\n", encoding="utf-8")
     shutil.copy2(ROOT / "deploy" / "install.sh", box / "deploy" / "install.sh")
     for name in ("libs", "services", "tools"):
         (box / name).symlink_to(ROOT / name)
@@ -96,7 +98,7 @@ def test_a_second_installer_while_one_runs_refuses_and_changes_nothing(tmp_path:
 
 def test_the_lock_comes_before_the_first_write_and_the_cleanup() -> None:
     install = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
-    lock = install.index("flock -n 9 || die")
+    lock = install.index("flock -n 9 || {")  # H-94 (D-1091): the helper (PoC: warns, no cleanup)
     assert lock < install.index("# REHEARSAL (D-726): before anything loads")
     assert lock < install.index("mkdir -p deploy/site && printf")
     assert lock < install.index("# PROJECT-CLEANUP (F-19)")
@@ -158,8 +160,12 @@ def _seal(tmp: Path, phrase: str) -> subprocess.CompletedProcess[str]:
     docker.chmod(0o755)
     keep = {k: v for k, v in os.environ.items() if not k.startswith(("TB_", "PYTHON"))}
     env = {**keep, "PATH": f"{b}:/usr/bin:/bin", "TB_HOST_ROOT": str(tmp / "host"), "TB_SYSTEMD": "0"}
-    env |= {"TB_KEK_FILE": str(tmp / "kek.runtime"), "TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": phrase}
-    argv = ["sh", str(SEAL), "--secrets", str(tmp / "secrets"), "--conf", str(tmp / "none"), "--dry-run"]
+    env |= {"TB_KEK_FILE": str(tmp / "kek.runtime"), "TB_KEK_BACKEND": "passphrase"}
+    pp = tmp / "kek.pass"  # H-96 (ruling 7094934985): in a file only root can read, not in the environment
+    pp.write_text(phrase + "\n", encoding="utf-8")
+    pp.chmod(0o600)
+    argv = ["sh", str(SEAL), "--secrets", str(tmp / "secrets"), "--conf", str(tmp / "none"), "--dry-run",
+            "--kek-passphrase-file", str(pp)]  # fmt: skip
     return subprocess.run(argv, capture_output=True, text=True, env=env, check=False, timeout=120)
 
 
@@ -184,8 +190,11 @@ def test_the_network_sheet_says_where_the_passphrase_never_is() -> None:
 
     for lang in ("en", "ja", "zh-TW"):
         md = ns.render_md(list(ns.FILES), None, lang)
-        kek = next(x for x in md.splitlines() if x.startswith("| TB_KEK_PASSPHRASE |"))
+        kek = next(x for x in md.splitlines() if x.startswith("| KEK passphrase |"))  # H-96: not a variable now
         operator = next(x for x in md.splitlines() if x.startswith("| operator token |"))
         assert kek.rsplit("|", 2)[1] != operator.rsplit("|", 2)[1], (lang, kek)
         if lang == "en":
-            assert kek.rstrip(" |").endswith("never in a container's configuration or in a file"), kek
+            # H-96 (ruling 7094934985): the operator's own root-only file is the one file it may be in
+            assert kek.rstrip(" |").endswith("never in a container's configuration, the environment or a file other "
+                                             "than the operator's root-only one (removed once used)"), kek  # fmt: skip
+            assert "root-only file" in kek and "environment (RUNBOOK" not in kek, kek

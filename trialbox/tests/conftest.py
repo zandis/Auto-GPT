@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Protocol
 
 import pytest
 
@@ -40,6 +42,39 @@ def repo_root() -> Path:
     return ROOT
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _held_root() -> Iterator[None]:
+    """P2-11: TB_CONSOLE_HELD_DIR (no default; compose sets the console's tmpfs) for the whole session, a tmpfs folder
+    of its own (0700), removed at the end. Every console app a test builds is given the process's value unless its own
+    env names one, so a test of the unset store takes it away with monkeypatch.delenv."""
+    try:
+        from console import app
+    except ImportError:  # a run without services/ on the path
+        yield
+        return
+    root = tempfile.mkdtemp(prefix="tb-held-", dir="/dev/shm")
+    given = app._env_map
+
+    def with_held(env: Any) -> dict[str, str]:
+        held = os.environ.get("TB_CONSOLE_HELD_DIR")
+        return {**({"TB_CONSOLE_HELD_DIR": held} if held else {}), **given(env)}
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TB_CONSOLE_HELD_DIR", root)
+        mp.setattr(app, "_env_map", with_held)
+        yield
+    shutil.rmtree(root)
+
+
+@pytest.fixture
+def held_dir(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """P2-11: a tmpfs folder of this test's own as TB_CONSOLE_HELD_DIR (see _held_root), removed after."""
+    root = Path(tempfile.mkdtemp(dir="/dev/shm"))
+    monkeypatch.setenv("TB_CONSOLE_HELD_DIR", str(root))
+    yield root
+    shutil.rmtree(root)
+
+
 # ------------------------------------------------------------------ the trial database (D-126)
 # One throwaway PostgreSQL per test session (tools/pglocal.py), or the one in TB_TEST_DB_URL; every test gets its own
 # schemas through a unique tb_prefix, so tests never see each other's rows.
@@ -50,6 +85,7 @@ _DB_COUNTER = iter(range(1, 10**9))
 def pg_cluster_url(request: pytest.FixtureRequest) -> Iterator[str]:
     given = os.environ.get("TB_TEST_DB_URL")
     if given:
+        _vector_or_stop(request, given)
         yield given
         return
     import atexit
@@ -88,9 +124,34 @@ def pg_cluster_url(request: pytest.FixtureRequest) -> Iterator[str]:
         url = pglocal.ensure(root)
     except (OSError, RuntimeError) as exc:
         _stop(request, exc)
+    _vector_or_stop(request, url)
     yield url
     if not keep:
         pglocal.remove(root)
+
+
+class _Stoppable(Protocol):
+    shouldstop: bool | str
+
+
+class _InSession(Protocol):
+    """What :func:`_vector_or_stop` uses of a fixture request: its session's stop flag."""
+
+    @property
+    def session(self) -> _Stoppable: ...
+
+
+def _vector_or_stop(request: _InSession, url: str) -> None:
+    """H-139: a test server whose vector extension is older than the db image's pin stops the run with one plain
+    message (``shouldstop`` stops every xdist worker), not one error per test (the bench host's halfvec errors)."""
+    from tb_common.db import split_url
+
+    from tools import pglocal
+
+    why = pglocal.vector_check(split_url(url)[0])
+    if why:
+        request.session.shouldstop = why
+        pytest.fail(why, pytrace=False)
 
 
 def _stop(request: pytest.FixtureRequest, exc: BaseException) -> NoReturn:
@@ -438,12 +499,12 @@ def _stack_up() -> bool:
     """The compose test stack answers on the lake's host port (tests/stack.py)."""
     import socket
 
-    from tests.stack import host_port
+    from tests.stack import StackNotRunning, host_port
 
-    try:
+    try:  # H-139: the port the test stack's own lake container publishes, never another project's
         with socket.create_connection(("127.0.0.1", host_port("LAKE")), timeout=1):
             return True
-    except OSError:
+    except (OSError, StackNotRunning):
         return False
 
 

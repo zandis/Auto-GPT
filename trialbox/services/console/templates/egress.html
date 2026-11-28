@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{# M3: the egress record by day and route (console.egress_page). Counts only: no patient, no content. #}
+{% block title %}{{ t('egress.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('egress.title') }}</h1>
+<p class="hint">{{ t('egress.help', days=days) }}</p>
+<section class="card" data-testid="egress-record">
+{% if rows %}<table>
+<thead><tr><th>{{ t('egress.day') }}</th><th>{{ t('egress.route') }}</th><th>{{ t('egress.result') }}</th><th>{{ t('egress.reason') }}</th><th>{{ t('egress.count') }}</th></tr></thead>
+<tbody>{% for r in rows %}<tr><td>{{ r.day }}</td><td class="mono">{{ r.route }}</td><td>{{ r.result_text }}</td><td>{{ r.reason_text }}</td><td>{{ r.count }}</td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p>{{ t('egress.none') }}</p>{% endif %}
+</section>
+<section class="card" data-testid="egress-rules">
+<h2>{{ t('egress.rules') }}</h2>
+<table><tbody>{% for key, state, text in checks %}<tr><td class="mono">{{ key }}</td><td>{{ state }}</td><td>{{ text }}</td></tr>
+{% endfor %}</tbody></table>
+</section>
+{% endblock %}
