@@ -133,8 +133,7 @@ jobs:
       # --vuln-mode report touches only the test-only mail servers of tools/supply_chain/release.py VULN_REPORT_ONLY
       # (T-110b): their fixable CRITICAL/HIGH findings are listed in the job summary. Everything else fails this step:
       # a finding in any image a bundle carries that no dated allow-list entry accepts, the licence gate, a build or
-      # scan error, a missing or empty report, an image not named by its scan. A fixable CRITICAL in such an image
-      # fails whatever the allow-list says (release hygiene item 1).
+      # scan error, a missing or empty report, an image not named by its scan.
       # the layers the builds cached are not what is scanned (the images are): they go before the largest scan
       - name: Drop the build cache
         run: |
