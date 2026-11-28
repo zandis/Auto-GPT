@@ -92,7 +92,13 @@ def test_on_the_real_path_an_exported_production_line_stops_with_master_s_words(
     warned = (re.escape("install: warning (the install goes on; an open item on the Operations page): ")
               + _as_pattern(_master("the memory caps could not be sized")))  # fmt: skip
     assert any(re.match(warned, ln) for ln in r.err.splitlines()), r.err[-2000:]
-    assert "PoC box, H-94" not in r.err and (box.tmp / LISTED).exists()
+    assert "PoC box, H-94" not in r.err and "install.sh/memcaps" in (box.tmp / LISTED).read_text(encoding="utf-8")
+    # it went on, to the kept refusal 4 (the site keys' sealing needs root, as a user)
+    assert (
+        r.rc == 1
+        and r.err.splitlines()[-1]
+        == "install: sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
+    ), r.err[-2000:]
 
 
 # --------------------------------------------------------------------------------------- H-2: ANCHOR_OK is the script's

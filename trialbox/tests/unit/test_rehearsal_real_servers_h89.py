@@ -195,9 +195,10 @@ def test_without_the_mark_the_three_refusals_are_byte_identical(
     clean = Bench(tmp_path / "clean", **bench).install(*args)
     planted_bench = Bench(tmp_path / "planted", **bench)
     planted = planted_bench.install(*args, **_plant(planted_bench))
-    if what in TOL_WARN:
+    if what in TOL_WARN:  # the warning, then the install goes on to the vendor key (as "not the profile's card")
         warned = said.replace("install: ", TOL_GOES_ON, 1)
         assert any(ln.startswith(warned) for ln in clean.stderr.splitlines()), clean.stdout + clean.stderr
+        assert clean.returncode == 1 and clean.stderr.splitlines()[-1].startswith("install: vendor public key missing")
     else:
         assert clean.returncode == 1 and said in clean.stderr.splitlines()[-1], clean.stdout + clean.stderr
     if what == "driver":
@@ -212,10 +213,15 @@ def test_without_the_mark_the_three_refusals_are_byte_identical(
 def test_the_new_options_without_rehearsal_are_refused_with_one_line(tmp_path: Path, opt: list[str]) -> None:
     """TOL-1 T-I013, T-I014, T-I015: on PRODUCTION too the option is a warning, ignored, and the install goes on, here
     to the driver below the minimum (kept refusal 2)."""
-    r = Bench(tmp_path).install("--mode", "gpu", "--gpu", "rtxpro6000", *opt)
+    b = Bench(tmp_path)
+    r = b.install("--mode", "gpu", "--gpu", "rtxpro6000", *opt)
     warned = [ln for ln in r.stderr.splitlines() if ln.startswith(TOL_GOES_ON)]
     assert len(warned) == 1 and opt[0] in warned[0] and "nothing was checked or written" in warned[0], r.stderr
     assert r.returncode == 1 and r.stderr.splitlines()[-1] == DRIVER_DIE
+    # the option took no effect: no real-server rehearsal was recorded, no card was picked or probed
+    assert not (b.deploy / "site" / "rehearsal-real-servers.json").exists()
+    log = (tmp_path / "docker.log").read_text(encoding="utf-8")
+    assert "rehearsal_real" not in log and "--gpus" not in log and "/x" not in log
 
 
 @pytest.mark.parametrize("production", [True, False])

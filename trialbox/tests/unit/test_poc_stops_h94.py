@@ -475,12 +475,17 @@ PROD_CASES = [
 
 
 #: TOL-1 (the owner's CLINICAL TOLERANCE, 2026-11-28): these points warn on PRODUCTION too, by their STOPS.csv row
-TOL_WARN = {
-    "ctgov": "T-I022", "rrs option": "T-I013", "tls old clients": "T-I097", "memcaps": "T-I100",
-    "tls check": "T-I108", "finish gate (depends)": "T-I072, T-I073", "cleanup": "T-I123", "site keys": "T-I124",
-    "gpu profile": "T-I038", "unmeasured": "T-I093",
+TOL_WARN = {  # name: (its row, its key on the list)
+    "ctgov": ("T-I022", "ctgov-value"), "rrs option": ("T-I013", "rrs-without-rehearsal"),
+    "tls old clients": ("T-I097", "tls-old-clients-value"), "memcaps": ("T-I100", "memcaps"),
+    "tls check": ("T-I108", "tls-check"), "finish gate (depends)": ("T-I072, T-I073", "finish-gate"),
+    "cleanup": ("T-I123", "project-cleanup-failed"), "site keys": ("T-I124", "site-keys"),
+    "gpu profile": ("T-I038", "gpu-shared-quota"), "unmeasured": ("T-I093", "unmeasured-card"),
 }  # fmt: skip
 TOL_GOES_ON = "install: warning (the install goes on; an open item on the Operations page): "
+#: where such a run then ends as a user: the kept refusal 4 (the site keys' sealing needs root); with no site keys
+#: made (the forced point) nothing is sealed and the install ends running
+TOL_SEAL = "install: sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
 
 
 @pytest.mark.parametrize(("name", "site", "args", "force", "extra", "said", "rc"), PROD_CASES,
@@ -512,10 +517,15 @@ def test_on_production_the_same_forced_points_stop_with_master_s_words(
     norm = [(r.rc, r.out.replace(str(b), "<box>"), r.err.replace(str(b), "<box>"))
             for r, b in ((clean, tmp_path / "prod"), (planted, tmp_path / "planted"))]  # fmt: skip
     if name in TOL_WARN:  # TOL-1: master's words as a warning, the point listed, the variables still change nothing
+        row, key = TOL_WARN[name]
         warned = re.escape(TOL_GOES_ON) + _as_pattern(master)
-        assert any(re.match(warned, ln) for ln in clean.err.splitlines()), (TOL_WARN[name], clean.err[-3000:])
+        assert any(re.match(warned, ln) for ln in clean.err.splitlines()), (row, clean.err[-3000:])
         assert norm[0] == norm[1] and "PoC box, H-94" not in clean.err
-        assert (tmp_path / "prod" / "deploy" / "site" / "poc-stops.jsonl").exists()
+        assert f"install.sh/{key}" in Run(0, "", "", tmp_path / "prod").listed_keys(), row
+        if name == "site keys":
+            assert clean.rc == 0 and RUNNING in clean.out, clean.text[-3000:]
+        else:
+            assert clean.rc == 1 and last == TOL_SEAL, (row, last)
         return
     assert clean.rc == rc, clean.text[-4000:]
     assert re.fullmatch("install: " + _as_pattern(master), last), (last, master)
