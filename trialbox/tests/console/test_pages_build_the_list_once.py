@@ -42,7 +42,7 @@ def test_the_runs_stored_list_is_read_once_for_every_page_view(
     monkeypatch.setattr(bk, "get_object", lambda k: (reads.append(k) if k == key else None, get(k))[1])
     for path in PAGES:
         assert crc.get(path, follow_redirects=False).status_code == 200, path
-    assert len(reads) <= 1, reads  # was 7 for these four views
+    assert len(reads) <= 1, reads  # was 6 for these four views
 
 
 def test_a_second_view_writes_no_seen_row_and_works_out_no_listed_fit_again(

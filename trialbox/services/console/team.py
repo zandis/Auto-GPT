@@ -369,7 +369,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         names = (wk["summary"] or {}).get("practitioner_names") or {}
         reg = h.registry_map(rid) if h.registry_map else {}
         rows = st.weekly_rows(wk["cl"], h.crit_of(rid, sess.lang) if h.crit_of else {}, reg, store.latest_marks(rid),
-                              {}, wk["job"].job_id, names, include_closed=True, today=today())  # fmt: skip
+                              {}, wk["job"].job_id, names, include_closed=True, today=today(),
+                              fits=wk.get("fits"))  # fmt: skip
         refs = team.latest_referrals(rid)
         staff = {s.practitioner_id: s for s in team.staff() if s.practitioner_id}
         nos = store.screening_nos(rid)
@@ -420,8 +421,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     def candidate_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid) or h.patient_ctx is None:
             raise h.problem(404, "notfound")
-        ctx = h.patient_ctx(sess, rid, pid)
         wk = h.week_bundle(sess, rid) if h.week_bundle else None
+        ctx = h.patient_ctx(sess, rid, pid, wk)
         names = ((wk or {}).get("summary") or {}).get("practitioner_names") or {}
         staff = {s.practitioner_id: s for s in team.staff() if s.practitioner_id}
         s = stand(sess.user, rid)
@@ -509,8 +510,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         need_task(sess, rid, "refer", path)
         if not _PID.match(pid) or h.patient_ctx is None:
             raise h.problem(404, "notfound")
-        ctx = h.patient_ctx(sess, rid, pid)  # 404 unless the study's run lists the patient (opt-outs never)
         wk = h.week_bundle(sess, rid) if h.week_bundle else None
+        ctx = h.patient_ctx(sess, rid, pid, wk)  # 404 unless the study's run lists the patient (opt-outs never)
         names = ((wk or {}).get("summary") or {}).get("practitioner_names") or {}
         staff = {s.practitioner_id: s for s in team.staff() if s.practitioner_id}
         sug = suggestion(ctx["row"], names, staff)

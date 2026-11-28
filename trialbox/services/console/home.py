@@ -15,11 +15,12 @@ JSON + feasprofile JSON, SCREEN / MICROBATCH candidate list), the candidate regi
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
@@ -414,12 +415,44 @@ def register(app: FastAPI, h: Helpers) -> None:
         ]
         return rep
 
+    lists_of: dict[str, tuple[tuple[str, str], dict[str, Any]]] = {}  # study -> (its run's list object, parsed)
+
+    def candidate_list(job: Job) -> dict[str, Any] | None:
+        """MVP-B: a run's stored candidate list never changes, so it is read and parsed once per study and run, not at
+        every view (a 100,000-row list took seconds a view). Every reader copies before it changes (``{**cl, ...}``).
+        ponytail: one parsed list per study stays in memory; bound it (an LRU) if many large studies are open."""
+        out = st.output(job, "candidate_list_", ".json")
+        if out is None:
+            return None
+        key = (out.minio_key, out.sha256)
+        got = lists_of.get(job.ruleset)
+        if got is None or got[0] != key:
+            cl = load(job, "candidate_list_", ".json")
+            if cl is None:
+                return None  # not kept: the next view asks again
+            got = lists_of[job.ruleset] = (key, cl)
+            # MVP-B: the kept list is millions of objects; each full collection walked them all (2.4 s a view at
+            # 100,000 rows, measured). Frozen, the collector skips them; a list let go is still freed by its count.
+            # ponytail: anything else in a reference cycle at this moment is never collected (once a new run's list).
+            gc.freeze()
+        return got[1]
+
+    fits_of: dict[tuple[str, str], tuple[Any, Any, dict[str, Any]]] = {}  # (study, language) -> (list, criteria, fits)
+
+    def kept_fits(rs: str, lang: str, cl: Any, crit: Any) -> dict[str, Any]:
+        """MVP-B: each row's fit of the study's kept list (:func:`studies.kept_fit`), anew when the list or the
+        criteria's words change."""
+        got = fits_of.get((rs, lang))
+        if got is None or got[0] is not cl or got[1] != crit:
+            got = fits_of[(rs, lang)] = (cl, crit, {})
+        return got[2]
+
     def week_bundle(sess: Session, rs: str) -> dict[str, Any] | None:
         jobs = bk.list_jobs(limit=500)
         job = st.latest_job(jobs, rs, SCREEN_TYPES)
         if job is None:
             return None
-        cl = load(job, "candidate_list_", ".json")
+        cl = kept = candidate_list(job)
         if h.recorded:  # T-515 (D-323): recorded first and second checks on a DEV demo, each with its source
             cl = h.recorded.apply(cl, rs)
         # T-310a (D-446, CR-014): a not-matched patient sent back is on the PI's list again, until the PI marks them
@@ -437,16 +470,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         names = (summary or {}).get("practitioner_names") or {}
         pids = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
         seen = store.seen(rs, pids, job.job_id, (job.updated_at or job.received_at).isoformat())
+        lang = sess.lang if sess else "en"
+        crit = crit_of(rs, lang)
+        fits = kept_fits(rs, lang, kept, crit)
+        made = len(fits)
         rows = st.weekly_rows(
-            cl,
-            crit_of(rs, sess.lang if sess else "en"),
-            registry_map(rs),
-            store.latest_marks(rs),
-            seen,
-            job.job_id,
-            names,
-            today=h.today(),
+            cl, crit, registry_map(rs), store.latest_marks(rs), seen, job.job_id, names, today=h.today(), fits=fits
         )
+        if len(fits) != made:
+            gc.freeze()  # MVP-B: the fits just made are kept with the list, so frozen with it (see candidate_list)
         others_of(sess, rs, rows)
         people = ps.read(h, rs)  # D-1221: the one state of each person, the same on every list
         for r in rows:
@@ -455,7 +487,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
                 "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked,
-                "people": people}  # fmt: skip
+                "people": people, "fits": fits}  # fmt: skip
 
     def deceased_now(cl: dict[str, Any] | None) -> tuple[set[str], bool]:
         """FIT-U04 (T-629, D-415): the listed patients whose record in the lake now says they died (T-616's
@@ -492,7 +524,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         for r in rows:
             r["elsewhere"] = found.get(str(r["pid"]), [])
             if any(o["state"] == "enrolled" for o in r["elsewhere"]):
-                r["fit"].open.append(translate(lang, "elsewhere.open"))
+                r["fit"] = replace(r["fit"], open=[*r["fit"].open, translate(lang, "elsewhere.open")])  # shared
 
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
@@ -934,12 +966,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             try:
                 # D-133 (review F-03): after a mark the patient may have left this list; the panel still shows that
                 # patient's real state (and Undo), never the next patient's
-                sel = patient_ctx(sess, rid, pid)
+                sel = patient_ctx(sess, rid, pid, wk)
             except Exception as exc:  # h.problem(404): a pid not on this run's list opens the first row instead
                 if getattr(exc, "status", 0) != 404:
                     raise
                 pid, opened = rows[0]["pid"], False
-                sel = patient_ctx(sess, rid, pid)
+                sel = patient_ctx(sess, rid, pid, wk)
             nxt = order.index(pid) + 1 if pid in order else 0
             sel["next_pid"] = order[nxt] if nxt < len(order) and order[nxt] != pid else None
             sel["next_page"] = nxt // st.PAGE_SIZE + 1
@@ -1006,10 +1038,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             unread_of.update(job=job.job_id, said=said)
         return bool(unread_of["said"])
 
-    def patient_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
+    def patient_ctx(sess: Session, rid: str, pid: str, wk: dict[str, Any] | None = None) -> dict[str, Any]:
+        """``wk``: the study's week bundle when the caller built it for this request (MVP-B: built once a view)."""
         if not _PID.match(pid):
             raise h.problem(404, "notfound")
-        wk = week_bundle(sess, rid)
+        wk = wk or week_bundle(sess, rid)
         if wk is None:
             raise h.problem(404, "notfound")
         row = next((r for r in (wk["cl"] or {}).get("rows") or [] if str(r.get("pid")) == pid), None)
