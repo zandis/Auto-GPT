@@ -16,6 +16,7 @@ Synthetic data only."""
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -89,9 +90,20 @@ def test_without_an_office_mailbox_the_pi_is_still_told(lb: dict[str, Any], monk
 
 
 # ---------------------------------------------------------------------------------------------- a required answer
+def _backup_given(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from tb_common import site_needs
+
+    monkeypatch.setenv("TB_BACKUP_TARGETS", "/mnt/backup")
+    (tmp_path / "secrets").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "secrets" / "backup.pub").write_text("synthetic public key\n", encoding="utf-8")
+    site_needs.write_host_given(tmp_path)
+    monkeypatch.setattr(site_needs, "MOUNTED", (tmp_path / site_needs.HOST_GIVEN).parent)
+
+
 def test_a_study_that_reports_saes_does_not_open_on_a_box_without_the_office_mailbox(
     lb: dict[str, Any],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from console import study_setup
 
@@ -101,6 +113,7 @@ def test_a_study_that_reports_saes_does_not_open_on_a_box_without_the_office_mai
     c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "tw_trial"}, follow_redirects=True)
     c.post("/studies/GZQO/state", data={"csrf": csrf, "state": "paused", "reason": "set-up"}, follow_redirects=False)
     monkeypatch.setattr(study_setup, "environment_name", lambda _env: "PRODUCTION")
+    _backup_given(monkeypatch, tmp_path)  # SAFE-1 A3: the backup first, so the refusal below is the mailbox's
     page = c.get("/studies/GZQO/state").text
     from tests.console.test_role_pages import _csrf
 
