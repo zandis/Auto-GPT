@@ -11,13 +11,11 @@ from typing import Any
 
 from console import studies as st
 
-from tests.console.test_console_app import (  # noqa: F401 - the fixture is used by name
-    _done_screen,
-    _ulid,
-    box,
-    name_pi,
-)
+from tests.console import test_console_app as _app
+from tests.console.test_console_app import _done_screen, _ulid, name_pi
 from tests.console.test_role_pages import _user
+
+box = _app.box  # the console fixture, registered by name for pytest
 
 P1, P2, P3, P4 = "1" * 32, "2" * 32, "3" * 32, "4" * 32
 QUOTE = "two flares this spring"
@@ -191,6 +189,13 @@ def test_closeness_key_and_coded_complete_read_a_stored_row() -> None:
     tier, n_open, weight, minus_for, no_visit, visit, pid = st.closeness_key(row, META)
     assert (tier, n_open, weight, minus_for, no_visit, visit, pid) == (1, 2, 1 + 3, 0, False, "2026-10-07 09:30", "p")
     assert st.coded_complete({"criteria": []}, META) == (0, 0)
+
+
+def test_coded_complete_counts_over_the_studys_criteria_and_each_answer_once() -> None:
+    one = {"criteria": [_c("S1", "pass", "coded")]}  # S2 has no stored verdict: it is still one of the study's two
+    assert st.coded_complete(one, META) == (1, 2)
+    twice = {"criteria": [_c("S1", "pass", "coded"), _c("S1", "pass", "coded")]}
+    assert st.coded_complete(twice, META) == (1, 2)
 
 
 def test_evidence_sides_puts_each_quote_and_record_on_its_own_side() -> None:
