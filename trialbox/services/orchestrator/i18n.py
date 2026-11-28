@@ -71,13 +71,13 @@ T: dict[str, dict[str, str]] = {
         "screen.judging.none": "Note criteria were not read (no model on this box): they go to review.",
         "screen.judging.nothing": "Nothing in this ruleset can be decided from the records: every criterion is checked "
         "by a person, so every patient in scope is listed for review and no one under criteria not matched.",
-        "screen.judging.pair": "Note criteria: read by {judge} and checked by {verifier}; a note answer puts a patient "
-        "under criteria not matched only when both models agree.",
-        "screen.judging.single": "Note criteria: read by {judge} alone; on this run a note answer put no one under "
-        "criteria not matched ({why}). Patients with a failing note answer are listed for review.",
+        "screen.judging.pair": "Note criteria: read by {judge} and checked by {verifier}. The notes may speak against "
+        "a criterion; the patient stays on the list for review.",
+        "screen.judging.single": "Note criteria: read by {judge} alone, so the answers are not final ({why}). The notes "
+        "may speak against a criterion; the patient stays on the list for review.",
         # why a note answer could not exclude, by code (evaluate.NOTE_BLOCK_CODES): short, for the mail and the PDF
         "screen.judging.why.held": "note reading is held on this box",
-        "screen.judging.why.configured": "this box is set so that a note answer never does",
+        "screen.judging.why.configured": "this box is set so that note answers are never final",
         "screen.judging.why.no_judge": "no model reads notes on this box",
         "screen.judging.why.no_verifier": "no second model is set up to check the first",
         "screen.judging.why.same_model": "the checking model is not a second model",
@@ -204,9 +204,9 @@ T: dict[str, dict[str, str]] = {
         "screen.judging.none": "記録基準は読み取っていません（このボックスにモデルなし）：確認待ちに回します。",
         "screen.judging.nothing": "このルールセットには記録から自動で答えられる基準がありません：すべての基準を人が確認するため、"
         "対象の患者全員を確認待ちとし、基準に合致しないとはしません。",
-        "screen.judging.pair": "記録基準：{judge} が読み取り {verifier} が検証。両モデルが一致したときのみ、記録の回答で基準に合致しないとします。",
-        "screen.judging.single": "記録基準：{judge} のみが読み取り。この実行では記録の回答で基準に合致しないとした患者はいません（{why}）。"
-        "記録基準に該当しない患者は確認待ちに載せています。",
+        "screen.judging.pair": "記録基準：{judge} が読み取り {verifier} が検証。記録の文章が基準に反する可能性を示しても、患者はリストに残ります。",
+        "screen.judging.single": "記録基準：{judge} のみが読み取り、回答は確定ではありません（{why}）。"
+        "記録の文章が基準に反する可能性を示しても、患者はリストに残り確認待ちです。",
         "screen.judging.why.held": "記録の読み取りを保留中",
         "screen.judging.why.configured": "このボックスの設定による",
         "screen.judging.why.no_judge": "記録を読むモデルがありません",
@@ -331,8 +331,8 @@ T: dict[str, dict[str, str]] = {
         "screen.judging.none": "病歷條件未經判讀（本機沒有模型）：列為待確認。",
         "screen.judging.nothing": "本規則集沒有可由病歷自動回答的條件：所有條件皆由人員確認，因此範圍內的病人全部列為待確認，"
         "不列為未符合條件。",
-        "screen.judging.pair": "病歷條件：由 {judge} 判讀、{verifier} 驗證；兩個模型一致時病歷判讀才會將病人列為未符合條件。",
-        "screen.judging.single": "病歷條件：僅由 {judge} 判讀；本次執行中病歷判讀未將任何人列為未符合條件（{why}）。病歷條件不符的病人列入待確認。",
+        "screen.judging.pair": "病歷條件：由 {judge} 判讀、{verifier} 驗證。病歷文字即使可能不利於某條件，病人仍留在名單上待確認。",
+        "screen.judging.single": "病歷條件：僅由 {judge} 判讀，結果不算確定（{why}）。病歷文字即使可能不利於某條件，病人仍留在名單上待確認。",
         "screen.judging.why.held": "病歷判讀已暫停",
         "screen.judging.why.configured": "依本機設定",
         "screen.judging.why.no_judge": "本機沒有判讀病歷的模型",

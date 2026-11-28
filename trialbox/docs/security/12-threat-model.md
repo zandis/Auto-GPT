@@ -91,7 +91,7 @@ register (`docs/handover/findings-register.md`) or of this page (H10G4-nn, below
 | --- | --- | --- | --- |
 | A container other than the gateway calling the model | model networks internal; `model-guard` in front of vLLM needs the model key | `tests/unit/test_model_guard.py`: `test_the_allowed_calls_pass_with_the_key_only`, `test_vllm_routes_that_skip_the_key_never_reach_it`, `test_admin_paths_only_with_admin_and_the_key` | – |
 | The model server sending data out | `trialbox-model-net` and `trialbox-model-backend` are internal; no egress rule for a model host but the gateway's | `tests/unit/test_threat_model_per_release.py`: `test_the_base_networks_are_internal_and_four_services_reach_out`; `tests/unit/test_egress_rules.py`: `test_only_the_gateway_gets_model_host_rules`, `test_egress_extra_cannot_give_another_container_a_model_host` | – |
-| Chart text steering the model to a wrong verdict | fenced data blocks; two models must agree on a verified quote to exclude (section 5) | `docs/security/05-data-protection.md` (design); suite not run on the real pair | card 10G-53 |
+| Chart text steering the model to a wrong verdict | fenced data blocks; two models must agree on a verified quote, and no note answer excludes a patient (section 5) | `docs/security/05-data-protection.md` (design); suite not run on the real pair | card 10G-53 |
 | A model answer carrying patient data into a trace | – | – | V1-05 |
 
 ### B4: the box to the outside

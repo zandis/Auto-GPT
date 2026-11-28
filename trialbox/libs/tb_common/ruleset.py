@@ -56,6 +56,17 @@ class RecompileNeeded(RulesetNotApproved):
     """The ruleset was compiled against another terminology release (D-301)."""
 
 
+class RulesetReadIncomplete(Exception):
+    """INT-R3A: what was read of a ruleset's working copy is not the whole version its approval tag holds (a read
+    that met an approval swapping the folder, or a file changed, cut, removed or added on disk). Never a partial
+    ruleset, and not :class:`RulesetNotApproved`: a caller must not read it as "no approved version"."""
+
+
+#: INT-R3A: reads of a working copy before :class:`RulesetReadIncomplete`; an approval's swap is one rename, so a
+#: read that met one is whole when read again
+READ_TRIES = 5
+
+
 @dataclass
 class Ruleset:
     manifest: RulesetManifest
@@ -118,7 +129,7 @@ class Ruleset:
 
     @classmethod
     def load(cls, directory: Path) -> Ruleset:
-        files = {p.relative_to(directory).as_posix(): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+        files = _read_dir(directory)
         if "manifest.yaml" not in files:
             raise FileNotFoundError(f"no manifest.yaml in {directory}")
         return cls.from_files(files, directory)
@@ -141,7 +152,7 @@ def load_approved(
     directory = rulesets_dir / ruleset_id
     if not (directory / "manifest.yaml").exists():
         raise RulesetNotApproved(f"ruleset {ruleset_id} has no approved version on this box")
-    rs = Ruleset.load(directory)
+    rs = Ruleset.from_files(_read_whole(rulesets_dir, ruleset_id), directory)
     if rs.manifest.status != "approved":
         raise RulesetNotApproved(f"ruleset {ruleset_id} is not approved")
     if on is not None and not in_force(rs.manifest, on):
@@ -168,6 +179,68 @@ def load_approved(
         except RuntimeError as exc:  # TerminologyMismatch: recompile needed (D-301)
             raise RecompileNeeded(str(exc)) from exc
     return rs
+
+
+def _read_dir(directory: Path) -> dict[str, bytes]:
+    return {p.relative_to(directory).as_posix(): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+
+
+def _read_whole(rulesets_dir: Path, ruleset_id: str) -> dict[str, bytes]:
+    """INT-R3A: the files of ``ruleset_id``'s working copy, checked against the git hashes of its approval tag's
+    tree (the version its manifest names): read again while they differ, then :class:`RulesetReadIncomplete`.
+    Unchecked where there is nothing to hold them against: a copy with no repository (``seed_working_copy``; a site
+    box refuses it, D-640), a version with no tag or a manifest that does not parse (both refused after this), and a
+    tag that points at nothing (a site box refuses it in ``seeded_approval``; a DEV or TEST box runs it, as before)."""
+    why = ""
+    for _ in range(READ_TRIES):
+        try:
+            files = _read_dir(rulesets_dir / ruleset_id)
+        except (FileNotFoundError, NotADirectoryError) as exc:  # a file listed, then gone in a swap
+            why = type(exc).__name__
+            continue
+        why = _differs_from_tag(rulesets_dir, ruleset_id, files)
+        if not why:
+            return files
+    raise RulesetReadIncomplete(f"ruleset {ruleset_id}: {why} (after {READ_TRIES} reads)")
+
+
+def _differs_from_tag(rulesets_dir: Path, ruleset_id: str, files: dict[str, bytes]) -> str:
+    """Why ``files`` are not the tree of ``ruleset_id``'s approval tag, or "" when they are (or cannot be held)."""
+    if "manifest.yaml" not in files:
+        return "no manifest.yaml"
+    if not (rulesets_dir / ".git").exists():
+        return ""
+    try:
+        version = (yaml.safe_load(files["manifest.yaml"].decode("utf-8")) or {}).get("version")
+    except (yaml.YAMLError, UnicodeDecodeError, AttributeError):
+        return ""
+    from dulwich.object_store import iter_tree_contents, tree_lookup_path
+    from dulwich.objects import Blob, Commit, Tag
+    from dulwich.repo import Repo
+
+    repo = Repo(str(rulesets_dir))
+    refs: Any = repo.refs
+    tag = f"refs/tags/{ruleset_id}/v{version}".encode()
+    if tag not in refs:
+        return ""
+    try:
+        obj: Any = repo[refs[tag]]
+        while isinstance(obj, Tag):
+            obj = repo[obj.object[1]]
+    except KeyError:  # a tag that points at nothing: not held here, as before (seeded_approval reads it on a site box)
+        return ""
+    if not isinstance(obj, Commit):
+        return ""
+    try:
+        _, tree = tree_lookup_path(repo.__getitem__, obj.tree, ruleset_id.encode())
+    except KeyError:
+        return f"its approval tag v{version} holds no {ruleset_id}/"
+    want = {e.path.decode(): e.sha for e in iter_tree_contents(repo.object_store, tree) if e.path and e.sha}
+    got = {p: Blob.from_string(b).id for p, b in files.items()}
+    if got == want:
+        return ""
+    bad = sorted(p for p in set(want) | set(got) if want.get(p) != got.get(p))
+    return f"{len(bad)} file(s) differ from its approval tag v{version}"
 
 
 def in_force(manifest: RulesetManifest, on: date) -> bool:
@@ -303,7 +376,8 @@ def approved_here(rulesets_dir: Path, ruleset_id: str) -> bool:
 
 
 def list_rulesets(rulesets_dir: Path) -> list[str]:
-    return sorted(p.parent.name for p in rulesets_dir.glob("*/manifest.yaml"))
+    # INT-R3A (INTR3A-04): never a dot-name, a copy being built or swapped out (``.<ruleset>.tmp``)
+    return sorted(p.parent.name for p in rulesets_dir.glob("*/manifest.yaml") if not p.parent.name.startswith("."))
 
 
 def seed_working_copy(dest: Path, seed: Path = SEED_RULESETS) -> bool:

@@ -73,7 +73,8 @@ def test_tiers() -> None:
         tier(GZQO, [*base, _v("GZQO-INC-05", "unknown"), _v("GZQO-EXC-11", "pass", 0.9)], 0.75, note_block=True)[0]
         == "review"
     )
-    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.9, FLARE_ZH, True)], 0.75, note_block=True)[0] == "excluded"
+    # D-1072 (ring 0): a pair's stated, affirmed note exclusion is review, never excluded
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.9, FLARE_ZH, True)], 0.75, note_block=True)[0] == "review"
     assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.9, FLARE_ZH)], 0.75, note_block=True)[0] == "review"  # unsaid
     assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.9)], 0.75, note_block=True)[0] == "review"
     assert (
@@ -135,7 +136,8 @@ def test_note_block_never(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     may = effective_note_block(pair)[0]
     assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=may)[0] == "review"
     assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH)], 0.75, note_block=may)[0] == "review"
-    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH, True)], 0.75, note_block=True)[0] == "excluded"
+    # D-1072 (ring 0): a pair's stated, affirmed note exclusion is review, never excluded
+    assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH, True)], 0.75, note_block=True)[0] == "review"
     assert tier(GZQO, [*base, _v("GZQO-EXC-11", "fail", 0.95, FLARE_ZH)], 0.75, note_block=True)[0] == "review"
     assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=True)[0] == "review"
     bad = [_v(v.id, "fail") if v.id == "GZQO-INC-03" else v for v in base]
@@ -198,6 +200,6 @@ def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:
     lone_x = PresentJudge(SimpleNamespace(), SimpleNamespace(model="j", served_root="j"), "judge", verifier=None)  # type: ignore[arg-type]
     res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), lone_x, 0.75, note_block=True, **kx)  # type: ignore[arg-type]
     assert res["p1"].tier == "review"  # one model's "present" on the exclusion never excludes
-    two_x = PresentJudge(SimpleNamespace(), j, "judge", verifier=v)  # control: a pair of two models does exclude
+    two_x = PresentJudge(SimpleNamespace(), j, "judge", verifier=v)  # D-1072: a pair of two models neither (ring 0)
     res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), two_x, 0.75, note_block=True, **kx)  # type: ignore[arg-type]
-    assert res["p1"].tier == "excluded"
+    assert res["p1"].tier == "review"

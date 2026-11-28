@@ -344,14 +344,14 @@ def models_canary() -> dict[str, Any]:
 def ruleset_detail(ruleset: str) -> dict[str, Any]:
     """The approved manifest's provenance (version, approval record, population, kind): what the console prints in
     a sponsor pack README (D-101). Aggregate: no criteria text, no patients."""
-    from tb_common.ruleset import RulesetNotApproved, load_approved
+    from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, load_approved
 
     rid = ruleset.strip().upper()
     if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{1,31}", rid):
         raise HTTPException(status_code=404, detail="no such ruleset")
     try:
         rs = load_approved(orch().rulesets_dir, rid)
-    except (RulesetNotApproved, FileNotFoundError, ValueError) as exc:
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError) as exc:
         # D-555: the error's own text names a folder of the box or the version asked for; the answer is fixed
         log.info("ruleset detail: %s has no approved version to show (%s)", rid, type(exc).__name__)
         raise HTTPException(status_code=404, detail="no approved version of that ruleset on this box") from exc
@@ -829,11 +829,11 @@ def _flush_main(svc: Any, o: Orchestrator | None = None) -> None:
 
 def study_info(o: Orchestrator, rid: str) -> dict[str, Any]:
     """Question 1 of the readiness page: does the study have criteria, approved, and is a draft waiting?"""
-    from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
+    from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, list_rulesets, load_approved
 
     exists = rid in list_rulesets(o.rulesets_dir)
     version = None
-    with contextlib.suppress(RulesetNotApproved, FileNotFoundError, ValueError):
+    with contextlib.suppress(RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         version = load_approved(o.rulesets_dir, rid).version
     waiting = o.db.find(ruleset=rid, state="awaiting_approval", limit=20)
     exists = exists or bool(waiting) or bool(o.db.find(ruleset=rid, limit=1))
@@ -847,11 +847,11 @@ def records_info(o: Orchestrator, rid: str) -> dict[str, Any]:
 
 
 def approved_of(o: Orchestrator, rid: str) -> Any:
-    from tb_common.ruleset import RulesetNotApproved, load_approved
+    from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, load_approved
 
     try:
         return load_approved(o.rulesets_dir, rid)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         return None
 
 
@@ -1030,7 +1030,7 @@ def registry_update(
 @app.post("/registry/{ruleset}/promote")
 def registry_promote(ruleset: str, body: RegistryPromoteBody, claim: Claim = AS_REQUESTER) -> dict[str, int]:
     o = orch()
-    from tb_common.ruleset import RulesetNotApproved, load_approved
+    from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, load_approved
 
     try:
         req = RegistryPromote.model_validate({"by": claim.sub, "tiers": body.tiers})
@@ -1041,8 +1041,15 @@ def registry_promote(ruleset: str, body: RegistryPromoteBody, claim: Claim = AS_
     # D-476 (review of T-707): only pool rows evaluated on the criteria version in force are promoted; with no
     # approved version there is none ("": no row matches)
     in_force = ""
-    with contextlib.suppress(RulesetNotApproved, FileNotFoundError, ValueError):
+    try:
         in_force = load_approved(o.rulesets_dir, ruleset.upper(), on=o.today()).version
+    except RulesetReadIncomplete as exc:  # INT-R3A: a damaged copy is not "no approved version"; promote nothing
+        log.warning("registry promote: %s approved copy could not be read whole", ruleset.upper())
+        raise HTTPException(
+            status_code=409, detail="the approved ruleset could not be read whole; nothing was promoted"
+        ) from exc
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        pass
     try:
         return {"added": registry_of(o).promote(ruleset, req, _now(o), in_force)}
     except RegistryError as exc:

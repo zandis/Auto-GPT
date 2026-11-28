@@ -181,7 +181,7 @@ def test_the_v1_evaluator_marks_a_note_fail_of_a_run_that_may_not_exclude() -> N
 def test_a_fail_stored_as_not_final_never_excludes_at_a_later_tier() -> None:
     """The run of H1: stored under one model, re-tiered when the pair may exclude."""
     assert tier(GZQO, [_note_fail(final=False)], 0.75, note_block=True)[0] == "review"
-    assert tier(GZQO, [_note_fail(final=True)], 0.75, note_block=True)[0] == "excluded"  # control: a pair's answer
+    assert tier(GZQO, [_note_fail(final=True)], 0.75, note_block=True)[0] == "review"  # D-1072: a pair's answer too
     assert tier(GZQO, [_note_fail(final=True, affirmed=None)], 0.75, note_block=True)[0] == "review"  # round 5
 
 
@@ -222,7 +222,7 @@ def test_a_note_fail_stored_before_the_field_never_excludes(monkeypatch: pytest.
         t, v = _retier(monkeypatch, _note_fail(), stored_tier)
         assert (t, v.final) == ("review", False), stored_tier
     t, v = _retier(monkeypatch, _note_fail(final=True), "excluded")
-    assert (t, v.final) == ("excluded", True)
+    assert (t, v.final) == ("review", True)  # D-1072 (ring 0): a final pair's fail too, no longer excluded
     t, _ = _retier(monkeypatch, _note_fail(final=True, affirmed=None), "excluded")
     assert t == "review"  # round 5: a row that does not say both models affirmed it
 

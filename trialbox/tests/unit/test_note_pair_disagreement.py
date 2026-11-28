@@ -73,13 +73,13 @@ def test_v1_disagreement_is_unknown_and_goes_to_review(first: str, second: str) 
     assert v.verdict == "unknown" and tier(rs, [v], 0.75, note_block=True)[0] == "review"
 
 
-def test_v1_agreement_excludes_with_the_lower_confidence() -> None:
+def test_v1_agreement_is_review_with_the_lower_confidence() -> None:
     c = _exclusion()
     nj = _judge(FakeModel("pass", 0.95), FakeModel("pass", 0.8))
     r = nj.judge_excerpts(c.text, c.note_question or c.text, IDX, EXCERPTS)
     assert r.predicate == "pass" and r.confidence == 0.8 and nj.disagreements == 0
     v = note_verdict(c, r)
-    assert v.verdict == "fail" and tier(_ruleset(c), [v], 0.75, note_block=True)[0] == "excluded"
+    assert v.verdict == "fail" and tier(_ruleset(c), [v], 0.75, note_block=True)[0] == "review"  # D-1072 (ring 0)
     # the same agreement under the verifier's threshold only sends the patient to review
     low = _judge(FakeModel("pass", 0.95), FakeModel("pass", 0.6)).judge_excerpts(
         c.text, c.note_question or c.text, IDX, EXCERPTS

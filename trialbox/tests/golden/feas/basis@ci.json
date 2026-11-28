@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "6c73db64a3fcdb82626fce1e691ba67f42f3675e",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "INT-R1: a medication look-back counts an order whose supply reaches into the window (GOUT-COH-INC-03, GZQO-EXC-04, RA-COH-INC-02 and the steps after them)",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -330,7 +330,7 @@
        "proposed": 12
       },
       "GOUT-COH-INC-03": {
-       "coded": 369,
+       "coded": 371,
        "confirmed": 3,
        "proposed": 15
       },
@@ -370,7 +370,7 @@
        "proposed": 13
       },
       "GOUT-COH-INC-03": {
-       "coded": 339,
+       "coded": 341,
        "confirmed": 3,
        "proposed": 15
       },
@@ -410,7 +410,7 @@
        "proposed": 17
       },
       "GOUT-COH-INC-03": {
-       "coded": 343,
+       "coded": 344,
        "confirmed": 4,
        "proposed": 18
       },
@@ -1215,7 +1215,7 @@
        "proposed": 19
       },
       "RA-COH-INC-03": {
-       "coded": 329,
+       "coded": 330,
        "confirmed": 2,
        "proposed": 19
       },

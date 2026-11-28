@@ -1,0 +1,89 @@
+{
+ "card": "INTR3A",
+ "title": "an approval swaps the rulesets' working copy whole, and the reader refuses a read that is not whole",
+ "date": "2026-11-25",
+ "source": "docs/handover/ruleset-approval-swap-int-r3a-2026-11-25.md",
+ "note": "basis 'shown' means shown by tests/unit/test_ruleset_swap_int_r3a.py at master 6c73db64 (the file copied in) and at the card's head, in a session container; 'read' means read in the code, not run.",
+ "findings": [
+  {
+   "id": "INTR3A-01",
+   "severity": "High",
+   "claim": "RulesetRepo.materialize removed a ruleset's working copy, then renamed the new one in, and load_approved returned whatever it had read: with two reader processes and 200 approvals, 20 reads found no file, 15 loads were partial rulesets and 16 found no manifest; the copy is now exchanged in one rename and a read that differs from the approval tag's tree is refused as RulesetReadIncomplete (0 of each in every run)",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-02",
+   "severity": "Low",
+   "claim": "the swap needs Linux renameat2 with RENAME_EXCHANGE; where the rulesets folder's file system has none, an approval would have written its commit and tag, then failed the swap; RulesetRepo.check_swap now probes the exchange before the approval's FHIR load, commit and tag (and before an offline install's commit and tag), and a folder that cannot swap is refused (CompileFailed step approve, from SwapUnsupported) with nothing written; there is still no fallback swap",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-03",
+   "severity": "Low",
+   "claim": "fault type 2 outside the approval path, not fixed: materialize of a ruleset gone from its ref still removes the working copy in place (shutil.rmtree), and seed_working_copy copies the shipped rulesets into the folder in place (copytree); the tests/rulesets_guard.py docstring that described the old rmtree-then-rename is corrected",
+   "lane": "J",
+   "basis": "read",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-04",
+   "severity": "Low",
+   "claim": "list_rulesets globbed */manifest.yaml with pathlib, which matches hidden names: while a materialisation ran, .<ruleset>.tmp was listed as a ruleset id (load_approved refused it: no approval tag); list_rulesets now skips every dot-name",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-05",
+   "severity": "Low",
+   "claim": "omop.vocab_load.mark_rulesets reads each working copy with Ruleset.load, unchecked against the approval tag, to mark rulesets for recompilation; it uses only the manifest, which the swap now keeps whole, but a read that meets a swap can end in a FileNotFoundError, caught as OSError, and that ruleset is not marked on that load; not fixed",
+   "lane": "J",
+   "basis": "read",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-06",
+   "severity": "Low",
+   "claim": "fail-open on a DEV or TEST box by an existing test's design: load_approved does not hold a read against an approval tag that points at nothing (tests/unit/test_new_life_1_no_preapproved_ruleset.py::test_a_broken_repository_stops_no_timer asserts such a ruleset is still listed on a TEST box); a site box refuses it in seeded_approval; left as is by the integrator's ruling",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-07",
+   "severity": "High",
+   "claim": "the card's own first head (514aa32): RulesetRepo.__init__ removed every .<ruleset>.tmp without a lock, and the doctor, an offline install and an update's restore open the repository too, so a second process removed a copy the compiler was building; the writer and the clean-up now hold a lock on the .git folder",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-08",
+   "severity": "Medium",
+   "claim": "a failure between an approval's tag and its swap (a full disk, a kill) left the tag with the old copy and the same version could not be approved again; approving it again now finishes the swap when the tree is the tagged one, and is refused when it differs; an offline install the same",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-09",
+   "severity": "Low",
+   "claim": "a working copy damaged on disk was refused by scenarios.approve before the compiler was called; the compiler is now called, and approving the same version again replaces the copy",
+   "lane": "J",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "INTR3A-10",
+   "severity": "Low",
+   "claim": "a kill between an approval's commit on the draft's branch and its tag leaves no draft awaiting approval and no tag: the protocol must be compiled again; as before this card; not fixed",
+   "lane": "J",
+   "basis": "read",
+   "state": "open"
+  }
+ ]
+}

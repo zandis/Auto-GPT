@@ -632,7 +632,7 @@ class Flattener:
         end = self.d(period.get("end"))
         days = _supply_days(disp.get("expectedSupplyDuration"))
         if end is None and start is not None and days is not None:
-            end = start + timedelta(days=days)
+            end = start + timedelta(days=max(days - 1, 0))  # INT-R1: the last covered day
         return start, end
 
     def medication(self, r: Resource) -> Row:
