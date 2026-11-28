@@ -117,23 +117,40 @@ class TwoPeopleOneChart(RuntimeError):  # review M2: never caught as no held nig
     """H34-06: the held night has a chart number that arrived as two people; it is never published as it stands."""
 
 
-def refuse_two_people(folder: Path) -> None:
+def refuse_two_people(cfg: AdapterConfig, snap: str, folder: Path) -> None:
     """H34-06: :class:`TwoPeopleOneChart` when the held night's folder lists a chart number that arrived as two
     people within the night (``adapter.pipeline.IDENTITY_CONFLICT``, ``tonight``): an accept would serve one of them
     under the other's chart. A change against the served night alone (``against``) is the steward's to accept.
     A file that cannot be read refuses too, and so does a night the check never ran on (no file and no
-    ``IDENTITY_CHECKED``: held by an earlier release, or by a run that stopped before the check; review M1)."""
-    from adapter.pipeline import IDENTITY_CHECKED, IDENTITY_CONFLICT
+    ``IDENTITY_CHECKED``: held by an earlier release, or by a run that stopped before the check; review M1), and so
+    does a night compared with another served night than the one served now (review P04: it is run again, so
+    compared with the night it would follow)."""
+    from adapter.pipeline import IDENTITY_CHECKED, IDENTITY_CONFLICT, merge_base
 
     try:
-        tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
+        checked = json.loads((folder / IDENTITY_CHECKED).read_text(encoding="utf-8"))
     except FileNotFoundError:
-        if (folder / IDENTITY_CHECKED).is_file():
-            return
         raise TwoPeopleOneChart(
             "the identity check (one chart number arriving as two people) never ran on this night: it was held by an "
             "earlier release or its run stopped before the check. Run the night again, then decide on it"
         ) from None
+    except (OSError, ValueError):
+        checked = None
+    if not isinstance(checked, dict):
+        raise TwoPeopleOneChart(f"the identity check's record of this night ({IDENTITY_CHECKED}) cannot be read")
+    now = _current(cfg.lake_dir)
+    # ponytail: a record without the two keys is this change's earlier format only (never on a box)
+    if ("against" in checked and checked["against"] != merge_base(cfg.lake_dir, snap)) or (
+        "current" in checked and now not in (checked["current"], snap)  # ``snap``: its own accept, resumed
+    ):
+        raise TwoPeopleOneChart(
+            "another night was served since this night's identity check compared it with the served one: run the "
+            "night again (it is compared with the night served now), then decide on it"
+        )
+    try:
+        tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
+    except FileNotFoundError:
+        return
     except (OSError, ValueError, AttributeError):
         tonight = True
     if tonight:
@@ -1159,7 +1176,7 @@ def publish_held(
     from adapter.pipeline import merge_base
 
     folder = held_folder(cfg, snap)
-    refuse_two_people(folder)  # H34-06
+    refuse_two_people(cfg, snap, folder)  # H34-06
     try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
         since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
         full: bool | None = not since

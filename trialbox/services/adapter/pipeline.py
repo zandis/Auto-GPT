@@ -708,7 +708,17 @@ def _run_ingest(
         bulk = FhirBulkSource(Path(source_path))
         inputs += [p for p in Path(source_path).iterdir() if p.is_file()]
         timed = read_times.timed(lambda r: str(r.get("resourceType") or "?"), bulk.resources())
-        for r in pseudonymise_bulk(timed, key):
+        bulk_ids: dict[str, dict[str, str]] = {}  # H34-06 review P02: each Patient id's identifiers, by system
+
+        def ids_seen(rs: Iterator[Resource]) -> Iterator[Resource]:
+            for r in rs:
+                if r.get("resourceType") == "Patient":
+                    pid = bulk_id(key, "Patient", str(r.get("id")))
+                    if _two_people_seen(bulk_ids, pid, _identifiers(r)):
+                        identity_conflicts.add(pid)
+                yield r
+
+        for r in pseudonymise_bulk(ids_seen(timed), key):
             to_spool(r)
         for rtype, rid in bulk.deleted():
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
@@ -878,7 +888,7 @@ def _run_ingest(
                     ]
                     names: dict[str, dict[str, str]] = {}  # H34-06: one chart number, two names or national ids
                     for pid, said in identities:
-                        if _two_people_seen(names, pid, said):
+                        if _two_people_seen(names, pid, _named(said)):
                             identity_conflicts.add(pid)
             # STD-025 (T-615a): a row the mapping cannot read is rejected and counted by reason (its values left out);
             # the table goes on, and the night is held only when rejects pass REJECT_MAX_PCT % of the table's rows
@@ -979,7 +989,7 @@ def _run_ingest(
             # only when a night is published); the served NDJSON carries neither
             # ponytail: one look-up per patient; a bulk read if it ever shows in the night's timings
             for pid, said in identities:
-                if _two_people(pm.identity(pid) or {}, said):
+                if _two_people(pm.identity(pid) or {}, _named(said)):
                     against_served.add(pid)
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
@@ -995,6 +1005,8 @@ def _run_ingest(
     if rerun:
         out_dir = cfg.lake_dir / RERUN_DIR / snap
         shutil.rmtree(out_dir, ignore_errors=True)
+    for name in (IDENTITY_CHECKED, IDENTITY_CONFLICT):  # H34-06 review P03: an earlier attempt's result goes first
+        (out_dir / name).unlink(missing_ok=True)
     prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
     last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
     base = snapshot_dir(cfg.lake_dir, last_good) if (since and last_good) else None
@@ -1121,9 +1133,6 @@ def _run_ingest(
             if pid in patient_who and _two_people(_who(r), patient_who[pid]):
                 against.add(pid)
     against -= identity_conflicts
-    # review M1: the night says the identity check ran on it; an accept of a held night without this (an earlier
-    # release's, or a run that stopped before here) is refused (adapter.publish.refuse_two_people)
-    (out_dir / IDENTITY_CHECKED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
     if identity_conflicts or against:
         (out_dir / IDENTITY_CONFLICT).write_text(
             json.dumps({"snapshot": snap, "tonight": sorted(identity_conflicts),
@@ -1145,8 +1154,13 @@ def _run_ingest(
             f"patient. The night is held; {then} (the pseudonymous ids are in {IDENTITY_CONFLICT} in the night's "
             "folder)"
         )
-    else:  # an earlier attempt of this night may have left one
-        (out_dir / IDENTITY_CONFLICT).unlink(missing_ok=True)
+    # review M1: the night says the identity check ran on it, written last and whole (review P03); an accept of a
+    # held night without it (an earlier release's, or a run that stopped before here) is refused, and so is one after
+    # another night was served than the one compared with (review P04; adapter.publish.refuse_two_people)
+    checked = out_dir / f".{IDENTITY_CHECKED}.tmp"
+    checked.write_text(json.dumps({"snapshot": snap, "against": last_good, "current": _current(cfg.lake_dir)}) + "\n",
+                       encoding="utf-8")  # fmt: skip
+    checked.replace(out_dir / IDENTITY_CHECKED)
     # dataflow review P0-2 (WS-08.1): validate first. fhir-store and the lake are loaded, and CURRENT moves, only for
     # a night that passed; a failed night is *held*: its NDJSON stays for the steward to look at, the box keeps
     # serving the previous snapshot
@@ -1860,10 +1874,25 @@ COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate
 IDENTITY_CONFLICT = "identity_conflict.json"  # H34-06: the pids that arrived as two people (tonight / against)
 IDENTITY_CHECKED = "identity_checked.json"  # H34-06 review M1: the identity check ran on this night
 _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of who the person is
+_NAMED = ("name", "national_id")  # H34-06 review B1: what of a mapping's identity says who (not a phone)
 
 
 def _who(r: Resource) -> dict[str, str]:
     return {k: str(r[k]) for k in _WHO if r.get(k)}
+
+
+def _named(said: dict[str, str]) -> dict[str, str]:
+    return {k: said[k] for k in _NAMED if k in said}
+
+
+def _identifiers(r: Resource) -> dict[str, str]:
+    """H34-06 review P02: a bulk Patient's identifiers (the national id among them) by system, read before
+    :func:`pseudonymise_bulk` drops them; never written anywhere."""
+    by: dict[str, list[str]] = {}
+    for i in r.get("identifier") or []:
+        if isinstance(i, dict) and i.get("value"):
+            by.setdefault(f"identifier|{i.get('system') or ''}", []).append(str(i["value"]))
+    return {k: "|".join(sorted(v)) for k, v in by.items()}
 
 
 def _two_people_seen(seen: dict[str, dict[str, str]], pid: str, said: dict[str, str]) -> bool:
