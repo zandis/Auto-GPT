@@ -86,6 +86,7 @@ CLEARS = (
     "owed_tables",
     "pid_pending",
     "profile",
+    "provenance_index",
     "screening_log",
     "setup_uploads",
     "vec",

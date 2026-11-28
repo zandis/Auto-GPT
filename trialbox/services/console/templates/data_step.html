@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{# M5 (10K-16): SS-MIX2 as the data step: the newest night's counts per type and coverage lines, counts only #}
+{% from "_ds.html" import page_header %}
+{% block content %}
+{% set page_title = t('datastep.title') %}{% call page_header(page_title) %}<a class="button secondary" href="/admin">{{ t('nav.admin') }}</a>{% endcall %}
+<p>{{ t('datastep.intro') }}</p>
+{% if st.state == 'none' %}<p class="warn" role="status" data-testid="ds-none">{{ t('datastep.none') }}</p>
+{% else %}
+{% if st.state == 'in' %}<p class="ok" role="status" data-testid="ds-done">{{ t('datastep.done') }} {{ t('datastep.at', at=st.at) }}</p>
+{% elif st.state == 'held' %}<p class="error" role="status" data-testid="ds-held">{{ t('datastep.held', at=st.at) }}</p>
+{% else %}<p class="error" role="status" data-testid="ds-failed">{{ t('datastep.failed', at=st.at) }}</p>{% endif %}
+<section class="card" aria-labelledby="ds-counts"><h2 id="ds-counts">{{ t('datastep.counts') }}</h2>
+<div class="tablewrap"><table data-testid="ds-count-table"><thead><tr><th scope="col">{{ t('datastep.col.type') }}</th><th scope="col">{{ t('datastep.col.count') }}</th></tr></thead>
+<tbody>{% for k, n in st.counts %}<tr data-testid="ds-type-{{ k }}"><th scope="row" class="mono">{{ k }}</th><td>{{ n }}</td></tr>{% endfor %}</tbody>
+<tfoot><tr><th scope="row">{{ t('datastep.total') }}</th><td data-testid="ds-total">{{ st.total }}</td></tr></tfoot></table></div></section>
+<section class="card" aria-labelledby="ds-cov"><h2 id="ds-cov">{{ t('datastep.coverage') }}</h2>
+{% set c = st.coverage %}{% if c is none %}<p class="hint" data-testid="ds-noprofile">{{ t('datastep.noprofile') }}</p>
+{% else %}<ul data-testid="ds-coverage">
+<li>{{ t('datastep.cov.profile', profile=c.profile) }}</li>
+<li data-testid="ds-cov-types">{{ t('datastep.cov.types', arrived=c.types_arrived, declared=c.types_declared) }}</li>
+{% if c.not_arrived %}<li>{{ t('datastep.cov.not_arrived', types=c.not_arrived|join(', ')) }}</li>{% endif %}
+{% if c.not_read %}<li>{{ t('datastep.cov.not_read', types=c.not_read|join(', ')) }}</li>{% endif %}
+{% if c.not_declared %}<li>{{ t('datastep.cov.not_declared', types=c.not_declared|join(', ')) }}</li>{% endif %}
+<li>{{ t('datastep.cov.unmapped', codes=c.unmapped_codes, rows=c.unmapped_rows) }}</li>
+<li>{{ t('datastep.cov.verify', rows=c.verify_rows) }}</li>
+</ul>{% endif %}</section>
+{% endif %}
+{% endblock %}

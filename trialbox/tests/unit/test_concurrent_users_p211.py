@@ -311,3 +311,68 @@ def test_a_load_the_host_cannot_start_fails_by_name(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(console_timing, "ThreadPoolExecutor", NoThirdThread)
     with pytest.raises(console_timing.LoadNotGenerated, match="25 clients"):
         console_timing.under_load(lambda _p: (200, {}), ["/home"], users=25, rounds=1)
+
+
+def _install_step(tmp_path: Path, env_text: str | None) -> subprocess.CompletedProcess[str]:
+    """The installer's own console-size step (cut from deploy/install.sh) run as install runs it (errexit, pipefail)."""
+    text = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    start, end = "# P2-11 (ASSESS-1-ADDENDUM D7)", "# T-703 (D-751)"
+    assert text.count(start) == 1 and text.count(end) == 1
+    (tmp_path / "deploy").mkdir()
+    if env_text is not None:
+        (tmp_path / "deploy" / ".env").write_text(env_text, encoding="utf-8")
+    script = (
+        "set -euo pipefail\nindent() { sed 's/^/  /'; }\n"
+        "stop_or_warn() { echo 'a stop of the registry' >&2; exit 1; }\n"
+        + text[text.index(start) : text.index(end)]
+        + "\necho CONTINUED\n"
+    )
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
+    return subprocess.run(["bash", "-c", script], env=env, cwd=tmp_path, capture_output=True, text=True, check=False)
+
+
+@pytest.mark.parametrize("env_text", ["TB_CONSOLE_USERS=many\n", "TB_CONSOLE_USERS=0\n", "TB_ENV=DEV\n", None])
+def test_a_missing_or_bad_number_of_users_warns_uses_25_and_the_install_continues(
+    tmp_path: Path, env_text: str | None
+) -> None:
+    r = _install_step(tmp_path, env_text)
+    out = r.stdout + r.stderr
+    assert r.returncode == 0 and "CONTINUED" in r.stdout and "a stop of the registry" not in out, out
+    assert "warning" in out and "set TB_CONSOLE_USERS in deploy/.env to a whole number, then re-run" in out
+    written = (tmp_path / "deploy" / ".env").read_text(encoding="utf-8")
+    assert "TB_CONSOLE_USERS=25\n" in written and "TB_CONSOLE_WORKERS=" in written
+
+
+def test_a_declared_number_of_users_raises_no_warning(tmp_path: Path) -> None:
+    r = _install_step(tmp_path, "TB_CONSOLE_USERS=40\n")
+    assert r.returncode == 0 and "CONTINUED" in r.stdout and "warning" not in r.stdout + r.stderr
+
+
+def test_a_tool_that_cannot_run_still_warns_and_the_install_continues(tmp_path: Path) -> None:
+    r = _install_step(tmp_path, "TB_CONSOLE_USERS=40\nTB_CONSOLE_WORKERS=two\n")
+    assert r.returncode == 0 and "CONTINUED" in r.stdout and "warning" in r.stderr, r.stderr
+
+
+@pytest.mark.parametrize("bad", ["two", "0", "-1"])
+def test_a_bad_worker_override_is_corrected_to_one_with_a_warning_and_the_install_continues(
+    tmp_path: Path, bad: str
+) -> None:
+    r = _install_step(tmp_path, f"TB_CONSOLE_USERS=40\nTB_CONSOLE_WORKERS={bad}\n")
+    out = r.stdout + r.stderr
+    assert r.returncode == 0 and "CONTINUED" in r.stdout and "a stop of the registry" not in out, out
+    assert "warning" in r.stderr and f"TB_CONSOLE_WORKERS={bad!r}" in r.stderr and "using 1" in r.stderr, r.stderr
+    env_file = tmp_path / "deploy" / ".env"
+    written = env_file.read_text(encoding="utf-8").splitlines()
+    assert written.count("TB_CONSOLE_WORKERS=1") == 1 and f"TB_CONSOLE_WORKERS={bad}" not in written
+    assert console_size.main(["--env-file", str(env_file), "--cpus", "16"]) == 0  # the written file now reads clean
+
+
+def test_doctor_warns_when_the_console_users_are_not_set() -> None:
+    from tools.trialbox import doctor
+
+    for env in ({}, {"TB_CONSOLE_USERS": ""}, {"TB_CONSOLE_USERS": "many"}):
+        c = doctor.check_console_users(doctor.DoctorInputs(env=env))
+        assert (c.name, c.status) == ("console_users", "WARN"), env
+        assert "using 25" in c.detail and "TB_CONSOLE_USERS" in c.detail
+    ok = doctor.check_console_users(doctor.DoctorInputs(env={"TB_CONSOLE_USERS": "40"}))
+    assert ok.status == "PASS" and "40" in ok.detail

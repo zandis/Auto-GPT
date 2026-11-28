@@ -72,7 +72,37 @@ Every step is in `deploy/updates/history.jsonl`; `deploy/updates/installed.json`
 backup. Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
 `tests/unit/test_update_safety.py` and `tools/update_drill.py`.
 
-**Backup** (D-126, D-187, D-188). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
+**Backup** (D-126, D-187, D-188). The backup key, once. A **PRODUCTION** box makes it at install (E2E P-01;
+`trialbox backup-keygen` and the stick ceremony are refused there): on the install's terminal the paper copy is shown
+once, the screen is cleared and hospital IT types the whole copy back before `backup.pub` is made; an unattended
+install (no terminal) seals the key under the install's KEK passphrase into `deploy/secrets/backup-key-<fp>.sealed`
+and, before `backup.pub` is made, onto the one declared off-box backup target. The install declares `TB_BACKUP_OFFBOX`
+when the box has no declaration (`deploy/secrets/backup-target.json`: the folder, which must be exactly a mount point,
+and its mount's point, filesystem type, source, mount id and root, the folder's device and inode, a `/dev` source
+with its `/dev/disk/by-uuid` name; tmpfs, overlay and the box's own filesystems are refused, and a `/dev` source
+without a by-uuid name, as on a host without udev, cannot be declared). Every run that writes the sealed copy checks
+the opened folder against that record; any difference (another source, the share unmounted or its folder gone, the
+mount moved, a remount, a re-plug or a reboot since the declaration) refuses before a key is made and is journaled
+(`backup.target_mismatch`; no record: `backup.target_undeclared`). To change it, or to take a remounted target
+again, as root: `python3 -m tools.backup_key_ceremony --declare-backup-target <folder> --operator "<name>"
+--replace` (the old record is kept as `backup-target.<time>.<n>.old`); it moves no file, so copy
+`backup-key-<fp>.sealed` to the new target by hand. A FAT or exFAT target has no file modes: the sealed copy
+(encrypted) is made there as its mount gives it. Run again by hand, as root on the box:
+`python3 -m tools.backup_key_ceremony --install`. The install's own declaration takes no share served by the box
+itself (localhost, a loopback address, the box's own name or address); declare the off-box target by IP if names may
+alias this box (a name that only resolves to the box is not recognised). The install's `--kek-passphrase-file` is
+the only copy of the passphrase until the key is sealed and read back: the install removes it only then, and an
+interrupted install leaves it. The passphrase file must be a regular file you created (a named pipe is not
+supported), and do not replace or rewrite it while the install runs: the install does not check, when it removes the
+file, that it is still the one it read. A passphrase file a later install finds beside a sealed key is kept and
+named: remove it by hand (`rm -- <file>`). On the bench the operator writes the passphrase on the paper envelope
+before the ceremony. To restore with a sealed key (the copy on the backup target), as
+root on the box: `python3 -m tools.backup_key_ceremony --unseal <the .sealed file>` asks for the passphrase and does
+not show it (never type it where it is shown; piped, it reads one line of stdin) and writes the key file only to
+`deploy/secrets/restore/trialbox-backup.key` (never to a stick); then `restore --key
+deploy/secrets/restore/trialbox-backup.key`; then `python3 -m tools.backup_key_ceremony --forget-restore-key`. A
+damaged medium, a file that is not a sealed key and a wrong passphrase are told apart. A DEV, TEST or VALIDATION
+box, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
 box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI
 databases, every data folder and a manifest, compressed with zstd level 3 on every core and then encrypted
@@ -96,8 +126,8 @@ you may push to the hospital's git server.
    are all on its own disks still writes the backup, but the run fails and stays red.
 2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `PYTHONPATH=libs python3 -m
    tools.trialbox backup-install --deploy deploy`, which writes `/etc/cron.d/trialbox-backup`, turns WAL archiving
-   on when it can (below), and runs the first backup once the backup key is there (run the command again after
-   `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
+   on when it can (below), and runs the first backup once the backup key is there (run the command again once the
+   key is made). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
    reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent, or, on a box with no
    mail, `TB_BACKUP_ALERT_ROUTE=health-page`: the site's written choice that the red backup tile on the `/admin`
    health tab and the audit carry the alert (D-735). Then nobody is mailed: someone must open the health tab every
@@ -307,6 +337,18 @@ once by a writer or a console that is given the anchor folder. Events removed **
 the box (the anchor folder on the hospital's share, never on the box's own disk) and frequent signing; the night's
 signing leaves at most one day open. On an installed box the `audit-writer` service is not given the anchor folder, so
 there the nightly check is the one that finds a cut below a signed head, within a day.
+
+**The provenance index must be rebuilt (P-19).** After the update that brings P-19 to a box that already has model
+calls in its audit chain, and after every rollback or restore, `trialbox doctor` fails `provenance_index` with "the
+provenance index must be rebuilt ... run trialbox provenance --rebuild", and the console's provenance search is
+refused until then. As root in the install folder:
+
+    sudo trialbox provenance --rebuild
+
+On the box's host it runs once in a one-off `audit-writer` container (the service that writes the audit folder),
+as the box's administrator, and prints one line per day file of the chain. Run `trialbox doctor` after it: the row
+passes. A rollback that put back candidate lists made before a consent change also holds screening
+(`screening.after_restore`); release it only after the lists are run again.
 
 
 **Restore over the live stack, one command (H-100).** In a root shell on the box, from the install folder. The

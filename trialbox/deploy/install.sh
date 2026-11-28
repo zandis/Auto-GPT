@@ -280,6 +280,9 @@ KP_WHO=install
 # and never from the environment: TB_KEK_PASSPHRASE or TB_KEK_NEW_PASSPHRASE there is refused, with or without sudo
 # (sudo writes a variable it keeps, with its value, to the system journal). The value lives in KP_VALUE, never
 # exported, and goes on by a pipe: never an argument, never a sudo environment, never a file. Nothing prints it.
+{ set +x; } 2>/dev/null  # P04 (#1602 fix round): bash -x (xtrace) would print the passphrase; off from here on
+set +a  # H-09 (seventh review): bash -a (allexport) would export every assignment below
+unset KP_VALUE KP_FILE kp_again  # H-09: a caller's export of these is dropped here (an assignment keeps an export)
 KP_VALUE=""; KP_FILE=""
 kp_die() { printf '%s: %s\n' "$KP_WHO" "$*" >&2; exit 1; }
 kp_refuse_env() {  # an empty variable is dropped
@@ -377,6 +380,13 @@ elif [ -n "$PP_FD" ]; then
   eval "exec $PP_FD<&-"
   kp_check_value "the installer's hand-on"
   KP_FILE="$PP_REMOVE"  # the operator's file the first run read: removed once sealed, never opened here
+fi
+# P03 (#1602 fix round; H-08 removed it): a passphrase file found beside a sealed backup key (an install stopped
+# after sealing it) is not removed here, since nothing records it as that key's passphrase: it is named, for the
+# operator to remove, unless --keep-kek-passphrase-file
+if [ -n "$KP_FILE" ] && [ "$PP_KEEP" = 0 ] && [ -f "$ROOT/deploy/secrets/backup.pub" ] \
+    && compgen -G "$ROOT/deploy/secrets/backup-key-*.sealed" >/dev/null; then
+  echo "    the passphrase file $KP_FILE is beside a sealed backup key: it is not removed here (nothing records it as that key's passphrase); once no step needs it, remove it: rm -- $KP_FILE"
 fi
 # ---- end of KEK-INPUT
 # ENV-EARLY (D-1365, re-check of #1175): an environment that is not one of the four stops here, at argument parsing,
@@ -1197,7 +1207,16 @@ fi
 # P2-11 (ASSESS-1-ADDENDUM D7): the site's concurrent users, declared with the patient count (TB_CONSOLE_USERS, 25 when
 # unset, written so the box says it), size the console's worker processes (TB_CONSOLE_WORKERS; one set by hand is kept)
 if command -v python3 >/dev/null; then
-  python3 -m tools.trialbox.console_size --env-file deploy/.env --write 2>&1 | indent || stop_or_warn console-size "the console's worker processes (one)" "the concurrent users could not be read (above): set TB_CONSOLE_USERS in deploy/.env to a whole number, then re-run"
+  # never a stop on any box: a missing or bad number warns and the default (25) is used (integrator's ruling, #1601)
+  python3 -m tools.trialbox.console_size --env-file deploy/.env --write --default-if-bad 2>&1 | indent || {
+    echo "install: warning: the console's worker processes could not be sized (above): TB_CONSOLE_WORKERS keeps the compose default (one); set TB_CONSOLE_USERS and TB_CONSOLE_WORKERS in deploy/.env to whole numbers, then re-run" >&2
+    # a bad override left in deploy/.env would stop compose supplying its default (one): put the default in its place
+    w="$(sed -n 's/^TB_CONSOLE_WORKERS=//p' deploy/.env | tail -1 || true)"
+    [ "${w:-1}" -ge 1 ] 2>/dev/null || {
+      echo "install: warning: TB_CONSOLE_WORKERS='$w' is not a whole number of processes, 1 or more; using 1 (the compose default)" >&2
+      sed -i '/^TB_CONSOLE_WORKERS=/d' deploy/.env && echo "TB_CONSOLE_WORKERS=1" >> deploy/.env
+    }
+  }
 fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
@@ -1593,9 +1612,12 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
     *) echo "    note: no record of the KEK back end in deploy/site/kek-backend (above): deploy/.env not changed" >&2 ;;
   esac
 fi
-KP_VALUE=""
-[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
-KP_FILE=""
+# E2E P-01 (the integrator's ruling (1) of 2026-11-27: the KEK comes from the install passphrase): an install with no
+# terminal seals the PRODUCTION backup key under this passphrase (the backup key step below), so there it is kept
+# until then, in this shell only (never exported), and cleared there; a passphrase file the seal step did not remove
+# goes on with it, removed there once the key is sealed with it (M-02 of the second review), else said "not used" there
+{ : </dev/tty; } 2>/dev/null && KP_VALUE=""
+[ -n "$KP_VALUE" ] || { [ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"; KP_FILE=""; }
 
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 # D-1091: protects none of the five; on a PoC box the database steps after it fail where they run
@@ -1825,7 +1847,52 @@ else
   echo "$SHEET_OUT" | tail -5 | sed 's/^/    /' >&2
   FAILS+=("network sheet not written (python -m tools.network_sheet, error above)")
 fi
-[ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
+# E2E P-01 (the integrator's ruling Q1, 2026-11-27): a PRODUCTION box makes its backup key here, as root. On a
+# terminal the paper copy is shown once (never in a log or a file) for hospital IT to keep sealed, the screen is
+# cleared, and backup.pub is made only once IT has typed the whole copy back. With no terminal (an unattended install)
+# the key is sealed under the install's KEK passphrase (ruling (1)), handed on stdin, never an argument or the
+# environment. backup-keygen stays refused on PRODUCTION (rc1), so nothing here names it
+case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')" in DEV|TEST|VALIDATION)
+  [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2 ;;
+*)
+  # M-06 (third review): TEST_BOX left in a PRODUCTION install's environment is ignored here, and said
+  [ -z "${TEST_BOX:-}" ] || echo "install: note: TEST_BOX is ignored on a PRODUCTION install: the backup key step runs" >&2
+  if [ ! -f deploy/secrets/backup.pub ]; then
+    if { : </dev/tty; } 2>/dev/null; then
+      say "backup key: made now, shown once on this terminal"
+      PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install \
+        || FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+    elif [ -n "$KP_VALUE" ]; then
+      say "backup key: made now, sealed under the install's KEK passphrase (no terminal)"
+      # P-01 (fifth review): the sealed copy goes only to the declared off-box target; the install declares
+      # TB_BACKUP_OFFBOX (deploy/.env) when the box has none, and never replaces a declaration
+      KP_OFFBOX=""
+      [ -f deploy/secrets/backup-target.json ] || KP_OFFBOX="$(envget TB_BACKUP_OFFBOX)"
+      case "$KP_OFFBOX" in \"*\"|\'*\') KP_OFFBOX="${KP_OFFBOX:1:${#KP_OFFBOX}-2}" ;; esac  # M-17: only outer quotes
+      if [ ! -f deploy/secrets/backup-target.json ] && { [ -z "$KP_OFFBOX" ] || ! PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --declare-backup-target "$KP_OFFBOX" --operator install; }; then
+        FAILS+=("no backup key: no off-box backup target is declared (TB_BACKUP_OFFBOX in deploy/.env: ${KP_OFFBOX:-not set}${KP_OFFBOX:+, refused above}); no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --declare-backup-target <folder> --operator <name>, then python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+      else
+        # P02 and R1/R3 (#1602 fix rounds): the passphrase file is the only copy of the KEK passphrase until the ceremony
+        # has sealed the key and read it back (exit 0): it is removed only then, and any refusal or kill leaves it
+        if printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin; then
+          if [ -n "$KP_FILE" ]; then
+            if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
+            else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
+          fi
+        else
+          FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+          [ -z "$KP_FILE" ] || echo "    the passphrase file $KP_FILE stays (the backup key was not sealed): the next install needs it"
+        fi
+        KP_FILE=""
+      fi
+    else
+      FAILS+=("no backup key: an install with no terminal seals it under the install's KEK passphrase, and none was given (--kek-passphrase-file); no backup runs and updates refuse; as root on the box's terminal: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
+    fi
+  fi ;;
+esac
+KP_VALUE=""
+[ -z "$KP_FILE" ] || echo "    the KEK passphrase file $KP_FILE was not used (no seal step on this box): it stays; remove it"
+KP_FILE=""
 # T-117b (D-274): the backup cron (/etc/cron.d/trialbox-backup), WAL archiving when the db image carries pgBackRest
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
 # TB_BACKUP_MAILTO with a mail relay, or on a box with no mail TB_BACKUP_ALERT_ROUTE=health-page, D-735); `trialbox
@@ -2005,7 +2072,8 @@ HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_
 # FAIL lines and the install ends 1 (review M-1 of #1396); its output is shown as before. tee -a: when this output is a
 # file (box-install.sh's install.log, a rehearsal's step log) /dev/fd/8 is opened again, and without -a it is emptied
 HOST_OUT=""; exec 8>&1
-HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee -a /dev/fd/8)" \
+# TB_DOCTOR_INSTALL_PHASE: the backup key can only be made after the install (RUNBOOK §5), so doctor reads its absence as a WARN here
+HOST_OUT="$(TB_DOCTOR_INSTALL_PHASE=1 sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee -a /dev/fd/8)" \
   || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
 exec 8>&-
 SECRET_FAILS=()

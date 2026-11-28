@@ -27,6 +27,7 @@ from console import (
     i18n_instruments,
     i18n_items,
     i18n_lists,
+    i18n_m5,
     i18n_notmatched,
     i18n_phone,
     i18n_plain,
@@ -37,6 +38,7 @@ from console import (
     i18n_sae,
     i18n_screennow,
     i18n_stillneeded,
+    i18n_support,
     i18n_tier,
     i18n_today,
 )
@@ -1316,6 +1318,7 @@ for _mod in (
     i18n_instruments,
     i18n_items,
     i18n_lists,
+    i18n_m5,
     i18n_notmatched,
     i18n_screennow,
     i18n_phone,
@@ -1326,6 +1329,7 @@ for _mod in (
     i18n_roles,
     i18n_sae,
     i18n_stillneeded,
+    i18n_support,
     i18n_tier,
     i18n_today,
 ):
