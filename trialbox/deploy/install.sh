@@ -1198,7 +1198,15 @@ fi
 # unset, written so the box says it), size the console's worker processes (TB_CONSOLE_WORKERS; one set by hand is kept)
 if command -v python3 >/dev/null; then
   # never a stop on any box: a missing or bad number warns and the default (25) is used (integrator's ruling, #1601)
-  python3 -m tools.trialbox.console_size --env-file deploy/.env --write --default-if-bad 2>&1 | indent || echo "install: warning: the console's worker processes could not be sized (above): TB_CONSOLE_WORKERS keeps the compose default (one); set TB_CONSOLE_USERS and TB_CONSOLE_WORKERS in deploy/.env to whole numbers, then re-run" >&2
+  python3 -m tools.trialbox.console_size --env-file deploy/.env --write --default-if-bad 2>&1 | indent || {
+    echo "install: warning: the console's worker processes could not be sized (above): TB_CONSOLE_WORKERS keeps the compose default (one); set TB_CONSOLE_USERS and TB_CONSOLE_WORKERS in deploy/.env to whole numbers, then re-run" >&2
+    # a bad override left in deploy/.env would stop compose supplying its default (one): put the default in its place
+    w="$(sed -n 's/^TB_CONSOLE_WORKERS=//p' deploy/.env | tail -1 || true)"
+    [ "${w:-1}" -ge 1 ] 2>/dev/null || {
+      echo "install: warning: TB_CONSOLE_WORKERS='$w' is not a whole number of processes, 1 or more; using 1 (the compose default)" >&2
+      sed -i '/^TB_CONSOLE_WORKERS=/d' deploy/.env && echo "TB_CONSOLE_WORKERS=1" >> deploy/.env
+    }
+  }
 fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
