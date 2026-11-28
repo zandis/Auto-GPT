@@ -117,3 +117,21 @@ def test_the_patient_page_row_carries_the_need() -> None:
     rows = studies.patient_rows([{"id": "X", "verdict": "unknown", "evidence": ev}], {})
     assert rows[0]["needs"] == need
     assert studies.patient_rows([{"id": "X", "verdict": "pass", "evidence": {}}], {})[0]["needs"] is None
+
+
+def test_a_score_input_with_a_wrong_unit_names_the_unit_and_an_adult_score_the_birth_date() -> None:
+    r = Ruleset.load(ROOT / "rulesets" / "AD-MAB")
+    c = r.by_id()["AD-MAB-EXC-04"]  # eGFR (JSN) below 30
+    unit = open_reasons.needs("derived_unit:creatinine", c, r.valuesets)
+    assert unit == {"view": "lab", "field": "unit", "concept": "egfr_jsn: creatinine"}
+    adult = open_reasons.needs("derived_adult_only", c, r.valuesets)
+    assert adult == {"view": "patient", "field": "birth_date", "concept": "egfr_jsn"}
+
+
+def test_a_vital_sign_is_told_by_its_loinc_code_and_system_together() -> None:
+    r = Ruleset.load(ROOT / "rulesets" / "GZQO")
+    c = r.by_id()["GZQO-EXC-09"]
+    local = {"VS_SYSTOLIC_BLOOD_PRESSURE": {"compose": {"include": [{"system": "https://hospa.test/lab-local",
+                                                                      "concept": [{"code": "8480-6"}]}]}}}  # fmt: skip
+    assert open_reasons.needs("unknown kept", c, local) == {
+        "view": "lab", "field": "result_value", "concept": "VS_SYSTOLIC_BLOOD_PRESSURE"}  # fmt: skip
