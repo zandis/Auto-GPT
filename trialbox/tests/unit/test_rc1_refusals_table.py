@@ -93,7 +93,12 @@ A2_KEPT = ("edc_writes_from_screening", "unattended_updates", "patient_mail_and_
 
 
 def test_a2_production_allows_lists_support_exports_and_key_ceremonies_with_the_validation_label() -> None:
-    production = ({}, {"TB_ENV": ""}, {"TB_ENV": "PRODUCTION"}, {"TB_ENV": " production "})  # unset is PRODUCTION
+    production: tuple[dict[str, str], ...] = (
+        {},
+        {"TB_ENV": ""},
+        {"TB_ENV": "PRODUCTION"},
+        {"TB_ENV": " production "},
+    )  # unset is PRODUCTION
     assert sorted(A2_ALLOWED_EVERYWHERE + A2_KEPT) == sorted(r.name for r in rr.REFUSALS)
     for name in A2_ALLOWED_EVERYWHERE:
         for env in (*production, {"TB_ENV": "VALIDATION"}, {"TB_ENV": "DEV"}, {"TB_ENV": "TEST"}):
