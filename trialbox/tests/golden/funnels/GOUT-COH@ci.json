@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6c73db64a3fcdb82626fce1e691ba67f42f3675e",
-  "lake_schema_version": 4,
+  "head": "112687d29c47daa51ad5ea6b5d1b45b7dd24c8a9",
+  "lake_schema_version": 5,
   "profile": "ci",
-  "reason": "INT-R1: a medication look-back counts an order whose supply reaches into the window (GOUT-COH-INC-03, GZQO-EXC-04, RA-COH-INC-02 and the steps after them)",
+  "reason": "lake schema 5: birth_ym and value_text columns; no result number moves",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",

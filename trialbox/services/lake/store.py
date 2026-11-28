@@ -98,9 +98,10 @@ _CACHE_LOCK = threading.Lock()
 
 # 1: tables + document_chunk with its own embedding column (before D-149); 2: no embedding in the snapshot, chunk sha,
 # lake_meta.schema_version / schema_sha / embed_store; 3 (T-106b): the encounter's end and status, and the four
-# provenance columns on every table (``lake.flatten.PROVENANCE``); 4 (T-616): ``patient.deceased``. A reader serves
-# every version from MIN to CURRENT (an older snapshot reads ``patient.deceased`` as unknown: :func:`_compat_views`).
-LAKE_SCHEMA_VERSION = 4
+# provenance columns on every table (``lake.flatten.PROVENANCE``); 4 (T-616): ``patient.deceased``; 5:
+# ``patient.birth_ym`` and ``observation.value_text``. A reader serves every version from MIN to CURRENT (an older
+# snapshot reads ``patient.deceased``, ``birth_ym`` and ``value_text`` as unknown: :func:`_compat_views`).
+LAKE_SCHEMA_VERSION = 5
 MIN_READABLE_SCHEMA = 1
 CHUNK_COLUMNS: list[tuple[str, str]] = [
     ("did", "VARCHAR"),
@@ -639,18 +640,25 @@ def _tombstones(src: Path) -> dict[str, list[str]]:
 
 
 def _compat_views(con: duckdb.DuckDBPyConnection, version: int) -> None:
-    """A snapshot built before schema 4 has no ``patient.deceased``: a temporary view of this connection adds it as
-    unknown (NULL), so the compiled SQL of today reads a pinned older snapshot as it read it before (T-616)."""
-    if version >= 4:
+    """A snapshot built before schema 5 lacks columns the compiled SQL and the readers name: a temporary view of this
+    connection adds each as unknown (NULL), so a pinned older snapshot reads as it read before. ``patient.deceased``
+    (schema 4, T-616), ``patient.birth_ym`` and ``observation.value_text`` (schema 5)."""
+    if version >= 5:
         return
     row = con.execute("SELECT current_database()").fetchone()
     db = str(row[0]).replace('"', '""') if row else "main"
-    try:
-        con.execute(f'CREATE TEMP VIEW patient AS SELECT *, CAST(NULL AS BOOLEAN) AS deceased FROM "{db}".main.patient')
-    except duckdb.OutOfMemoryException:  # D-742: the box's limit is said, not read as a table that is not there
-        raise
-    except duckdb.Error:  # no patient table (a partial test lake): nothing to add
-        pass
+    extra = {
+        "patient": (["CAST(NULL AS BOOLEAN) AS deceased"] if version < 4 else [])
+        + ["CAST(NULL AS VARCHAR) AS birth_ym"],
+        "observation": ["CAST(NULL AS VARCHAR) AS value_text"],
+    }
+    for table, columns in extra.items():
+        try:
+            con.execute(f'CREATE TEMP VIEW {table} AS SELECT *, {", ".join(columns)} FROM "{db}".main.{table}')
+        except duckdb.OutOfMemoryException:  # D-742: the box's limit is said, not read as a table that is not there
+            raise
+        except duckdb.Error:  # no such table (a partial test lake): nothing to add
+            pass
 
 
 def _file_sha(path: Path) -> str:

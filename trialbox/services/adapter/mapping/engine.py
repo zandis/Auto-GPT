@@ -108,7 +108,7 @@ _DIGIT_RUN_RE = re.compile(r"\d+")
 _FRACTION_RE = re.compile(r"\.\d+")
 # NEW-DIN-1 (D-589): the calendars a site may declare for a date column (``tables.<t>.dates: {col: roc}``)
 CALENDARS = ("western", "roc", "era", "roc_or_western")  # F8 (D-807): roc_or_western, an export that writes both
-DATE_TYPES = ("date", "datetime", "instant")
+DATE_TYPES = ("date", "datetime", "instant", "partial_date")
 _NOT_CALENDAR = "\x00not-a-date-of:"  # what ``normalize`` leaves for the date readers to refuse, with the value
 _CLOCK = r"(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?"
 # Digits only: YYYMMDD, alone or with hhmm or hhmmss. A two-digit year (YYMMDD, 6, 10 or 12 digits) is not read:
@@ -118,6 +118,7 @@ _ROC_COMPACT_LENGTHS = (7, 11, 13)
 _ROC_WRITTEN = re.compile(
     rf"(?:(?:民國|民国|中華民國)\s*(\d{{1,3}})|(\d{{3}}))\s*[年./\-]\s*(\d{{1,2}})\s*[月./\-]\s*(\d{{1,2}})\s*日?{_CLOCK}"
 )
+_YEAR_MONTH = re.compile(r"(\d{4})[-/](\d{1,2})")
 _MIDNIGHT = re.compile(r"[ T]00:00(?::00(?:\.0+)?)?$")
 _ERA_WRITTEN = re.compile(rf"(.*?){_CLOCK}")
 # a western date-time with a time of day, the seconds' fraction allowed (DIN-014)
@@ -605,7 +606,9 @@ class Mapping:
                 **{n: path.parent for n in (doc.get("lookups") or {})},
             }
             merged["tables"] = site_tables  # the site declares what it exports
-            merged["resources"] = [r for r in base.get("resources") or [] if r["table"] in site_tables]
+            merged["resources"] = [r for r in base.get("resources") or [] if r["table"] in site_tables] + [
+                r for r in doc.get("resources") or [] if r["table"] in site_tables
+            ]  # a site's own resources (a table the shared mapping does not know, e.g. an instrument score)
             merged["static"] = doc.get("static", base.get("static"))
             doc = merged
         for ov in doc.get("overlay") or []:
@@ -1068,6 +1071,19 @@ class Mapper:
             return cls._western(got, raw).date()
         raise MappingError(f"unparseable date {raw!r}")
 
+    def _partial_date(self, raw: str) -> str:
+        """A date as precise as the source wrote it: ``YYYY-MM`` stays ``YYYY-MM`` (a birth of year and month; FHIR's
+        own form, no day is invented), a whole date is read as ``date`` reads it."""
+        text = raw.strip()
+        mt = _YEAR_MONTH.fullmatch(text)
+        if mt is None:
+            return self._parse_date(raw).isoformat()
+        year, month = int(mt.group(1)), int(mt.group(2))
+        if not 1 <= month <= 12:
+            raise MappingError(f"unparseable date {raw!r}")
+        self._western(datetime(year, month, 1), raw)
+        return f"{year:04d}-{month:02d}"
+
     def convert(self, value: Any, typ: str | None) -> Any:
         if value is None:
             return None
@@ -1086,6 +1102,8 @@ class Mapper:
             return float(d)
         if typ == "date":
             return self._parse_date(s).isoformat()
+        if typ == "partial_date":
+            return self._partial_date(s)
         if typ in ("datetime", "instant"):
             return self._parse_dt(s).isoformat(timespec="seconds")
         if typ == "bool":
@@ -1245,7 +1263,11 @@ class Mapper:
                 # out and counted, the patient kept, never the whole row refused
                 self.implausible[(rs.table, self._element)] += 1
                 return None
-            if val is not None and "lived_at_most" in expr and self._older_than_a_life(raw, expr["lived_at_most"], row):
+            if (
+                val is not None
+                and "lived_at_most" in expr
+                and self._older_than_a_life(f"{val}-28" if len(str(val)) == 7 else raw, expr["lived_at_most"], row)
+            ):
                 self.implausible[(rs.table, self._element)] += 1  # F9 (D-811): left out, the row kept; counted
                 return None
             if val is not None and "factor" in expr:

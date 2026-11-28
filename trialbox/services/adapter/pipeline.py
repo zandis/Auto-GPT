@@ -221,6 +221,10 @@ def make_source(
         from adapter.sources.csv.source import CsvSource
 
         return CsvSource(Path(path), encoding)
+    if kind == "xlsx":
+        from adapter.sources.xlsx.source import XlsxSource
+
+        return XlsxSource(Path(path))
     if kind == "cgrd_sql":
         from adapter.sources.cgrd_sql.source import SqlSource
 
@@ -842,6 +846,13 @@ def _run_ingest(
                 tables[table]["rows_of_other_tables"] = others[0]
             if pivoted:
                 tables[table]["pivot"] = dict(sorted(pivoted.items()))
+            refused_rows = getattr(src, "refused_rows", None)  # a workbook's refused rows and sheets: warned, counted
+            if callable(refused_rows) and (left_out := refused_rows(src_name)):
+                tables[table]["refused_rows"] = len(left_out)
+                tables[table]["refused_reasons"] = sorted({why for _, why in left_out})
+            refused_sheet = getattr(src, "refused_sheet", None)
+            if callable(refused_sheet) and (why_sheet := refused_sheet(src_name)):
+                tables[table]["refused_sheet"] = why_sheet
             undated = getattr(src, "change_time_not_a_date", None)  # F14 (D-810, lane E's hunk): counts only
             if since_t and callable(undated) and (n_undated := int(undated(src_name))):
                 tables[table]["change_time_not_a_date"] = n_undated

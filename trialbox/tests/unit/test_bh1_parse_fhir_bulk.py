@@ -82,11 +82,19 @@ def test_bulk_reference_forms_reach_the_patients_pseudonym(ref: str) -> None:
     assert cond["subject"]["reference"] == f"Patient/{pid_for_mrn(KEY, RAW_ID)}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="open finding: BH1-04: a valid FHIR partial date (birthDate 1960-05) fails the whole lake build",
+@pytest.mark.parametrize(
+    "birth",
+    [
+        pytest.param(
+            "1960",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="open finding: BH1-04: a valid FHIR partial date (birthDate 1960) fails the whole lake build",
+            ),
+        ),
+        "1960-05",  # fixed (BH1-04): a year and month is kept as birth_ym
+    ],
 )
-@pytest.mark.parametrize("birth", ["1960", "1960-05"])
 def test_a_partial_birth_date_is_read_not_fatal(birth: str) -> None:
     """FHIR R4 ``date`` allows a year or a year and month. A Patient of a conformant export with such a birth date
     must be flattened (its birth date unknown or at its precision), not raise and fail the night's lake build."""

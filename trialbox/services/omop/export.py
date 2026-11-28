@@ -328,7 +328,8 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
 
     # -- patient: the merged sources, an item in open conflict unknown
     for r in tx.iterdicts(
-        "SELECT p.person_id, p.birth_datetime, p.gender_source_value, d.death_date, d.death_type_concept_id, "
+        "SELECT p.person_id, p.birth_datetime, p.year_of_birth, p.month_of_birth, p.gender_source_value, "
+        "d.death_date, d.death_type_concept_id, "
         "o.extra FROM person p "
         "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row, "
         "r.extra FROM tb_record r WHERE r.cdm_table = 'person' AND r.record_id = p.person_id "
@@ -337,6 +338,10 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
         row = {
             "pid": person[r["person_id"]],
             "birth_date": _day(r["birth_datetime"]),
+            # a birth of year and month (no day, no birth datetime): the lake keeps it as text, the day stays unknown
+            "birth_ym": f"{r['year_of_birth']:04d}-{r['month_of_birth']:02d}"
+            if r["birth_datetime"] is None and r["year_of_birth"] and r["month_of_birth"]
+            else None,
             "sex": sex_of(r["gender_source_value"]),
             # T-616 (STD-013, D-400): a death recorded without a date is deceased with no date (the imputed night
             # stays in OMOP only)
@@ -481,6 +486,7 @@ def _emit_all(tx: Any, emit: Callable[[str, Row], object]) -> None:
                 "value_cmp": vocab.OPERATOR_CODE.get(r["operator_concept_id"] or 0),
                 "category": None,
                 "local_code": None,
+                "value_text": None,  # a finding's text comes back from ``extra`` (the loader keeps it there)
             },
             r["extra"],
         )
