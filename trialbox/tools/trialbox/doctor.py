@@ -1572,8 +1572,8 @@ def check_backup_key(inp: DoctorInputs) -> Check:
     except OSError:
         size = 0
     if not size:
-        installing = bool(inp.env.get("TB_DOCTOR_INSTALL_PHASE", "").strip())
-        return Check("backup_key", "WARN" if installing else _soft(inp), f"no backup key {key}: every backup is skipped; make it in the key "
+        status = "WARN" if inp.env.get("TB_DOCTOR_INSTALL_PHASE", "").strip() else _soft(inp)
+        return Check("backup_key", status, f"no backup key {key}: every backup is skipped; make it in the key "
                      "ceremony with hospital IT (python -m tools.backup_key_ceremony, RUNBOOK §5)")  # fmt: skip
     try:
         from tools.trialbox import backup as bk
