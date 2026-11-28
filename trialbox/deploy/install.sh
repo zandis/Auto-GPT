@@ -1557,13 +1557,14 @@ elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f 
   # KEK_BACKEND) and no usable TPM, the passphrase back end seals (the default, tpm, cannot there)
   if [ -n "$KP_VALUE" ] && [ -z "${TB_KEK_BACKEND:-}" ] && ! { [ -f "$HB_CONF" ] && grep -q '^KEK_BACKEND=' "$HB_CONF"; } \
       && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
-    TB_KEK_BACKEND=passphrase; export TB_KEK_BACKEND
-    echo "    the KEK's back end: passphrase (a passphrase was given, no back end is named, no usable TPM)"
-  fi
+    SEAL_BACKEND=passphrase
+  else SEAL_BACKEND="${TB_KEK_BACKEND:-}"; fi
+  [ -z "$SEAL_BACKEND" ] || echo "    the KEK's back end: $SEAL_BACKEND"
   seal() { TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" --record deploy/site/kek-backend "$@"; }
   sealed=0
-  if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | seal --kek-passphrase-stdin && sealed=1
-  else seal </dev/null && sealed=1; fi
+  # the back end goes to seal_keys.sh alone (a prefix on the call), never to the installer's own environment
+  if [ -n "$KP_VALUE" ]; then printf '%s\n' "$KP_VALUE" | TB_KEK_BACKEND="$SEAL_BACKEND" seal --kek-passphrase-stdin && sealed=1
+  else TB_KEK_BACKEND="$SEAL_BACKEND" seal </dev/null && sealed=1; fi
   if [ "$sealed" = 1 ] && [ -n "$KP_FILE" ]; then
     if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
     else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi

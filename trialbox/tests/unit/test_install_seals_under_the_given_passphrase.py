@@ -21,9 +21,10 @@ pytestmark = pytest.mark.nodb
 
 
 def _install(tmp: Path, env: dict[str, str], *, profile: str, site: str, phrase: str = PHRASE,
-             conf: str | None = None) -> subprocess.CompletedProcess[str]:  # fmt: skip
+             conf: str | None = None, after: str = "") -> subprocess.CompletedProcess[str]:  # fmt: skip
     """The seal block of install.sh as it stands, as test_seal_records_its_back_end_h77 runs it, with the passphrase
-    on stdin whether or not a back end is named (the installer reads it before the block)."""
+    on stdin whether or not a back end is named (the installer reads it before the block); ``after``: the installer's
+    lines after the block."""
     root = Path(__file__).resolve().parents[2]
     (tmp / "deploy" / "site").mkdir(parents=True, exist_ok=True)
     (tmp / "deploy" / "hardening").symlink_to(root / "deploy" / "hardening")
@@ -40,7 +41,7 @@ def _install(tmp: Path, env: dict[str, str], *, profile: str, site: str, phrase:
         "id() { echo 0; }\n"
         'KEYS_OK=1\nPP_KEEP=0\nKP_FILE=""\nstop_or_warn() { shift 2; die "$*"; }\n'
         'KP_VALUE=""; IFS= read -r KP_VALUE || :\n'
-        f"{SEAL_BLOCK}\n"
+        f"{SEAL_BLOCK}\n{after}"
     )
     env, _ = _apart(env)
     return subprocess.run(
@@ -82,3 +83,28 @@ def test_poc_without_a_passphrase_is_unchanged(tmp_path: Path) -> None:
     assert res.returncode == 0, res.stderr
     assert "not sealed (host profile poc" in res.stdout
     assert K.read_meta(tmp_path / "secrets") is None
+
+
+def test_the_inferred_back_end_goes_to_the_seal_step_alone(tmp_path: Path) -> None:
+    """The installer's later children never see TB_KEK_BACKEND the seal step was given (it is not exported)."""
+    later = "sh -c 'echo \"later: ${TB_KEK_BACKEND-unset}\"'\n"
+    res = _install(tmp_path, _host(tmp_path, None, tpm=False), profile="site", site="PRODUCTION", after=later)
+    _sealed_under_the_passphrase(tmp_path, res)
+    assert "later: unset" in res.stdout
+
+
+def test_an_explicit_passphrase_back_end_is_still_shown(tmp_path: Path) -> None:
+    env = {**_host(tmp_path, None, tpm=False), "TB_KEK_BACKEND": "passphrase"}
+    res = _install(tmp_path, env, profile="site", site="PRODUCTION")
+    _sealed_under_the_passphrase(tmp_path, res)
+    assert "the KEK's back end: passphrase" in res.stdout
+
+
+def test_a_back_end_named_in_the_environment_wins_over_the_passphrase(tmp_path: Path) -> None:
+    """hardening.conf names no back end here, so only TB_KEK_BACKEND keeps the passphrase back end from being chosen."""
+    (tmp_path / "media").mkdir()
+    env = {**_host(tmp_path, None, tpm=False), "TB_KEK_BACKEND": "shamir"}
+    res = _install(tmp_path, env, profile="site", site="PRODUCTION", conf=f"KEK_SHARES_OUT={tmp_path / 'media'}\n")
+    assert res.returncode == 0, res.stderr
+    assert K.read_meta(tmp_path / "secrets")["backend"] == "shamir"  # type: ignore[index]
+    assert "the KEK's back end: shamir" in res.stdout
