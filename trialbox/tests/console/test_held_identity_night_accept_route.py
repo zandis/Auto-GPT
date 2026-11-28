@@ -66,6 +66,7 @@ def held_box(box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     """A VALIDATION box: the console, the orchestrator's ``dataops`` routes and the adapter's app, one store (the
     test's ``TB_DB_URL``), one good night of site A served."""
     from adapter import app as adapter_app
+    from adapter.cli import keys_init
     from orchestrator.clients import AdapterHttp
 
     from tests.console.dataops_orch import attach
@@ -77,6 +78,7 @@ def held_box(box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     _registry(tmp_path, monkeypatch)
     (tmp_path / "site").mkdir()
     cfg, rb = _cfg(tmp_path / "site", os.environ["TB_DB_URL"])
+    assert keys_init(cfg.secrets_dir) == 0  # VALIDATION: the pid map key comes from the install ceremony only
     rep = _night(cfg, _feed(tmp_path / "site"), GOOD)
     assert rep.passed and not rep.held
     monkeypatch.setattr(adapter_app, "build_config", lambda: (cfg, None))
