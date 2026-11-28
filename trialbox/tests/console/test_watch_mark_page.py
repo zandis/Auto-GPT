@@ -38,12 +38,15 @@ def test_a_watched_criterion_that_changes_brings_the_patient_back(box: dict[str,
     pi, _ = login(box["app"], "pi", PW)
     week = pi.get("/studies/GZQO/week?list=all").text
     sheet = pi.get(f"/studies/GZQO/patients/{A}").text  # the full chart's mark box offers the open criteria
-    assert f'data-testid="watch-{A[:8]}"' in sheet and f'<option value="{WATCHED}">' in sheet
+    assert f'data-testid="watch-{A[:8]}"' in sheet and f'<option value="{WATCHED}=unknown">' in sheet
     assert 'data-testid="list-clinic"' not in week  # no visit on the list: no visit list
     bad = pi.post(f"/studies/GZQO/patients/{A}/mark",
                   data={"csrf": _csrf(week), "mark": "not_now", "reason": "GZQO-INC-99"})  # fmt: skip
     assert bad.status_code == 400
-    r = pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(week), "mark": "not_now", "reason": WATCHED})
+    r = pi.post(
+        f"/studies/GZQO/patients/{A}/mark",
+        data={"csrf": _csrf(week), "mark": "not_now", "reason": f"{WATCHED}=unknown"},
+    )
     assert r.status_code in (200, 303), r.text[:300]
     assert SiteStore().latest_marks("GZQO")[A].reason.endswith(f" watch:{WATCHED}=unknown")
     assert f'data-testid="row-{A[:8]}"' not in pi.get("/studies/GZQO/week?list=all").text  # set aside

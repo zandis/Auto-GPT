@@ -472,7 +472,7 @@ def weekly_rows(
         mk = marks.get(pid)
         mval = mk.mark if mk else None
         crits = list(r.get("criteria") or [])
-        watch = watch_state(mk, crits) if mval == "not_now" else None
+        watch = watch_state(mk, r, job_id) if mval == "not_now" else None
         if mval == "not_now" and today is not None and (recheck_due(mk, today) or (watch and watch["fired"])):
             mval = None  # the re-check date has come, or the watched criterion has another answer: back on the list
         status = derive_status(tier, registry.get(pid), mval, seen.get(pid) == job_id)
@@ -663,16 +663,22 @@ def recheck_due(mk: Any, today: date) -> bool:
 WATCH = " watch:"  # a "Not now" reason: "<re-check date> watch:<criterion id>=<its answer when marked>"
 
 
+WATCH_VERDICTS = ("pass", "fail", "unknown", "pending_human")
+
+
 def not_now_reason(when: date, watch: str, row: Mapping[str, Any]) -> str:
     """The stored reason of a "Not now" mark (lane K watch, H3-PROD §2 row 2): the re-check date first, so every
     reader of the date (:func:`recheck_due`, the person state) reads it as before; with ``watch`` also the criterion
-    the PI waits on and its answer on the list the mark is made from. A criterion not on the row is refused."""
+    the PI waits on and its answer. ``watch`` is ``<criterion id>=<answer>`` as the page showed it (so a run that
+    lands between the view and the mark is not taken as what the PI saw), or a bare criterion id (the answer on the
+    list the mark is made from). A criterion not on the row, or an answer that is no verdict, is refused."""
     if not watch:
         return when.isoformat()
-    was = next((str(c.get("verdict") or "") for c in row.get("criteria") or [] if str(c.get("id")) == watch), None)
-    if not was:
+    cid, eq, shown = watch.partition("=")
+    was = next((str(c.get("verdict") or "") for c in row.get("criteria") or [] if str(c.get("id")) == cid), None)
+    if not was or (eq and shown not in WATCH_VERDICTS):
         raise ValueError("the watched criterion is not on this patient's list row")
-    return f"{when.isoformat()}{WATCH}{watch}={was}"
+    return f"{when.isoformat()}{WATCH}{cid}={shown if eq else was}"
 
 
 def watch_of(mk: Any) -> tuple[str, str] | None:
@@ -682,14 +688,18 @@ def watch_of(mk: Any) -> tuple[str, str] | None:
     return (cid, was) if sep and eq and cid else None
 
 
-def watch_state(mk: Any, crits: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+def watch_state(mk: Any, row: Mapping[str, Any], job_id: str) -> dict[str, Any] | None:
     """A watch mark against this list's row: ``fired`` when the criterion has another answer now (a criterion no
-    longer on the row has no answer: fired too, so a changed protocol never hides the patient for good)."""
+    longer on the row has no answer: fired too, so a changed protocol never hides the patient for good), or when a
+    run after the mark changed it (``changed``), so an answer that changed and changed back in that run still shows.
+    Two runs between two looks that change it and change it back leave the patient set aside until the re-check
+    date (ponytail: no stored watch history; a "fired" record per mark if that ever matters)."""
     w = watch_of(mk)
     if w is None:
         return None
-    now = next((str(c.get("verdict") or "") for c in crits if str(c.get("id")) == w[0]), "")
-    return {"cid": w[0], "was": w[1], "now": now, "fired": now != w[1]}
+    now = next((str(c.get("verdict") or "") for c in row.get("criteria") or [] if str(c.get("id")) == w[0]), "")
+    rerun = w[0] in (row.get("changed") or []) and getattr(mk, "job_id", None) != job_id
+    return {"cid": w[0], "was": w[1], "now": now, "fired": now != w[1] or rerun}
 
 
 def worklists_for(rows: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:

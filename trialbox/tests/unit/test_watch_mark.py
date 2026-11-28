@@ -66,3 +66,20 @@ def test_the_clinic_list_is_offered_only_where_the_list_carries_a_visit() -> Non
     assert "clinic" not in st.worklists_for(none)
     assert st.worklists_for(booked) == st.WORKLISTS
     assert st.in_worklist(booked[0], "clinic", TODAY)
+
+
+def test_the_answer_the_page_showed_is_the_baseline_not_a_later_run() -> None:
+    """Review K1: a run lands between the PI's view (unknown) and the mark; the stored answer is the one shown."""
+    row = _cl("pass")["rows"][0]
+    assert st.not_now_reason(date(2027, 3, 1), f"{CID}=unknown", row) == "2027-03-01 watch:GZQO-INC-03=unknown"
+    with pytest.raises(ValueError):
+        st.not_now_reason(date(2027, 3, 1), f"{CID}=maybe", row)
+
+
+def test_a_change_and_change_back_in_a_later_run_still_brings_the_patient_back() -> None:
+    """Review K2: the run after the mark changed the criterion (``changed``) though the answer reads as before."""
+    mk = Mark(PID, "not_now", "2027-03-01 watch:GZQO-INC-03=unknown", None, "pi", AT, "J1")
+    cl = _cl("unknown")
+    cl["rows"][0]["changed"] = [CID]
+    assert st.weekly_rows(cl, {}, {}, {PID: mk}, {}, "J1", today=TODAY) == []  # the run the mark was made on
+    assert [r["pid"] for r in st.weekly_rows(cl, {}, {}, {PID: mk}, {}, "J2", today=TODAY)] == [PID]

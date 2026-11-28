@@ -18,7 +18,7 @@
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
     <label for="recheck-{{ s }}">{{ t('mark.recheck') }}</label><input id="recheck-{{ s }}" name="recheck" type="date" lang="{{ lang }}" min="{{ (today).isoformat() }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
     {# lane K watch (H3-PROD §2 row 2): the criterion the PI waits on; a re-screen that changes its answer brings the patient back #}
-    {% if watchable %}<label for="watch-{{ s }}">{{ t('mark.watch') }}</label><select id="watch-{{ s }}" name="reason" data-testid="watch-{{ s }}"><option value="">{{ t('mark.watch.none') }}</option>{% for c in watchable if c.verdict != 'pass' %}<option value="{{ c.id }}">{{ c.id }} {{ c.label }}</option>{% endfor %}</select>{% endif %}
+    {% if watchable %}<label for="watch-{{ s }}">{{ t('mark.watch') }}</label><select id="watch-{{ s }}" name="reason" data-testid="watch-{{ s }}"><option value="">{{ t('mark.watch.none') }}</option>{% for c in watchable if c.verdict != 'pass' %}<option value="{{ c.id }}={{ c.verdict }}">{{ c.id }} {{ c.label }}</option>{% endfor %}</select>{% endif %}
     <button type="submit" name="mark" value="not_now" class="secondary" data-testid="not_now-{{ s }}">{{ t('mark.not_now') }}</button>
   </form>
   {% if current %}<button type="submit" form="mk-{{ s }}" name="mark" value="withdraw" class="secondary" data-testid="withdraw-{{ s }}">{{ t('mark.withdraw') }}</button>{% endif %}
