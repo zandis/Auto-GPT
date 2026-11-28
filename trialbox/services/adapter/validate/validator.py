@@ -175,6 +175,10 @@ class ValidationResult:
     # T-619a: resource index -> the elements the validator matched to no slice of the profile (its information
     # "does not match any known slice"), so a check can tell a filled slice from an open one
     unsliced: dict[int, list[str]] = field(default_factory=dict)
+    # TOL-HOLDS (SAFE-1 A5): resource index -> its problem classes ("<type> <element>: <kind>", no value), and the
+    # sampled resources per type, so a class is measured against its own type (adapter.validation_baseline)
+    classes: dict[int, list[str]] = field(default_factory=dict)
+    types: dict[str, int] = field(default_factory=dict)
 
     @property
     def error_pct(self) -> float:
@@ -213,13 +217,14 @@ class Hl7Validator:
         command line holds only about 65,000 file names (``ARG_MAX``). A file keeps its index in the whole sample."""
         if not resources:
             return ValidationResult("hl7-validator", 0, 0)
-        total = ValidationResult("hl7-validator", len(resources), 0)
+        total = ValidationResult("hl7-validator", len(resources), 0, types=_types(resources))
         for start in range(0, len(resources), BATCH):
             part = self._validate_batch(resources[start : start + BATCH], start, extra_args)
             total.errors += part.errors
             total.messages = (total.messages + part.messages)[:200]
             total.per_file.update(part.per_file)
             total.unsliced.update(part.unsliced)
+            total.classes.update(part.classes)
         return total
 
     def _validate_batch(self, resources: list[Resource], start: int, extra_args: list[str] | None) -> ValidationResult:
@@ -258,6 +263,7 @@ class Hl7Validator:
         oos = [e["resource"] for e in doc.get("entry", [])] if doc["resourceType"] == "Bundle" else [doc]
         per_file: dict[int, list[str]] = {}
         unsliced: dict[int, list[str]] = {}
+        classes: dict[int, list[str]] = {}
         errors = 0
         messages: list[str] = []
         for oo in oos:
@@ -270,7 +276,7 @@ class Hl7Validator:
                 "?",
             )
             errs = [i for i in oo.get("issue", []) if i.get("severity") in ("error", "fatal")]
-            m = re.search(r"(?:^|[\\/])r(\d{5,})-[A-Za-z]+\.json$", fname)
+            m = re.search(r"(?:^|[\\/])r(\d{5,})-([A-Za-z]+)\.json$", fname)
             if m:
                 unsliced[int(m.group(1))] = [
                     (i.get("expression") or i.get("location") or [""])[0]
@@ -282,11 +288,13 @@ class Hl7Validator:
                     f"{((i.get('details') or {}).get('text') or i.get('diagnostics', ''))[:300]}"
                     for i in errs
                 ]
+                if errs:
+                    classes[int(m.group(1))] = sorted({_issue_class(m.group(2), i) for i in errs})
             if errs:
                 errors += 1
                 for i in errs[:3]:
                     messages.append(_issue_line(fname, i))
-        return ValidationResult("hl7-validator", n, errors, messages[:200], per_file, unsliced)
+        return ValidationResult("hl7-validator", n, errors, messages[:200], per_file, unsliced, classes)
 
 
 _FILE = re.compile(r"r\d{5,}-[A-Za-z]+\.json")
@@ -323,6 +331,23 @@ def _issue_line(fname: str, issue: dict[str, Any]) -> str:
     return f"{name} {place}: {kind}" + (f" ({mid})" if mid else "")
 
 
+def _issue_class(rtype: str, issue: dict[str, Any]) -> str:
+    """TOL-HOLDS: the issue's class, ``<type> <element>: <kind>``, each part kept only in its own shape (as
+    :func:`_issue_line`), so a baseline file holds no value of a row."""
+    places = issue.get("expression") or issue.get("location") or [""]
+    place = places[0] if isinstance(places, list) and places else ""
+    kind = issue.get("code")
+    return (f"{rtype} {place if isinstance(place, str) and _PLACE.fullmatch(place) else '?'}: "
+            f"{kind if isinstance(kind, str) and _KIND.fullmatch(kind) else 'error'}")  # fmt: skip
+
+
+def _types(resources: list[Resource]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for r in resources:
+        out[r["resourceType"]] = out.get(r["resourceType"], 0) + 1
+    return out
+
+
 def _count_line(count: int, model: str) -> str:
     """What the night's report keeps of a resource the R4B model refused (D-669): pydantic's count line
     ("1 validation error for Patient"), made from the error's own count and model name (typed fields), never from
@@ -341,15 +366,22 @@ class StructuralValidator:
 
         errors = 0
         messages: list[str] = []
-        for r in resources:
+        classes: dict[int, list[str]] = {}
+        for n, r in enumerate(resources):
             problems = missing_required(r)
+            kinds = [f"{r['resourceType']}.{x}: required" for x in problems]
             try:
                 get_fhir_model_class(r["resourceType"]).model_validate(r)
             except ValidationError as exc:  # the count and the model name only: typed fields, no text
                 problems.append(_count_line(exc.error_count(), str(exc.title)))
+                kinds.append(f"{r['resourceType']}: structure")
             except Exception as exc:
                 problems.append(type(exc).__name__)
+                kinds.append(f"{r['resourceType']}: structure")
             if problems:
                 errors += 1
+                classes[n] = sorted({f"{r['resourceType']} {k}" for k in kinds})
                 messages.append(f"{r['resourceType']}/{r['id']}: {'; '.join(problems)}")
-        return ValidationResult("structural-fallback", len(resources), errors, messages[:200])
+        return ValidationResult(
+            "structural-fallback", len(resources), errors, messages[:200], classes=classes, types=_types(resources)
+        )

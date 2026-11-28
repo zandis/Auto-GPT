@@ -157,6 +157,14 @@ def test_accept_promotes_and_a_failed_promotion_keeps_the_night_held(box: dict[s
     assert r.headers["location"].endswith("err=decision") and _state(bad) == HELD
 
 
+def test_the_accept_says_it_also_accepts_tonights_rates(box: dict[str, Any]) -> None:
+    """TOL-HOLDS (SAFE-1 A5): an accept records the night's problem rates as the site's baseline; the form says so."""
+    box["dataops"]["adapter"] = _Adapter()
+    _night(box, "2026-11-08")
+    page = _user(box, "stwbase", "steward").get("/data-ops").text
+    assert 'value="accept"' in page and 'data-testid="accept-baseline"' in page
+
+
 def test_the_administrator_reads_and_may_not_decide(box: dict[str, Any]) -> None:
     bid = _night(box, "2026-11-10")
     c, csrf = login(box["app"], "admin", ADMIN_PW)

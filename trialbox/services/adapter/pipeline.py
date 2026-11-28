@@ -1098,6 +1098,7 @@ def _run_ingest(
     # serving the previous snapshot
     at["step"] = "validate"
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
+    vres = None
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
         # T-693 (D-457): the sample is each type's share, at least 3 and at most a cap derived from the gate's own
@@ -1157,9 +1158,18 @@ def _run_ingest(
         (out_dir / sp.RECORD).write_text(
             json.dumps(record, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
         )
-    if vsum.error_pct > cfg.validation_max_pct:
-        errors.append(f"validation error rate {vsum.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
-        validation_msgs.append(errors[-1])
+    baseline_said: list[str] = []
+    if vres is not None:  # TOL-HOLDS (SAFE-1 A5): over the ceiling, judged against the classes a steward accepted
+        from adapter import validation_baseline
+
+        validation_baseline.write_night(out_dir, validation_baseline.rates(vres))
+        v_held, baseline_said = validation_baseline.judge(
+            validation_baseline.load(cfg.lake_dir), vres, cfg.validation_max_pct
+        )
+        errors += v_held
+        validation_msgs += v_held
+        for line in baseline_said:
+            log.warning("%s", line)
     if psum is not None and psum.error_pct > cfg.validation_max_pct:
         first = f": {psum.messages[0]}" if psum.messages else ""
         errors.append(
@@ -1255,7 +1265,8 @@ def _run_ingest(
     sorted_out |= {e for e in errors if e.startswith("night held: ")}
     sorted_out |= {f"{t}: {w}" for t, w in quarantined.items()}
     gate_facts.file_quarantine = quarantined
-    gate_facts.completeness, gate_facts.validation, gate_facts.overrides = completeness_msgs, validation_msgs, overrides
+    gate_facts.completeness, gate_facts.validation = completeness_msgs, validation_msgs
+    gate_facts.overrides = [*overrides, *baseline_said]
     gate_facts.other = [e for e in errors if e not in sorted_out]
     gate_facts.current_after = _current(cfg.lake_dir)
     gate = governance.gate_record(gate_facts, datetime.now(zone))
@@ -1301,6 +1312,7 @@ def _run_ingest(
                 "presence_words_read": presence_read,
                 "instants_to_site_offset": shifted,
                 "drop_override": "; ".join(overrides) or None,
+                "validation_baseline": baseline_said or None,  # TOL-HOLDS: a night the accepted baseline let through
                 # T-611: what the readiness page shows for a held night (tables only, never a row)
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
