@@ -14,6 +14,7 @@ import ast
 import base64
 import contextlib
 import json
+import quopri
 import random
 import re
 import time
@@ -67,7 +68,7 @@ _B64RUN = re.compile(r"[A-Za-z0-9+/_\-]{16,}={0,2}")
 def views(text: str) -> str:
     """``text`` with every view a reader could take of it: as written, decoded (percent, entities, escapes,
     quoted-printable, invisible characters out), and every base64 run decoded, twice."""
-    out = [text, bs._decode(text), bs._decode(text.replace("=\n", ""))]
+    out = [text, bs._decode(text), bs._decode(text.replace("=\n", "")), bs._decode(text.replace("=\r\n", ""))]
     for _ in range(2):
         more = []
         for m in _B64RUN.finditer("\n".join(out)):
@@ -130,7 +131,7 @@ def test_h76_03_a_secret_under_many_layers_is_replaced(form: str) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ H76-04
-SPLITS = ["=\n", "%E2%80%8B", "%e2%80%8b", "&shy;", "\u200b", "­", "⁠", "﻿", "&#8203;", "\\u200b"]
+SPLITS = ["=\n", "=\r\n", "%E2%80%8B", "%e2%80%8b", "&shy;", "\u200b", "­", "⁠", "﻿", "&#8203;", "\\u200b"]
 
 
 @pytest.mark.parametrize("cut", SPLITS)
@@ -556,3 +557,66 @@ def test_review_a_secret_inside_a_log_s_own_brackets_is_not_taken_for_a_mask(lin
     raw line with the value in it (only the direct ``_same_masks`` test told it apart before)."""
     out, _ = sb.redact_secrets(bs.scrub_text(line))
     assert "wq3bkmzt9x" not in (out + "\n" + bs._decode(out)).lower(), out
+
+
+# ------------------------------------------------------------------------------------------------ review 1634.1
+# A regex scrub cannot know every shape: where a value's end is ambiguous, it masks to the end of the quoted value,
+# the field or the line (more, never less). Synthetic names and values only.
+def _bundle(line: str) -> str:
+    out, _ = sb.redact_secrets(bs.scrub_text(line))
+    return out + "\n" + bs._decode(out)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'mysql --password "Kq7w Zx9m Pt4r" -h db',
+        "mysql --password 'Kq7w Zx9m Pt4r' -h db",
+        'mysql --password "Kq7w \\"Zx9m\\" Pt4r" -h db',
+    ],
+)
+def test_review_r1_a_quoted_flag_value_with_spaces_is_replaced_whole(line: str) -> None:
+    seen = _bundle(line)
+    assert not [w for w in ("Kq7w", "Zx9m", "Pt4r") if w in seen], seen
+
+
+@pytest.mark.parametrize(
+    "line", ['["mysql", "--password", "-Kq7w Zx9m"]', '["mysql", "--password", "Kq7w Zx9m"]', "['--token', 'Kq7w Zx9m']"]
+)
+def test_review_r3_a_quoted_list_value_with_a_hyphen_or_a_space_is_replaced(line: str) -> None:
+    seen = _bundle(line)
+    assert "Kq7w" not in seen and "Zx9m" not in seen, seen
+
+
+def test_review_r4_a_short_base64_email_is_masked() -> None:
+    enc = base64.b64encode(b"tx@ex.jp").decode()
+    assert len(enc) < 24
+    out = bs.scrub_text(f"contact {enc} ok")
+    assert enc not in out and "tx@ex.jp" not in views(out), out
+
+
+@pytest.mark.parametrize("tag", ["患者氏名", "病患姓名", "氏名", "住所"])
+def test_review_r5_an_xml_element_with_a_cjk_label_is_masked(tag: str) -> None:
+    out = bs.scrub_text(f"<{tag}>Testo Hanako</{tag}>")
+    assert "Testo" not in out and "Hanako" not in out, out
+
+
+def test_review_r6_a_quoted_printable_utf8_label_is_read_before_the_labels() -> None:
+    label = quopri.encodestring("患者氏名".encode()).decode()
+    assert label.startswith("=E6")
+    out = bs.scrub_text(f"{label}: Testo Hanako\n")
+    seen = out + "\n" + quopri.decodestring(out.encode()).decode("utf-8", "replace")
+    assert "Testo" not in seen and "Hanako" not in seen, out
+
+
+@pytest.mark.parametrize(
+    "line", ['{"patient_name": "Testo \\"Tee\\" Hanako", "n": 1}', '{"address": "1 Testo St \\"B\\" Hanako-cho"}']
+)
+def test_review_r7_an_escaped_quote_inside_a_labelled_value_does_not_end_it(line: str) -> None:
+    seen = bs.scrub_text(line)
+    assert "Testo" not in seen and "Hanako" not in seen, seen
+
+
+def test_review_r8_a_spaced_screening_number_before_a_count_is_masked() -> None:
+    out = bs.scrub_text("RA 0042 2 visits")
+    assert "0042" not in out, out
