@@ -1052,6 +1052,13 @@ def _run_ingest(
                     against.update({pid, q} - {key_pid} or {pid})
     against -= identity_conflicts
     held_pids = identity_conflicts | against
+    # SAFE-1 A4: a few charts with two people are records to hold; many are the mapping's key column, not records
+    two_people, tonight = len(identity_conflicts | against), len(set(patient_ids) | patient_who.keys())
+    if two_people >= IDENTITY_NIGHT_MIN and two_people > IDENTITY_NIGHT_SHARE * tonight:
+        errors.append(
+            f"patient identity: {two_people} of {tonight} chart numbers arrive as two people (over "
+            f"{IDENTITY_NIGHT_SHARE:.0%}): the chart-number column of the mapping looks wrong; the night is held"
+        )
     held_pids |= {o for o, n in aliases.items() if n in held_pids}  # nothing is written under a held chart
     if held_pids:  # a held chart number's merge is not applied tonight: what it holds is not written under another
         aliases = {o: n for o, n in aliases.items() if o not in held_pids}
@@ -1884,6 +1891,11 @@ UNMAPPED_CODES = "unmapped_codes.json"  # NEW-DIN-6 (D-580): every code no look-
 COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
 IDENTITY_CONFLICT = "identity_conflict.json"  # H34-06: the pids that arrived as two people (tonight / against)
 IDENTITY_CHECKED = "identity_checked.json"  # H34-06 review M1: the identity check ran on this night
+# SAFE-1 A4: the night itself is held only when at least this many of its chart numbers, and more than this share
+# of them, arrive as two people (a wrong key column); fewer hold their records and the night goes on
+# ponytail: fixed values; a site setting if a site ever needs another
+IDENTITY_NIGHT_SHARE = 0.01
+IDENTITY_NIGHT_MIN = 10
 _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of who the person is
 
 
