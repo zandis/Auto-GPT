@@ -21,6 +21,7 @@ from tb_common.llm import no_sentinel_date
 class _Res:
     def __init__(self, data: Any) -> None:
         self.data, self.call_id, self.build_sha, self.tokens_in, self.tokens_out = data, "c1", "b", 1, 1
+        self.qualification = ""
 
 
 class _Client:
