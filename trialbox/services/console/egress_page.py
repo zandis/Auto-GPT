@@ -9,6 +9,7 @@ study's log with every chart number is an exception to the person the reveal rig
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterator, Mapping
 from datetime import timedelta
@@ -22,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware import Middleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from tb_common import egress_edge, egress_record
+from tb_common.authz import permit
 
 from console import audit_page
 from console.home import Helpers
@@ -29,6 +31,7 @@ from console.i18n import CATALOGUES
 from console.rc1_guard import Rc1Guard, _path
 
 DAYS = 30
+PACKS = 1000  # the newest feasibility packs the published page lists
 PATHSEND = "http.response.pathsend"
 #: a handler that serves a file the box recorded when it built it names the record's sha256 here (1523 ruling); the
 #: layer takes it off the answer and hands it to the edge
@@ -193,3 +196,41 @@ def register(app: FastAPI, h: Helpers, _env: Mapping[str, str] | None = None) ->
             r["result_text"] = _word(sess, f"egress.{got}", got)
             r["reason_text"] = _word(sess, f"egress.reason.{r['reason']}", str(r["reason"]))
         return h.page(request, "egress.html", sess, rows=rows, days=DAYS, checks=egress_edge.doctor_checks())
+
+    @app.get("/audit/published")
+    def published(request: Request) -> Response:
+        """Lane K (H3-PROD §2 row 7): what was published, for the steward. Every trial-opportunity feed the box
+        built in the last year (period, studies published, its rounding threshold), every feasibility pack on the box
+        (study, version, snapshot, the small-cell threshold of its counts), and the departure record by day and
+        route. Counts only. The roles of ``audit.provenance`` (steward, privacy office, administrator)."""
+        sess = h.need(request)
+        if not permit(sess.user.role, audit_page.PROVENANCE):
+            h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+        since = (h.today() - timedelta(days=365)).isoformat()
+        feeds = [
+            {"day": r.ts[:10], **r.detail}
+            for r in audit_page.iter_events(
+                h.au.directory, audit_page.Filter(event="opportunity.feed", since=since), shown=False
+            )
+        ]
+        packs = []
+        # the orchestrator filters by type and state, so an old pack behind many newer jobs is still found; past
+        # PACKS the page says it shows the newest PACKS only (ponytail: no paging; add it if a site ever gets there)
+        done = h.bk.list_jobs(limit=PACKS, state="done", type_="FEAS")
+        for job in done:
+            prof = next((o for o in job.outputs or [] if o.filename.startswith("feasprofile_")), None)
+            try:
+                got = json.loads(h.bk.get_object(prof.minio_key)) if prof else {}
+            except (KeyError, ValueError, OSError):
+                got = {}  # unread: the page says so, never a default
+            got = got if isinstance(got, dict) else {}
+            packs.append({"job": job, "small_cell": got.get("small_cell"), "snapshot": got.get("snapshot")})
+        rows = egress_record.by_day(events(h))
+        for r in rows:
+            got = "refusal" if r["result"] == "refused" else str(r["result"])
+            r["result_text"] = _word(sess, f"egress.{got}", got)
+        return h.page(
+            request, "published.html", sess, feeds=feeds, packs=packs, rows=rows, days=DAYS,
+            capped=len(done) >= PACKS, cap=PACKS,
+        )  # fmt: skip

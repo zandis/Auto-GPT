@@ -213,8 +213,9 @@ def _cheap(raw: str, f: Filter, events: frozenset[str] | None) -> bool:
     return not (events is not None and not any(f'"{e}"' in raw for e in events))
 
 
-def iter_events(directory: Path, f: Filter, before: str = "") -> Iterator[Row]:
-    """The chain's events that match ``f``, newest first, from just before the cursor ``before`` (``day:line``)."""
+def iter_events(directory: Path, f: Filter, before: str = "", *, shown: bool = True) -> Iterator[Row]:
+    """The chain's events that match ``f``, newest first, from just before the cursor ``before`` (``day:line``).
+    ``shown`` False: each row's whole detail, for a page that reads one event kind's own fields (lane K)."""
     events = KINDS.get(f.kind)
     m = _CURSOR.match(before or "")
     stop_day, stop_line = (m.group(1), int(m.group(2))) if m else ("", 0)
@@ -250,7 +251,7 @@ def iter_events(directory: Path, f: Filter, before: str = "") -> Iterator[Row]:
                 ruleset=rec.get("ruleset") if isinstance(rec.get("ruleset"), str) else None,
                 hash=str(rec.get("hash", ""))[:12],
                 at=f"{day}:{i + 1}",
-                detail=_shown(det),
+                detail=_shown(det) if shown else det,
             )
 
 

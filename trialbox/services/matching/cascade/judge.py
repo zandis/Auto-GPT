@@ -113,6 +113,8 @@ class JudgeReply:
     # D-1072: on an agreed answer, each model's answer, verified quote and note (``did``), judge first; published only
     # on a "not eligible" (``engine._map``)
     pair_opinions: list[dict[str, Any]] = field(default_factory=list)
+    # BENCH-2 §2: on a disagreement, the judge's own answer (never affirmed); the engine takes it only where it keeps
+    kept: JudgeReply | None = None
 
     @property
     def all_calls(self) -> tuple[str, ...]:

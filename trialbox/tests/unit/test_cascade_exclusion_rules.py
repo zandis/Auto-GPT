@@ -21,6 +21,7 @@ Rule -> test (the mutation table is in the pull request of D-276):
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from typing import Any
 
@@ -357,3 +358,51 @@ def test_an_exclusion_criterion_met_on_part_of_the_evidence_is_not_final_either(
     res = _run(lake, rs, ["P-HIT", "P-MANY"], ScriptedJudge(quoting("pass", FLARE)), **kw)
     assert _stated_at_s3(res, "P-HIT", exc.id)  # D-1072: review, no longer excluded
     assert _kept_for_review(res, "P-MANY", exc.id)
+
+
+# ------------------------------------------------------------------------------- BENCH-2 §2: a demoter, never a veto
+def _disputed(kept: str) -> Any:
+    """The product pair's reply when the verifier answered otherwise: the plain rule's unknown, carrying the judge's
+    own (never affirmed) answer as ``kept``."""
+
+    def script(role: str, kw: dict[str, Any]) -> JudgeReply:
+        k = quoting(kept, FLARE)(role, kw)
+        ops = [{"role": "judge", "verdict": kept, "quote": k.quote, "quote_date": k.quote_date},
+               {"role": "verifier", "verdict": "unknown", "quote": None, "quote_date": None}]  # fmt: skip
+        return replace(reply("unknown", 0.0), reason="disagree", opinions=ops, kept=replace(k, affirmed=False))
+
+    return script
+
+
+def test_bench2_the_cascade_keeps_a_disputed_keep_flagged_and_never_excludes_on_a_disputed_answer(lake: Any) -> None:
+    met = _run(lake, ruleset([INC]), ["P-HIT"], ScriptedJudge(_disputed("pass"))).traces["P-HIT"].outcomes[INC.id]
+    assert met.status == "pass" and met.reason == "second_opinion_differs"
+    assert [o["role"] for o in met.evidence[-1]["opinions"]] == ["judge", "verifier"]
+    res = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], ScriptedJudge(_disputed("pass")))  # "present": not a keep
+    o = res.traces["P-HIT"].outcomes[EXC_FLARE.id]
+    assert o.status == "unknown" and o.reason == "disagree" and not _excluded_at_s3(res, "P-HIT", EXC_FLARE.id)
+
+
+def test_bench2_the_cascade_labels_an_unmentioned_exclusion_not_documented_and_only_that(lake: Any) -> None:
+    def said(reason: str) -> Any:
+        return ScriptedJudge(lambda role, kw: replace(reply("unknown", 0.0), reason=reason))
+
+    exc = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("abstained")).traces["P-HIT"]
+    assert exc.outcomes[EXC_FLARE.id].status == "unknown" and exc.outcomes[EXC_FLARE.id].reason == "not_documented"
+    assert exc.tier != "excluded"
+    inc = _run(lake, ruleset([INC]), ["P-HIT"], said("abstained")).traces["P-HIT"].outcomes[INC.id]
+    assert inc.status == "unknown" and inc.reason == "abstained"  # inclusion absence: never relabelled
+    odd = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("scripted")).traces["P-HIT"].outcomes[EXC_FLARE.id]
+    assert odd.reason == "abstained"  # only the models' own abstention reads not documented (review)
+
+
+def test_bench2_a_reply_carrying_not_documented_is_stored_abstained_unless_the_check_holds(lake: Any) -> None:
+    def said(quote: str | None) -> Any:
+        return ScriptedJudge(lambda role, kw: replace(reply("unknown", 0.0), reason="not_documented", quote=quote))
+
+    inc = _run(lake, ruleset([INC]), ["P-HIT"], said(None)).traces["P-HIT"].outcomes[INC.id]
+    assert inc.status == "unknown" and inc.reason == "abstained"  # the label is derived, never taken from a reply
+    quoted = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("flare in March")).traces["P-HIT"]
+    assert quoted.outcomes[EXC_FLARE.id].reason == "abstained"
+    bare = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said(None)).traces["P-HIT"]
+    assert bare.outcomes[EXC_FLARE.id].reason == "abstained"  # reply reason is not "abstained": the check fails

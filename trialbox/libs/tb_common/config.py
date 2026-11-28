@@ -1017,6 +1017,9 @@ DECLARED: dict[str, Declared] = {
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
+    "TB_PUBLIC_NAMES_FILE": Declared(
+        "path", "", "public-names check (tools): the pattern list, a file kept outside the repository"
+    ),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
     "TB_RELEASE_REGISTRY": Declared(

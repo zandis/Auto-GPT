@@ -71,6 +71,19 @@ class NoteEffect:
     reading_stands: bool = False
 
 
+def keeps(kind: str, condition_present: bool) -> bool:
+    """A decided note answer keeps the patient: an inclusion met, an exclusion stated absent (:func:`note_answer_may`
+    says ``keeps``). BENCH-2 §2: only such an answer stands when the second model did not confirm it."""
+    return not condition_present if kind == "exclusion" else condition_present
+
+
+def not_documented(kind: str, reason: str | None, quote: str | None) -> bool:
+    """BENCH-2 §2, the exclusion side only: the models read the notes, abstained and quoted nothing. The answer is
+    relabelled "not documented in the notes" (``not_documented``); it stays unknown, so the tier does not change. On
+    an inclusion, absence stays ``abstained``: never "not met"."""
+    return kind == "exclusion" and reason == "abstained" and not quote
+
+
 def note_answer_may(
     kind: str,
     condition_present: bool,
@@ -88,8 +101,7 @@ def note_answer_may(
     criterion's text, never its note question. ``sentence``: the record's sentence the quote was verified in, when the
     caller has it (a quote may be a fragment of it). ``affirmed``: both models said the quote affirms the condition, in
     this patient, now (:func:`affirms` of each); None or False is not said."""
-    eligible = not condition_present if kind == "exclusion" else condition_present
-    if eligible:
+    if keeps(kind, condition_present):
         return NoteEffect("keeps")
     if kind == "inclusion":
         return NoteEffect("review", INCLUSION_REASON, reading_stands=True)
