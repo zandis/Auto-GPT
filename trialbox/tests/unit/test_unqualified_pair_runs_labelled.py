@@ -274,7 +274,6 @@ def test_doctor_does_not_say_a_build_with_no_context_runs(tmp_path: Path) -> Non
     assert c.status == "WARN" and "labelled unqualified" not in c.detail, c.detail
 
 
-
 def test_doctor_does_not_say_a_pair_that_failed_the_canary_runs(tmp_path: Path) -> None:
     out = _site(tmp_path, weights={"canary_failed": "rec-1"})
     c = doctor.check_registry_pins(

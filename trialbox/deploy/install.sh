@@ -1792,7 +1792,7 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
       "${COMPOSE[@]}" restart orchestrator >/dev/null 2>&1 \
         || FAILS+=("the orchestrator did not restart after the model pair was promoted: docker compose --project-directory deploy restart orchestrator")
     elif pin_tool --demote-pair "$GPU" && "${COMPOSE[@]}" restart gateway >/dev/null 2>&1; then
-      FAILS+=("the model pair was promoted on its shipped record but the canary on this box did not pass (above): it is back to candidate and runs labelled unqualified; check the card, the driver and the model servers' logs, then re-run (RUNBOOK §11)")
+      FAILS+=("the model pair was promoted on its shipped record but the canary on this box did not pass (above): it is back to candidate and routes nothing; check the card, the driver and the model servers' logs, then re-run (RUNBOOK §11)")
     else
       FAILS+=("the model pair was promoted on its shipped record, the canary on this box did not pass (above), and the pair could NOT be put back: run python3 -m tools.pin_model --demote-pair $GPU, then restart the gateway, before anything is screened (RUNBOOK §11)")
       # H-110 (1396-1): a promoted pair that failed this box's canary and stays promoted is a pair the machine cannot

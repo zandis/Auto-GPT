@@ -203,7 +203,6 @@ def test_the_cli(box: Box, capsys: pytest.CaptureFixture[str]) -> None:
     assert not box.routes() and box.labelled()
 
 
-
 def test_a_pair_that_failed_this_box_canary_routes_nothing(box: Box) -> None:
     """B1 (review of SAFE-1 A1): a pair never promoted runs labelled; a pair put back after this box's canary did
     not pass is marked and routes nothing, the release's weights or not."""

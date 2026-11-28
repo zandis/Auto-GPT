@@ -739,7 +739,16 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
     names = ", ".join(f"{b.build_id} ({b.status.value}, {b.sha256[:12] if b.sha256 else ''})" for b in pinned)
     env = inp.env.get("TB_ENV", "DEV")
     # D-823: a VALIDATION box runs its candidate pair; PRODUCTION routes a champion or the release's own weights
-    release = [b for b in pinned if b.expected_sha256 and b.sha256 == b.expected_sha256 and not b.rehearsal_placeholder]
+    release = [
+        b
+        for b in pinned
+        if b.serving == "vllm"
+        and not b.context_unknown()
+        and b.expected_sha256
+        and b.sha256 == b.expected_sha256
+        and not b.rehearsal_placeholder
+        and not b.canary_failed
+    ]
     if env == "PRODUCTION" and not release and not any(b.status == Status.CHAMPION for b in pinned):
         return Check("registry_pins", "WARN", f"pinned: {names}; none is champion, so {env} roles route nothing")
     unqualified = [

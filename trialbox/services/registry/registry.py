@@ -43,8 +43,8 @@ unless its weights are the release's (below).
 with no thinking-on record too), tried only after every build the rules above route. On VALIDATION and PRODUCTION
 a local build with no record for its weights resolves with ``qualification="unqualified"``: the gateway writes it
 in the call record and the answer, and the page shows it. A pin with nothing expected (trust on first use,
-a hand pin) is never routed this way in PRODUCTION, and ``weights_unexpected``, ``context_unknown`` and a rehearsal
-placeholder stay refused.
+a hand pin) is never routed this way in PRODUCTION, and ``weights_unexpected``, ``context_unknown``, a rehearsal
+placeholder and a pair put back after this box's canary did not pass (``weights.canary_failed``) stay refused.
 
 **Thinking control** (10E-25). A build can declare ``thinking_control: can_disable`` or ``thinking_only``.
 An omitted field leaves the capability unknown. Judge and verifier routes (including ``second_opinion``) require
@@ -205,6 +205,11 @@ class Build:
         return self.weights.get("trust") == "rehearsal_placeholder"
 
     @property
+    def canary_failed(self) -> bool:
+        """SAFE-1 A1 review B1: ``pin_model --demote-pair`` put it back after this box's canary did not pass."""
+        return bool(self.weights.get("canary_failed"))
+
+    @property
     def qualified_for_production(self) -> bool:
         """A qualification reference that qualifies PRODUCTION for exactly the pinned weights (T-012b)."""
         q = self.qualification or {}
@@ -308,6 +313,7 @@ class Registry:
                 and bool(b.expected_sha256)
                 and b.sha256 == b.expected_sha256
                 and not b.rehearsal_placeholder
+                and not b.canary_failed
             )
             releases = unqualified and release_weights
             bypassed = False  # SAFE-1 A1: routed only because these are the release's weights
