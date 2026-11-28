@@ -58,3 +58,25 @@ def test_strip_makes_every_stored_record_valid_for_the_previous_schema(tmp_path:
         assert strip(db) == 0  # twice is safe
     finally:
         db.close()
+
+
+def _stored(db: JobDB, job_id: str) -> dict[str, Any]:
+    return dict(json.loads(db._db.fetchall("SELECT data FROM jobs WHERE job_id = ?", (job_id,))[0][0]))
+
+
+def test_strip_removes_a_stored_null_night_open(tmp_path: Path) -> None:
+    job_id = "01J0000000000000000000000C"
+    db = JobDB(schema="orch_" + hashlib.sha1(str(tmp_path.resolve()).encode()).hexdigest()[:10])
+    try:
+        db.put(_job(job_id, None))
+        stored = _stored(db, job_id)
+        stored["metrics"]["night_open"] = None  # a record left with the key present and null
+        with db.tx() as con:
+            con.execute("UPDATE jobs SET data = ? WHERE job_id = ?", (json.dumps(stored), job_id))
+        old = Draft202012Validator(_previous_schema())
+        assert not old.is_valid(_stored(db, job_id))  # the previous schema refuses the stored null
+        assert strip(db) == 1
+        assert old.is_valid(_stored(db, job_id))
+        assert strip(db) == 0
+    finally:
+        db.close()
