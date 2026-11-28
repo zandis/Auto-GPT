@@ -56,6 +56,7 @@ class Fixture(_Model):
     name: str
     params: dict[str, Any] = Field(default_factory=dict)
     facts: list[dict[str, Any]] = Field(default_factory=list)
+    index_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     expect: Literal["T", "F", "U"]
 
 
