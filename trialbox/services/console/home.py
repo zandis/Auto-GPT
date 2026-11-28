@@ -428,7 +428,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         gc.collect()
         gc.freeze()
 
-    def candidate_list(job: Job) -> dict[str, Any] | None:
+    def candidate_list(rs: str, job: Job) -> dict[str, Any] | None:
         """MVP-B: a run's stored candidate list never changes, so it is read and parsed once per study and run, not at
         every view (a 100,000-row list took seconds a view). Every reader copies before it changes (``{**cl, ...}``).
         ponytail: one parsed list per study stays in memory; bound it (an LRU) if many large studies are open."""
@@ -436,17 +436,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         if out is None:
             return None
         key = (out.minio_key, out.sha256)
-        got = lists_of.get(job.ruleset)
+        got = lists_of.get(rs)
         if got is None or got[0] != key:
             with parsing:
-                got = lists_of.get(job.ruleset)
+                got = lists_of.get(rs)
                 if got is None or got[0] != key:
                     cl = load(job, "candidate_list_", ".json")
                     if cl is None:
                         return None  # not kept: the next view asks again
-                    for k in [k for k in fits_of if k[0] == job.ruleset]:
+                    for k in [k for k in fits_of if k[0] == rs]:
                         del fits_of[k]  # the old list's fits (every language) go with it
-                    got = lists_of[job.ruleset] = (key, cl)
+                    got = lists_of[rs] = (key, cl)
                     freeze()
         return got[1]
 
@@ -465,7 +465,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         job = st.latest_job(jobs, rs, SCREEN_TYPES)
         if job is None:
             return None
-        cl = kept = candidate_list(job)
+        cl = kept = candidate_list(rs, job)
         if h.recorded:  # T-515 (D-323): recorded first and second checks on a DEV demo, each with its source
             cl = h.recorded.apply(cl, rs)
         # T-310a (D-446, CR-014): a not-matched patient sent back is on the PI's list again, until the PI marks them

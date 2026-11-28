@@ -30,7 +30,7 @@ PAGES = ("/studies/GZQO/week", f"/studies/GZQO/patients/{PID}", "/studies/GZQO/c
 
 def _list_key(box: dict[str, Any]) -> str:
     job = box["backend"].jobs[JOB]
-    return next(o.minio_key for o in job.outputs if o.filename.startswith("candidate_list_"))
+    return str(next(o.minio_key for o in job.outputs if o.filename.startswith("candidate_list_")))
 
 
 def test_the_runs_stored_list_is_read_once_for_every_page_view(
@@ -38,7 +38,13 @@ def test_the_runs_stored_list_is_read_once_for_every_page_view(
 ) -> None:
     bk, reads = box["backend"], []
     get = bk.get_object
-    monkeypatch.setattr(bk, "get_object", lambda k: (reads.append(k) if "/candidate_list_" in k else None, get(k))[1])
+
+    def counted(k: str) -> bytes:
+        if "/candidate_list_" in k:
+            reads.append(k)
+        return get(k)  # type: ignore[no-any-return]
+
+    monkeypatch.setattr(bk, "get_object", counted)
     crc = clients(box)["coordinator"]  # signing in opens the home page, which may read the run's list first
     for path in PAGES:
         assert crc.get(path, follow_redirects=False).status_code == 200, path
@@ -61,7 +67,12 @@ def test_a_second_view_writes_no_seen_row_and_works_out_no_listed_fit_again(
     monkeypatch.setattr(tbdb.Tx, "executemany", counted)
     fits: list[int] = []
     fit_facts = st.fit_facts
-    monkeypatch.setattr(st, "fit_facts", lambda *a, **k: (fits.append(1), fit_facts(*a, **k))[1])
+
+    def counted_fit(*a: Any, **k: Any) -> st.Fit:
+        fits.append(1)
+        return fit_facts(*a, **k)
+
+    monkeypatch.setattr(st, "fit_facts", counted_fit)
     assert crc.get(PAGES[0], follow_redirects=False).status_code == 200
     assert inserts == [], inserts  # every listed pseudonym is recorded already
     assert len(fits) <= 1, len(fits)  # the side panel's own; was 5 (two listed rows, twice, and the panel)
