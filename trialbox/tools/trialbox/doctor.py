@@ -1608,7 +1608,10 @@ def check_backup_key(inp: DoctorInputs) -> Check:
     ``deploy/secrets/backup.pub``). Without it every backup and every update's backup is skipped; the ``backup`` row
     judges the schedule and the targets, not the key. The backup's own encryption is run on empty input to the public
     key (TB-01: a truncated or wrong file passed when only its size was looked at); no private key is read.
-    FAIL in VALIDATION and PRODUCTION, WARN elsewhere."""
+    FAIL in VALIDATION and PRODUCTION, WARN elsewhere. During the install (``TB_DOCTOR_INSTALL_PHASE``, which install.sh
+    hands the host check) an absent key is a WARN carrying the ceremony line: the key can only be made once the box
+    runs, so the install cannot require it; the first night on PRODUCTION refuses without it (``site_needs``) and a
+    later ``doctor`` and ``doctor --strict`` FAIL it."""
     if inp.platform:
         return Check("backup_key", "PASS", "not a host check on a platform: see backup_target and backup_job")
     if inp.deploy is None:
@@ -1621,7 +1624,8 @@ def check_backup_key(inp: DoctorInputs) -> Check:
     except OSError:
         size = 0
     if not size:
-        return Check("backup_key", _soft(inp), f"no backup key {key}: every backup is skipped; make it in the key "
+        status = "WARN" if inp.env.get("TB_DOCTOR_INSTALL_PHASE", "").strip() else _soft(inp)
+        return Check("backup_key", status, f"no backup key {key}: every backup is skipped; make it in the key "
                      "ceremony with hospital IT (python -m tools.backup_key_ceremony, RUNBOOK §5)")  # fmt: skip
     try:
         from tools.trialbox import backup as bk
