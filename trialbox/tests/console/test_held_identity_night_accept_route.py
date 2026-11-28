@@ -22,6 +22,7 @@ from adapter.ndjson import snapshot_dir
 from adapter.pipeline import IDENTITY_CONFLICT
 from datacore.dataops import HELD, PUBLISHED, DataOps
 from fastapi.testclient import TestClient
+from tb_common import service_auth as sa
 from tb_common.http import ServiceError
 
 from tests.console.test_console_app import box  # noqa: F401 - the fixture is used by name
@@ -76,11 +77,16 @@ def held_box(box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
     monkeypatch.delenv("TB_SERVICE_TOKEN_FILE", raising=False)
     _registry(tmp_path, monkeypatch)
+    key = tmp_path / "actor.key"  # per-service tokens: the console signs the steward with its own key, the
+    key.write_text("5a" * 32, encoding="utf-8")  # orchestrator verifies with it (T-717, D-485); synthetic
+    monkeypatch.setenv(sa.ACTOR_SIGN_KEY_ENV, str(key))
+    monkeypatch.setenv(sa.ACTOR_KEYS_ENV, str(key))
     (tmp_path / "site").mkdir()
     cfg, rb = _cfg(tmp_path / "site", os.environ["TB_DB_URL"])
     assert keys_init(cfg.secrets_dir) == 0  # VALIDATION: the pid map key comes from the install ceremony only
     rep = _night(cfg, _feed(tmp_path / "site"), GOOD)
-    assert rep.passed and not rep.held
+    assert rep.passed and not rep.held and rb.calls == [GOOD]
+    rb.calls.clear()  # from here only the held night's publish
     monkeypatch.setattr(adapter_app, "build_config", lambda: (cfg, None))
     wire = _AdapterWire(TestClient(adapter_app.app, raise_server_exceptions=False))
     adapter = AdapterHttp("http://adapter.invalid")
