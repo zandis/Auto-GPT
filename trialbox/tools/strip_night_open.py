@@ -7,14 +7,21 @@ orchestrator stopped, before the old images start; it changes nothing else and i
 
 from __future__ import annotations
 
+import json
+
 from orchestrator.db import JobDB
 
 
 def strip(db: JobDB) -> int:
     n = 0
-    for j in db.find(type_="MICROBATCH", limit=10**9):
-        if j.metrics is not None and j.metrics.night_open is not None:
-            db.put(j.model_copy(update={"metrics": j.metrics.model_copy(update={"night_open": None})}))
+    for job_id, data in db._db.fetchall("SELECT job_id, data FROM jobs WHERE type = ?", ("MICROBATCH",)):
+        if "night_open" not in (json.loads(data).get("metrics") or {}):  # present, whatever its value (null too)
+            continue
+        j = db.get(job_id)
+        if j is not None and j.metrics is not None:
+            db.put(
+                j.model_copy(update={"metrics": j.metrics.model_copy(update={"night_open": None})})
+            )  # put omits None
             n += 1
     return n
 
