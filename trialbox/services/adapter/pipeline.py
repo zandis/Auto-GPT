@@ -1051,16 +1051,16 @@ def _run_ingest(
                 if _two_people(_who(r), patient_who[pid]):
                     against.update({pid, q} - {key_pid} or {pid})
     against -= identity_conflicts
-    held = identity_conflicts | against
-    held |= {o for o, n in aliases.items() if n in held}  # nothing is written under a held chart
-    if held:  # a held chart number's merge is not applied tonight: what it holds is not written under another
-        aliases = {o: n for o, n in aliases.items() if o not in held}
+    held_pids = identity_conflicts | against
+    held_pids |= {o for o, n in aliases.items() if n in held_pids}  # nothing is written under a held chart
+    if held_pids:  # a held chart number's merge is not applied tonight: what it holds is not written under another
+        aliases = {o: n for o, n in aliases.items() if o not in held_pids}
     if patient_pairs:
         # T-723: the night's chart numbers staged for the pid map, the held ones' identity left out: the served
         # identity is never replaced by another person's when the night is published
         pm = cfg.pidmap()
         try:
-            pm.stage(snap, patient_pairs, [(p, said) for p, said in identities if p not in held])
+            pm.stage(snap, patient_pairs, [(p, said) for p, said in identities if p not in held_pids])
         finally:
             pm.close()
     if base is not None and aliases:
@@ -1076,7 +1076,7 @@ def _run_ingest(
         cfg.sample_fraction if validate else None,
         cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
         cap,
-        held,
+        held_pids,
     )
     removed: dict[str, int] = {}
     carried_moved: dict[str, int] = {}
@@ -1092,11 +1092,11 @@ def _run_ingest(
     if removed:  # D-528: counts per record type only
         log.info("records the feed's rows no longer give were removed: %s", dict(sorted(removed.items())))
     (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
-    if held:
+    if held_pids:
         (out_dir / IDENTITY_CONFLICT).write_text(
             json.dumps({"snapshot": snap, "tonight": sorted(identity_conflicts),
                         "against": {"snapshot": last_good, "pids": sorted(against)},
-                        "held": sorted(held), "records": dict(sorted(night.withheld.items()))}, indent=1) + "\n",
+                        "held": sorted(held_pids), "records": dict(sorted(night.withheld.items()))}, indent=1) + "\n",
             encoding="utf-8",
         )  # fmt: skip
         log.error("patient identity: %d chart number(s) arrive as two people tonight, %d against night %s: their "
@@ -1108,7 +1108,7 @@ def _run_ingest(
     # review M1: the night says the identity check ran on it and its records were written without the held ones,
     # last and whole; an accept of a held night without it is refused (adapter.publish.refuse_two_people)
     checked = out_dir / f".{IDENTITY_CHECKED}"
-    checked.write_text(json.dumps({"snapshot": snap, "held": sorted(held)}) + "\n", encoding="utf-8")
+    checked.write_text(json.dumps({"snapshot": snap, "held": sorted(held_pids)}) + "\n", encoding="utf-8")
     checked.replace(out_dir / IDENTITY_CHECKED)
     defaulted, presence_read, shifted, aliased = (
         night.defaulted,
