@@ -388,6 +388,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "dfab16954d5d5931634cc8fa42810402cae9d271cfa6072ec0886f81e87b25eb",
         # 10F-1 (D-1387): user_pref, a person's own preferences (a new table only)
         "9409f881862035ee5dffac8b332111fb15b01b5229f76ab666d511b7c62156d3",
+        # TOL-AUTH (T-A030): session_drafts, a form sent after the session ended (a new table only)
+        "2955c8832135ae3e9e2c38c50bbdfcef4c7051c61a52f9ffda0f585ee5589e5a",
     ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year

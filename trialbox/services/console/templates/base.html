@@ -70,6 +70,7 @@
 {% with demo_at = 'foot' %}{% include "_demo_banner.html" %}{% endwith %}
 {% include "_feedback.html" %}</footer>
 {% if user and session_left is defined %}{% include "_idle_warn.html" %}{% endif %}
+{% if draft %}<script type="application/json" id="tb-draft" data-msg="{{ t('form.restored', n='{n}') }}" data-discard="{{ t('form.discard') }}">{{ draft|tojson }}</script>{% endif %}{# TOL-AUTH (T-A030) #}
 <script>{{ console_js|safe }}</script>
 </body>
 </html>

@@ -64,6 +64,7 @@ from console import (
     demo_guard,
     feedback,
     firstrun,
+    form_errors,
     i18n_roles,
     next_page,
     person_state,
@@ -984,6 +985,10 @@ def create_app(
             "ui_attrs": _once(lambda: prefs.html_attrs(us.prefs(sess.user.username)) if sess else {}),
             # D-1370 (9g-19): the idle warning's clock (idle limit, seconds to the idle lock and to the absolute end)
             "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
+            # TOL-AUTH (T-A030): a form sent after the session ended, back on its page once the same account is in
+            "draft": us.take_draft(sess.token_sha, next_page.page_of(request))
+            if sess and request.method == "GET"
+            else None,
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path
             + "?"
@@ -998,7 +1003,14 @@ def create_app(
         ended = bool(request.cookies.get(COOKIE))
         resp = RedirectResponse("/login?why=idle" if ended else "/login", status_code=303)
         if request.query_params.get("keep") != "1":  # D-1370: the idle warning's request is no page to return to
-            next_page.remember(resp, next_page.page_of(request), settings.secure_cookie)
+            kept = next_page.page_of(request)
+            next_page.remember(resp, kept, settings.secure_cookie)
+            if ended and kept and request.method == "POST":  # TOL-AUTH (T-A030): what the form carried, no secret
+                fields: dict[str, list[str]] = {}
+                for k, v in (await request.form()).multi_items():
+                    if isinstance(v, str) and not form_errors.is_secret(k):
+                        fields.setdefault(k, []).append(v[: form_errors.VALUE_MAX])
+                us.keep_draft(request.cookies.get(COOKIE, ""), kept, request.url.path, fields)
         return resp
 
     @app.exception_handler(_KeepAlive)
@@ -1238,7 +1250,8 @@ def create_app(
         if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
             return ident.second_step(user, role=role)  # D-1151: the chosen role waits for the code
         acting.at_sign_in(us, au, user.username, role)  # D-1151: every factor is right
-        token, _ = us.new_session(user, lang_of(request, None), "password")
+        token, new_sess = us.new_session(user, lang_of(request, None), "password")
+        us.hand_draft(request.cookies.get(COOKIE, ""), user.username, new_sess.token_sha)  # TOL-AUTH (T-A030)
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
         landing = "/home" if settings.pilot else "/"  # S1: land on the work list
         if us.must_change(user.username):  # D-279: a password someone else set is replaced first
@@ -1491,7 +1504,13 @@ def create_app(
                 password = random_password()
                 us.set_password(name, password, must_change=True)  # D-279: the owner replaces it at sign-in
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
-                keep_once(sess, name, password)
+                code = ""
+                reset_user = us.get(name)
+                # TOL-AUTH (T-A021): no authenticator yet, so the code goes with the password, one hand-over
+                if reset_user is not None and ident.needs_code(reset_user) and us.totp_state(name)[0] is None:
+                    code = us.issue_enrol_code(name)
+                    au.append("console.enrol_code", actor=actor(sess), detail={"user": name})
+                keep_once(sess, name, password + (f"\ncode:{code}" if code else ""))
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "scope":
                 scope_values(affiliation, studies, expires or None)

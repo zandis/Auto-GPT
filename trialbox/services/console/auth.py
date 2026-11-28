@@ -39,7 +39,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from tb_common.authz import permit
@@ -214,9 +214,23 @@ CREATE TABLE IF NOT EXISTS user_pref (
   PRIMARY KEY (username, name)
 )
 """
+# TOL-AUTH (TOL-1 §2.5, T-A030/T-A031): a session that ended on a time limit leaves one row naming its account; a
+# form sent to it afterwards keeps its typed values there (never a secret: console.form_errors.is_secret) until the
+# same account signs in again on that browser, for DRAFT_TTL at most. A new table only: nothing that is stored changes
+SCHEMA_V10 = """
+CREATE TABLE IF NOT EXISTS session_drafts (
+  token_sha TEXT COLLATE "C" PRIMARY KEY,
+  username TEXT COLLATE "C" NOT NULL,
+  page TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL DEFAULT '',
+  fields TEXT NOT NULL DEFAULT '',
+  at TEXT COLLATE "C" NOT NULL
+)
+"""
 MIGRATIONS: tuple[str, ...] = (
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10
 )  # fmt: skip
+DRAFT_TTL = timedelta(minutes=15)  # as the kept page (console.next_page.MAX_AGE)
 FACTORS = ("password", "totp")
 FACTOR_WINDOW = timedelta(days=30)  # D-719: the owner's rule, not a setting: one factor at a time for 30 days
 _COLS = "username, role, mailbox, affiliation, studies, expires"
@@ -822,6 +836,13 @@ class UserStore:
         user = self.get(str(row[0]))
         absolute = self._absolute_of(str(row[5]))
         if user is None or now - created > absolute or now - last > self.idle:
+            if user is not None:  # TOL-AUTH (T-A030): a time limit; a form sent to it later is kept for this account
+                self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((now - DRAFT_TTL).isoformat(),))
+                self.db.execute(
+                    "INSERT INTO session_drafts (token_sha, username, at) VALUES (?, ?, ?) "
+                    "ON CONFLICT (token_sha) DO NOTHING",
+                    (sha, user.username, now.isoformat()),
+                )
             self.end_session(token)
             return None
         if touch:
@@ -1286,6 +1307,38 @@ class UserStore:
 
     def end_session(self, token: str) -> None:
         self.db.execute("DELETE FROM sessions WHERE token_sha = ?", (_sha(token),))
+
+    # ------------------------------------------------------------------ a form sent after the end (TOL-AUTH, T-A030)
+    def keep_draft(self, token: str, page: str, action: str, fields: Mapping[str, list[str]]) -> None:
+        """Keep what a form sent to the ended session ``token`` carried (the caller leaves secrets out); nothing
+        when ``token`` is no session that ended on a time limit within ``DRAFT_TTL``."""
+        if not token or len(token) > 256 or not fields:
+            return
+        self.db.execute(
+            "UPDATE session_drafts SET page = ?, action = ?, fields = ? WHERE token_sha = ? AND at >= ?",
+            (page, action, json.dumps(fields), _sha(token), (self.clock() - DRAFT_TTL).isoformat()),
+        )
+
+    def hand_draft(self, old_token: str, username: str, new_token_sha: str) -> None:
+        """At a sign-in on a browser whose last session ended: its kept form moves to the new session when the same
+        account signed in, else it is dropped (another person never sees it)."""
+        if not old_token or len(old_token) > 256:
+            return
+        sha = _sha(old_token)
+        self.db.execute("UPDATE session_drafts SET token_sha = ? WHERE token_sha = ? AND username = ? AND fields <> ''",
+                        (new_token_sha, sha, username))  # fmt: skip
+        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ?", (sha,))
+
+    def take_draft(self, token_sha: str, page: str) -> dict[str, Any] | None:
+        """The kept form of this session for ``page`` ({"action", "fields"}), once; None otherwise."""
+        row = self.db.fetchone("SELECT action, fields, at FROM session_drafts WHERE token_sha = ? AND page = ?",
+                               (token_sha, page))  # fmt: skip
+        if row is None:
+            return None
+        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ?", (token_sha,))
+        if not row[1] or self.clock() - datetime.fromisoformat(str(row[2])) > DRAFT_TTL:
+            return None
+        return {"action": str(row[0]), "fields": json.loads(str(row[1]))}
 
     # ------------------------------------------------------------------ first start
     def bootstrap_from_file(self, path: Path, username: str = "admin", mailbox: str | None = None) -> User | None:
