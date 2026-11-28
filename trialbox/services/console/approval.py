@@ -37,8 +37,8 @@ from guard.injection import screen
 from tb_contracts import Job
 
 from console import ruleset_labels, terminology_refused
-from console.api_first import page_twin
 from console import studies as st
+from console.api_first import page_twin
 from console.auth import Session
 from console.home import Helpers
 from console.i18n import translate
@@ -253,8 +253,8 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         )
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=label#{crit}", status_code=303)
 
-    def apply_save(sess: Session, path: str, job_id: str, opened: list[str], tick: list[str], labels: list[tuple[str, str, str]],
-                   label_lang: str) -> dict[str, int]:  # fmt: skip
+    def apply_save(sess: Session, path: str, job_id: str, opened: list[str], tick: list[str],
+                   labels: list[tuple[str, str, str]], label_lang: str) -> dict[str, int]:  # fmt: skip
         """H3-UX fix 2: the approval page's one form (and its /api/v1 twin). Amber rows read, codes ticks and site
         labels in one round trip; each criterion keeps the record and the audit event its one-row route writes
         (D-146, D-309, D-120). A label (id, text, the value it was shown with) is saved only when it was changed
