@@ -102,7 +102,10 @@ def test_install_writes_the_cap_above_the_default_and_removes_its_own_when_no_lo
     env = _env(tmp_path, "TB_ENV=PRODUCTION\nTB_SITE_PATIENTS=100000\n")
     assert memcaps.main(["--env-file", str(env), "--write"]) == 0
     got = memcaps._parse_env(env.read_text(encoding="utf-8"))
-    assert got["TB_MEM_ORCH"] == f"{math.ceil(500 + 80 * 100_000 / 1024)}m"
+    peaks = memcaps.load_peaks(ROOT / "deploy" / "measured" / memcaps.PEAKS_NAME)
+    line = math.ceil(500 + 80 * 100_000 / 1024)  # the ladder line
+    floor = math.ceil(memcaps.HEADROOM * memcaps.peak_mib(peaks, "TB_MEM_ORCH", 100_000))  # 1.5 x the measured peak
+    assert got["TB_MEM_ORCH"] == f"{max(memcaps.size_mb('4g'), line, floor)}m"
     # the site was smaller than said: the default fits, and the value this tool wrote goes
     env.write_text(env.read_text(encoding="utf-8").replace("100000", "20000"), encoding="utf-8")
     memcaps.main(["--env-file", str(env), "--write"])

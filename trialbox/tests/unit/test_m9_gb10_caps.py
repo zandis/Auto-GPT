@@ -24,6 +24,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -82,9 +83,9 @@ def test_memcaps_never_writes_an_orchestrator_cap_under_the_profile_default(
     assert "TB_MEM_ORCH" not in memcaps._parse_env(env.read_text(encoding="utf-8"))
     env.write_text("TB_ENV=PRODUCTION\nTB_SITE_PATIENTS=100000\n", encoding="utf-8")
     assert memcaps.main(["--env-file", str(env), "--overlay", str(GB10), "--write"]) == 0
-    assert (
-        memcaps._parse_env(env.read_text(encoding="utf-8"))["TB_MEM_ORCH"] == f"{math.ceil(500 + 80 * 100_000 / 1024)}m"
-    )
+    peaks = memcaps.load_peaks(DEPLOY / "measured" / memcaps.PEAKS_NAME)  # the cap is derived from the measured peak
+    pin = math.ceil(memcaps.HEADROOM * memcaps.peak_mib(peaks, "TB_MEM_ORCH", 100_000))
+    assert memcaps._parse_env(env.read_text(encoding="utf-8"))["TB_MEM_ORCH"] == f"{pin}m"
 
 
 def test_the_installer_gives_memcaps_the_profile_overlay() -> None:
@@ -127,6 +128,25 @@ def test_doctor_judges_the_orchestrator_cap_by_the_profile_default(tmp_path: Pat
                         memcaps.load_orch_record(deploy / "measured" / "orchestrator_memory.json"),
                         overlay=deploy / PRO.name)  # fmt: skip
     assert caps["TB_MEM_ORCH"] is None  # the tool's own value under the profile's default: removed
+
+
+def _gb10_total_gib(profile: dict[str, Any], peaks: list[tuple[int, dict[str, float]]], n: int) -> float:
+    """Every container's cap on the Spark for a hospital of ``n`` patients (the models' limits included), plus the OS
+    reserve: each measured service holds the larger of its profile limit and 1.5 x its measured peak."""
+    limits = td.memory_limits(profile)
+    for svc, var in {**memcaps.CAPS, memcaps.ORCH: memcaps.ORCH_VAR}.items():
+        derived = math.ceil(memcaps.HEADROOM * memcaps.peak_mib(peaks, var, n)) / 1024
+        limits[svc] = max(limits[svc], derived)
+    return sum(v for k, v in limits.items() if k != "link") + float(profile["device"]["os_reserve_gib"])
+
+
+def test_the_gb10_caps_for_its_declared_site_size_fit_its_unified_memory() -> None:
+    """E2E P-02: the caps follow the measured peaks, so the profile's declared size is what they fit, not a typed claim."""
+    profile = td.load_profile()
+    peaks = memcaps.load_peaks(DEPLOY / "measured" / memcaps.PEAKS_NAME)
+    n, memory = profile["site"]["max_patients"], profile["device"]["unified_memory_gib"]
+    assert _gb10_total_gib(profile, peaks, n) <= memory  # the container caps and the models fit
+    assert all(_gb10_total_gib(profile, peaks, p) > memory for p, _ in peaks if p > n)  # lowered no further than needed
 
 
 def test_the_gb10_limits_still_fit_its_unified_memory() -> None:
