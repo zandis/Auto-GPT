@@ -242,8 +242,10 @@ def needs(reason: str | None, criterion: Any, valuesets: Mapping[str, Any] | Non
     elif r.value.startswith("derived_") and getattr(a, "derived", None):
         from tb_common.derived import COMPONENTS
 
+        every = list(COMPONENTS.get(str(a.derived), ()))
         part = str(reason or "").partition(":")[2].strip()
-        inputs = [part] if part else list(COMPONENTS.get(str(a.derived), ()))  # no input named: every input
+        part = part if part in every else ""  # only a declared input of this score: the engine string is not copied
+        inputs = [part] if part else every  # no input named: every input
         concept = f"{a.derived}: {', '.join(inputs)}" if inputs else str(a.derived)
         if r is Reason.DERIVED_UNIT and part and part not in DERIVED_VITAL:
             view, field = LAB_UNIT  # the input's unit is what the formula cannot use

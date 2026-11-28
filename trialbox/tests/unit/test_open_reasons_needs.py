@@ -165,3 +165,13 @@ def test_a_score_whose_reason_names_no_input_lists_every_input(
     r = Ruleset.load(ROOT / "rulesets" / rs)
     n = open_reasons.needs("derived_missing_input", r.by_id()[cid], r.valuesets)
     assert n == {"view": field[0], "field": field[1], "concept": concept}
+
+
+def test_text_after_the_colon_of_a_derived_reason_is_never_copied_into_the_need() -> None:
+    crit = _crit("GOUT-COH", "GOUT-COH-INC-06")
+    dirty = open_reasons.needs("derived_missing_input:Tanaka Taro 1950-01-01", crit)
+    clean = open_reasons.needs("derived_missing_input", crit)
+    assert dirty is not None and dirty == clean
+    assert "Tanaka" not in dirty["concept"] and "1950" not in dirty["concept"]
+    named = open_reasons.needs("derived_missing_input:height", crit)
+    assert named is not None and named["concept"] == "bmi: height"
