@@ -12,8 +12,8 @@ own rate, not the delta's mix.
 With a baseline, a night over the ceiling still holds when
 
 * a class is above its accepted rate by the margin, the larger of 2x and +1 point, or
-* the resources with a problem outside the baseline (a NEW class, or an error the validator names no class for)
-  are over the ceiling on their own;
+* the resources with a problem outside the baseline (a NEW class, a class that names no element, or an error the
+  validator names no class for) are over the ceiling on their own;
 
 otherwise it publishes, and the gate record carries a warning with every class's rate against its accepted one.
 The baseline only excuses: a night under the ceiling passes with or without it. Without the file (or with one that
@@ -44,6 +44,12 @@ def rates(v: ValidationResult) -> dict[str, float]:
             for c, n in sorted(counts.items())}  # fmt: skip
 
 
+def _vague(c: str) -> bool:
+    """A class that names no element (a model error, an issue without a place) could stand for any problem of its
+    type: never excused, so accepting one cannot let an unrelated error through later."""
+    return c.endswith(": structure") or " ?: " in c
+
+
 def _margin(accepted: float) -> float:
     return max(2 * accepted, accepted + 1)
 
@@ -60,7 +66,7 @@ def judge(base: dict[str, float] | None, v: ValidationResult, max_pct: float) ->
     worse = [f"{c} {r:g}% (accepted {base[c]:g}%)" for c, r in got.items() if c in base and r > _margin(base[c])]
     if worse:
         held.append(f"{over}: above the rate the steward accepted: {'; '.join(worse)}")
-    known = sum(1 for labels in v.classes.values() if labels and all(c in base for c in labels))
+    known = sum(1 for labels in v.classes.values() if labels and all(c in base and not _vague(c) for c in labels))
     outside = 100.0 * (v.errors - known) / v.sampled
     if outside > max_pct:
         new = sorted({c for labels in v.classes.values() for c in labels if c not in base})

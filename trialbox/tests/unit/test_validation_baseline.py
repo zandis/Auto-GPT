@@ -90,6 +90,17 @@ def test_errors_the_validator_names_no_class_for_are_never_excused() -> None:
 
 
 @pytest.mark.nodb
+@pytest.mark.parametrize("vague", ["Patient Patient: structure", "Patient ?: invalid"])
+def test_a_class_that_names_no_element_is_never_excused(vague: str) -> None:
+    """An accepted vague class (a model error, an issue with no element) must not excuse an unrelated error later."""
+    assert vb.judge({vague: 7.0}, _result({vague: 7}, {"Patient": 100}), 0.5)[0]
+    mixed = _result({}, {"Patient": 100})
+    mixed.classes = {i: [BIRTH, vague] for i in range(7)}
+    mixed.errors = 7
+    assert vb.judge({BIRTH: 7.0, vague: 7.0}, mixed, 0.5)[0]
+
+
+@pytest.mark.nodb
 def test_the_baseline_never_holds_a_night_under_the_ceiling() -> None:
     assert vb.judge({BIRTH: 0.1}, _result({BIRTH: 1, CODE: 1}, {"Patient": 10, "Condition": 990}), 0.5) == ([], [])
 
