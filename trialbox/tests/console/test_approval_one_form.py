@@ -150,3 +150,21 @@ def test_a_label_saved_in_another_tab_or_language_is_not_written_over(box: dict[
     # untouched labels from a page shown in another language do not hold up the rest of the form
     r = c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**stale, "label_lang": "zh-TW"}, follow_redirects=False)
     assert r.status_code == 303
+
+
+def test_the_one_form_has_an_api_twin(box: dict[str, Any]) -> None:
+    """FIT-019: the page action's /api/v1 twin records the same, criterion by criterion, and refuses the same."""
+    from fastapi.testclient import TestClient
+
+    job = _approval_job(box, _rows())
+    box["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(box, "pi")
+    api = TestClient(box["app"])
+    tok = api.post("/api/v1/session", json={"username": "pi", "password": PW}).json()["token"]
+    hdr = {"Authorization": f"Bearer {tok}"}
+    r = api.post(f"/api/v1/jobs/{job.job_id}/approval/save", json={"opened": AMBER, "tick": IDS[:2]}, headers=hdr)
+    assert r.status_code == 200 and r.json()["recorded"] == {"opened": 6, "labels": 0, "ticks": 2}
+    assert sorted(e["action"] for e in _events(box, "console.approval_open")) == sorted(AMBER)
+    r = api.post(f"/api/v1/jobs/{job.job_id}/approval/save", json={"tick": ["GZQO-INC-99"]}, headers=hdr)
+    assert r.status_code == 404
+    assert api.post(f"/api/v1/jobs/{job.job_id}/approval/save", json={"opened": AMBER}).status_code == 401

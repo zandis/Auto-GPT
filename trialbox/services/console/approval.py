@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 from collections.abc import Callable
 from datetime import date
@@ -36,6 +37,7 @@ from guard.injection import screen
 from tb_contracts import Job
 
 from console import ruleset_labels, terminology_refused
+from console.api_first import page_twin
 from console import studies as st
 from console.auth import Session
 from console.home import Helpers
@@ -251,56 +253,84 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         )
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=label#{crit}", status_code=303)
 
-    @app.post("/pilot/jobs/{job_id}/approval/save")
-    async def save(request: Request, job_id: str) -> Response:
-        """H3-UX fix 2: the approval page's one form. Amber rows read, codes ticks and site labels in one round trip;
-        each criterion keeps the record and the audit event its one-row route writes (D-146, D-309, D-120). Only a
-        label the person changed on the page (against the value it was shown with) is saved, so a pre-filled label
-        stays as it is, and a label saved meanwhile in another tab is not written over; the labels are in the language
-        the page was shown in. Each event is written before its record (an event without the record, never the
-        reverse)."""
-        sess = h.need(request)
-        form = await request.form()
-        if not h.csrf_ok(sess, str(form.get("csrf") or "")):
-            raise h.problem(400, "csrf")
-        opened, tick = [str(x) for x in form.getlist("opened")], [str(x) for x in form.getlist("tick")]
-        label_id, label_text = [str(x) for x in form.getlist("label_id")], [str(x) for x in form.getlist("label_text")]
-        label_was = [str(x) for x in form.getlist("label_was")]
-        edited = any(
-            " ".join(t.split()) and " ".join(t.split()) != " ".join(w.split())
-            for t, w in zip(label_text, label_was, strict=False)
-        )
+    def apply_save(sess: Session, path: str, job_id: str, opened: list[str], tick: list[str], labels: list[tuple[str, str, str]],
+                   label_lang: str) -> dict[str, int]:  # fmt: skip
+        """H3-UX fix 2: the approval page's one form (and its /api/v1 twin). Amber rows read, codes ticks and site
+        labels in one round trip; each criterion keeps the record and the audit event its one-row route writes
+        (D-146, D-309, D-120). A label (id, text, the value it was shown with) is saved only when it was changed
+        against what was shown, so a pre-filled label stays as it is and a label saved meanwhile in another tab is not
+        written over; an edited label is in the language the page was shown in. Each event is written before its
+        record (an event without the record, never the reverse)."""
+        edited = any(" ".join(t.split()) and " ".join(t.split()) != " ".join(w.split()) for _, t, w in labels)
         if not (sess.user.can_request or sess.user.can_approve) or ((opened or tick) and not sess.user.can_approve):
-            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
-        if label_id and sess.lang == "en":
+        if labels and sess.lang == "en":
             raise h.problem(400, "request.refused", reason="choose the page language the label is in first")
-        if edited and str(form.get("label_lang") or "") != sess.lang:  # only an edited label is in a language
+        if edited and label_lang != sess.lang:  # only an edited label is in a language
             raise h.problem(409, "request.refused", reason="the page language changed since this page was shown")
         job, book = waiting_job(sess, job_id)
         ctx = context(sess, job, book)
         ids = {str(r["id"]) for r in ctx["rows"]}
-        if not {*opened, *tick, *label_id} <= ids or not len(label_id) == len(label_text) == len(label_was):
+        if not {*opened, *tick, *(c for c, _, _ in labels)} <= ids:
             raise h.problem(404, "notfound")
         now = h.clock().isoformat()
         why = {str(r["id"]): ",".join(r["amber"]) for r in ctx["rows"]}
+        done = {"opened": 0, "labels": 0, "ticks": 0}
         for crit in dict.fromkeys(opened):
             if crit in ctx["ambers"] and crit not in ctx["opened"]:
                 au.append("console.approval_open", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
                           detail={"action": crit, "reason": why[crit]})  # fmt: skip
                 store.open_row(job.job_id, crit, sess.user.username, now)
-        for crit, text, was in zip(label_id, label_text, label_was, strict=True):
+                done["opened"] += 1
+        for crit, text, was in labels:
             words = " ".join(text.split())[:80]
             if words and words != " ".join(was.split())[:80] and words != ctx["labels"].get(crit, ""):
                 au.append("console.criterion_label", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
                           detail={"action": crit, "role": sess.user.role, "lang": sess.lang})  # fmt: skip
                 store.save_label(job.ruleset or "", crit, sess.lang, words, sess.user.username, now)
+                done["labels"] += 1
         for crit in dict.fromkeys(tick):
             if crit not in ctx["ticks"]:
                 au.append("console.code_tick", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
                           detail={"action": crit, "role": sess.user.role})  # fmt: skip
                 store.tick_codes(job.job_id, crit, sess.user.username, now)
+                done["ticks"] += 1
+        return done
+
+    @app.post("/pilot/jobs/{job_id}/approval/save")
+    async def save(request: Request, job_id: str) -> Response:
+        """H3-UX fix 2: the approval page's one form (:func:`apply_save`)."""
+        sess = h.need(request)
+        form = await request.form()
+        if not h.csrf_ok(sess, str(form.get("csrf") or "")):
+            raise h.problem(400, "csrf")
+        ids, texts, was = (form.getlist(k) for k in ("label_id", "label_text", "label_was"))
+        if not len(ids) == len(texts) == len(was):
+            raise h.problem(404, "notfound")
+        labels = [(str(c), str(t), str(w)) for c, t, w in zip(ids, texts, was, strict=True)]
+        apply_save(sess, request.url.path, job_id, [str(x) for x in form.getlist("opened")],
+                   [str(x) for x in form.getlist("tick")], labels, str(form.get("label_lang") or ""))  # fmt: skip
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=saved", status_code=303)
+
+    @app.post("/api/v1/jobs/{job_id}/approval/save")
+    @page_twin("/pilot/jobs/{job_id}/approval/save")
+    async def api_save(request: Request, job_id: str) -> dict[str, Any]:
+        """The one form's twin (FIT-019): ``{"opened": [ids], "tick": [ids], "labels": [{"id", "text", "was"}],
+        "lang": the language the labels are in}``; answers what was recorded."""
+        assert h.api_session is not None, "console.home.register runs first"
+        sess = h.api_session(request)  # the session and its scope first; the body only then
+        try:
+            body = json.loads(await request.body() or b"{}")
+        except ValueError:
+            body = None
+        rows = body.get("labels", []) if isinstance(body, dict) else None
+        if not isinstance(body, dict) or not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise h.problem(400, "request.refused", reason="a JSON object")
+        labels = [(str(r.get("id") or ""), str(r.get("text") or ""), str(r.get("was") or "")) for r in rows]
+        done = apply_save(sess, request.url.path, job_id, [str(x) for x in body.get("opened") or []],
+                          [str(x) for x in body.get("tick") or []], labels, str(body.get("lang") or ""))  # fmt: skip
+        return {"job_id": job_id, "recorded": done}
 
     @app.post("/pilot/jobs/{job_id}/approve")
     def approve(
