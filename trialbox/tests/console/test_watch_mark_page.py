@@ -36,8 +36,9 @@ def test_a_watched_criterion_that_changes_brings_the_patient_back(box: dict[str,
     box["users"].create("pi", "investigator", PW, "pi@hospa.test")
     name_pi(box, "pi")
     pi, _ = login(box["app"], "pi", PW)
-    week = pi.get(f"/studies/GZQO/week?list=all&pid={A}").text
-    assert f'data-testid="watch-{A[:8]}"' in week and f'<option value="{WATCHED}">' in week
+    week = pi.get("/studies/GZQO/week?list=all").text
+    sheet = pi.get(f"/studies/GZQO/patients/{A}").text  # the full chart's mark box offers the open criteria
+    assert f'data-testid="watch-{A[:8]}"' in sheet and f'<option value="{WATCHED}">' in sheet
     assert 'data-testid="list-clinic"' not in week  # no visit on the list: no visit list
     bad = pi.post(f"/studies/GZQO/patients/{A}/mark",
                   data={"csrf": _csrf(week), "mark": "not_now", "reason": "GZQO-INC-99"})  # fmt: skip
