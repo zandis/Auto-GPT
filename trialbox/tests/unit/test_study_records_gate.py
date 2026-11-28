@@ -23,8 +23,8 @@ def test_the_backup_is_needed_before_a_study_starts_its_records() -> None:
     [
         ({}, (), (), [("backup_target", "missing"), ("backup_key", "missing")]),
         (TARGET, (), (), [("backup_key", "missing")]),
-        ({}, ("backup_key",), (), [("backup_target", "missing")]),
-        (TARGET, ("backup_key",), ("backup_target",), [("backup_target", "stand_in")]),
+        ({}, ("secrets/backup.pub",), (), [("backup_target", "missing")]),
+        (TARGET, ("secrets/backup.pub",), ("backup_target",), [("backup_target", "stand_in")]),
     ],
     ids=["neither", "no-key", "no-target", "target-stand-in"],
 )
@@ -38,4 +38,4 @@ def test_production_refuses_a_study_opening_without_its_backup(
 
 
 def test_a_study_opens_with_its_backup_given() -> None:
-    assert not gate("study_records", production=True, env=TARGET, files=("backup_key",)).refused
+    assert not gate("study_records", production=True, env=TARGET, files=("secrets/backup.pub",)).refused
