@@ -401,9 +401,8 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
     def _clear(resp: Response, name: str) -> None:
         resp.delete_cookie(name, httponly=True, samesite="strict", secure=h.secure)
 
-    def _signed_in(user: User, lang: str, via: str, old_token: str = "") -> str:
-        token, sess = us.new_session(user, lang, via)
-        us.hand_draft(old_token, user.username, sess.token_sha)  # TOL-AUTH (T-A030): a form sent after the end
+    def _signed_in(user: User, lang: str, via: str) -> str:
+        token, _ = us.new_session(user, lang, via)
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": via})
         return token
 
@@ -520,14 +519,15 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             resp = h.login_page(request, 401, failed=True, uninitialised=False)
             _clear(resp, MFA_COOKIE)
             return resp
-        session_token = _signed_in(
-            user, h.lang_of(request, None), "password+totp", request.cookies.get(h.session_cookie, "")
-        )
+        session_token = _signed_in(user, h.lang_of(request, None), "password+totp")
+        kept = us.hand_draft(request.cookies.get(h.session_cookie, ""), user.username, session_token)  # T-A030
         # D-279: a password someone else set is replaced first
         done = RedirectResponse("/account" if us.must_change(user.username) else h.home, status_code=303)
         if not us.must_change(user.username):
             next_page.take(request, done)  # D-777: back to the page the session ended on
         done.set_cookie(h.session_cookie, session_token, httponly=True, samesite="strict", secure=h.secure)
+        if kept:
+            next_page.flag_draft(done, h.secure)
         _clear(done, MFA_COOKIE)
         return done
 

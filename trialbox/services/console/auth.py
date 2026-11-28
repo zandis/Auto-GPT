@@ -219,12 +219,13 @@ CREATE TABLE IF NOT EXISTS user_pref (
 # same account signs in again on that browser, for DRAFT_TTL at most. A new table only: nothing that is stored changes
 SCHEMA_V10 = """
 CREATE TABLE IF NOT EXISTS session_drafts (
-  token_sha TEXT COLLATE "C" PRIMARY KEY,
+  token_sha TEXT COLLATE "C" NOT NULL,
   username TEXT COLLATE "C" NOT NULL,
   page TEXT NOT NULL DEFAULT '',
   action TEXT NOT NULL DEFAULT '',
   fields TEXT NOT NULL DEFAULT '',
-  at TEXT COLLATE "C" NOT NULL
+  at TEXT COLLATE "C" NOT NULL,
+  PRIMARY KEY (token_sha, page)
 )
 """
 MIGRATIONS: tuple[str, ...] = (
@@ -840,7 +841,7 @@ class UserStore:
                 self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((now - DRAFT_TTL).isoformat(),))
                 self.db.execute(
                     "INSERT INTO session_drafts (token_sha, username, at) VALUES (?, ?, ?) "
-                    "ON CONFLICT (token_sha) DO NOTHING",
+                    "ON CONFLICT (token_sha, page) DO NOTHING",
                     (sha, user.username, now.isoformat()),
                 )
             self.end_session(token)
@@ -1315,19 +1316,22 @@ class UserStore:
         if not token or len(token) > 256 or not fields:
             return
         self.db.execute(
-            "UPDATE session_drafts SET page = ?, action = ?, fields = ? WHERE token_sha = ? AND at >= ?",
+            "INSERT INTO session_drafts (token_sha, username, page, action, fields, at) "
+            "SELECT token_sha, username, ?, ?, ?, at FROM session_drafts WHERE token_sha = ? AND page = '' AND at >= ? "
+            "ON CONFLICT (token_sha, page) DO UPDATE SET action = excluded.action, fields = excluded.fields",
             (page, action, json.dumps(fields), _sha(token), (self.clock() - DRAFT_TTL).isoformat()),
         )
 
-    def hand_draft(self, old_token: str, username: str, new_token_sha: str) -> None:
-        """At a sign-in on a browser whose last session ended: its kept form moves to the new session when the same
-        account signed in, else it is dropped (another person never sees it)."""
+    def hand_draft(self, old_token: str, username: str, new_token: str) -> bool:
+        """At a sign-in on a browser whose last session ended: its kept forms move to the new session when the same
+        account signed in, else they are dropped (another person never sees them). True when one moved."""
         if not old_token or len(old_token) > 256:
-            return
+            return False
         sha = _sha(old_token)
-        self.db.execute("UPDATE session_drafts SET token_sha = ? WHERE token_sha = ? AND username = ? AND fields <> ''",
-                        (new_token_sha, sha, username))  # fmt: skip
+        n = self.db.execute("UPDATE session_drafts SET token_sha = ? WHERE token_sha = ? AND username = ? "
+                            "AND page <> ''", (_sha(new_token), sha, username))  # fmt: skip
         self.db.execute("DELETE FROM session_drafts WHERE token_sha = ?", (sha,))
+        return n > 0
 
     def take_draft(self, token_sha: str, page: str) -> dict[str, Any] | None:
         """The kept form of this session for ``page`` ({"action", "fields"}), once; None otherwise."""
@@ -1335,7 +1339,7 @@ class UserStore:
                                (token_sha, page))  # fmt: skip
         if row is None:
             return None
-        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ?", (token_sha,))
+        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ? AND page = ?", (token_sha, page))
         if not row[1] or self.clock() - datetime.fromisoformat(str(row[2])) > DRAFT_TTL:
             return None
         return {"action": str(row[0]), "fields": json.loads(str(row[1]))}

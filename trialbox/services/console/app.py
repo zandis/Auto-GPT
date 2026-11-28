@@ -44,6 +44,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import ClientDisconnect
 from tb_common import egress_edge, trusted_proxy
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditFull, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
@@ -987,7 +988,7 @@ def create_app(
             "session_left": _once(lambda: us.session_left(sess.token_sha) if sess else None),
             # TOL-AUTH (T-A030): a form sent after the session ended, back on its page once the same account is in
             "draft": us.take_draft(sess.token_sha, next_page.page_of(request))
-            if sess and request.method == "GET"
+            if sess and request.method == "GET" and request.cookies.get(next_page.DRAFT_COOKIE)
             else None,
             # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
             "refresh_url": request.url.path
@@ -1007,9 +1008,13 @@ def create_app(
             next_page.remember(resp, kept, settings.secure_cookie)
             if ended and kept and request.method == "POST":  # TOL-AUTH (T-A030): what the form carried, no secret
                 fields: dict[str, list[str]] = {}
-                for k, v in (await request.form()).multi_items():
+                try:
+                    items = (await request.form()).multi_items()
+                except (StarletteHTTPException, ClientDisconnect):  # no readable form: the redirect alone, as before
+                    items = []
+                for k, v in items:
                     if isinstance(v, str) and not form_errors.is_secret(k):
-                        fields.setdefault(k, []).append(v[: form_errors.VALUE_MAX])
+                        fields.setdefault(k, []).append(v)  # whole: a cut note would be saved cut
                 us.keep_draft(request.cookies.get(COOKIE, ""), kept, request.url.path, fields)
         return resp
 
@@ -1250,8 +1255,8 @@ def create_app(
         if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
             return ident.second_step(user, role=role)  # D-1151: the chosen role waits for the code
         acting.at_sign_in(us, au, user.username, role)  # D-1151: every factor is right
-        token, new_sess = us.new_session(user, lang_of(request, None), "password")
-        us.hand_draft(request.cookies.get(COOKIE, ""), user.username, new_sess.token_sha)  # TOL-AUTH (T-A030)
+        token, _ = us.new_session(user, lang_of(request, None), "password")
+        kept = us.hand_draft(request.cookies.get(COOKIE, ""), user.username, token)  # TOL-AUTH (T-A030)
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
         landing = "/home" if settings.pilot else "/"  # S1: land on the work list
         if us.must_change(user.username):  # D-279: a password someone else set is replaced first
@@ -1260,6 +1265,8 @@ def create_app(
         if not us.must_change(user.username):
             next_page.take(request, done)  # D-777: back to the page the session ended on
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
+        if kept:
+            next_page.flag_draft(done, settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
         done.delete_cookie(LANG_COOKIE)
         return done

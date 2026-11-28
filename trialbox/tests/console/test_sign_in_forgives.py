@@ -203,40 +203,100 @@ def test_a_kept_form_expires_with_the_kept_page(tmp_path: Path) -> None:
     assert _draft(c.get("/help").text) is None
 
 
+def test_two_tabs_keep_two_forms_and_a_long_note_comes_back_whole(tmp_path: Path) -> None:
+    clock = Clock()
+    app, _users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    c = _signed_in_viewer(app)
+    csrf = _csrf(c.get("/help").text)
+    clock.tick(minutes=11)
+    long_note = "the patient said " + "x" * 3000  # longer than a failed form shows again (form_errors.VALUE_MAX)
+    for page, note in (("/help", long_note), ("/account", "second tab")):
+        r = c.post("/feedback", data={"csrf": csrf, "path": page, "comment": note},
+                   headers={"referer": "http://testserver" + page}, follow_redirects=False)  # fmt: skip
+        assert r.headers["location"] == "/login?why=idle"
+    assert _password(c, "viewer", VIEWER_PW).status_code == 303
+    assert (_draft(c.get("/help").text) or {})["fields"]["comment"] == [long_note]  # whole, never cut
+    assert (_draft(c.get("/account").text) or {})["fields"]["comment"] == ["second tab"]  # the other tab's too
+
+
 RUN_JS = """
-const [src, draft] = process.argv.slice(1);
-const mk = (name, type, value) => ({name, type, value, checked: false, disabled: false,
-  classList: {add() {}, remove() {}}});
-const fields = [mk("csrf", "hidden", "fresh"), mk("comment", "textarea", ""), mk("rating", "radio", "1"),
-  mk("rating", "radio", "2"), mk("other", "text", "typed after")];
+const [src, spec] = process.argv.slice(1);
+const {forms, draft, edit, discard} = JSON.parse(spec);
 const notes = [];
-const form = {getAttribute: (a) => (a === "action" ? "/feedback" : a === "data-draft-msg" ? null : null),
-  elements: fields, parentNode: {insertBefore: (n) => notes.push(n.textContent || n.children.map((c) => c.textContent).join(""))}};
-const el = () => ({setAttribute() {}, appendChild(c) { (this.children = this.children || []).push(c); },
-  addEventListener() {}, classList: {add() {}}, children: []});
+const built = forms.map((f) => {
+  const elements = f.fields.map(([name, type, value]) => ({name, type, value, checked: false, disabled: false,
+    classList: {add() {}, remove() {}}}));
+  return {getAttribute: (a) => (a === "action" ? f.action : null), elements,
+    parentNode: {insertBefore: (n) => notes.push(n), removeChild() {}}};
+});
+const el = () => ({setAttribute() {}, appendChild(c) { this.children.push(c); }, children: [], listeners: [],
+  addEventListener(ev, fn) { this.listeners.push(fn); }, classList: {add() {}}, parentNode: {removeChild() {}}});
 global.sessionStorage = {getItem: () => null, setItem() {}, removeItem() {}, length: 0, key: () => null};
 global.navigator = {};
 global.window = {location: {hash: "", pathname: "/help", search: ""}, history: {length: 1}, addEventListener: () => {}};
 global.document = {
-  getElementById: (id) => (id === "tb-draft" ? {textContent: draft, getAttribute: (a) => (a === "data-msg" ?
-    "Fields restored: {n}." : a === "data-discard" ? "Discard" : null)} : null),
+  getElementById: (id) => (id === "tb-draft" ? {textContent: JSON.stringify(draft), getAttribute: (a) =>
+    (a === "data-msg" ? "Fields restored: {n}." : a === "data-discard" ? "Discard" : null)} : null),
   querySelector: () => null, createElement: el,
-  querySelectorAll: (q) => (q === "form" ? [form] : [])};
+  querySelectorAll: (q) => (q === "form" ? built : [])};
 eval(src);
-console.log(JSON.stringify({values: fields.map((f) => f.type === "radio" ? f.checked : f.value), notes}));
+(edit || []).forEach(([i, name, value]) => { built[i].elements.find((x) => x.name === name).value = value; });
+if (discard) notes.forEach((n) => n.children[1].listeners.forEach((fn) => fn()));
+console.log(JSON.stringify({
+  values: built.map((f) => f.elements.map((x) => (x.type === "radio" ? x.checked : x.value))),
+  notes: notes.map((n) => n.children.map((c) => c.textContent).join("")),
+}));
 """
 
 
-def test_the_page_script_fills_the_kept_form_and_says_so() -> None:
+def _js(forms: list[dict[str, Any]], draft: dict[str, Any], **more: Any) -> dict[str, Any]:
     from console.app import CONSOLE_JS
 
     node = shutil.which("node")
     assert node, "node runs the console's script in the tests"
-    draft = json.dumps({"action": "/feedback", "fields": {"csrf": ["old"], "comment": ["half-typed note"],
-                                                          "rating": ["2"], "other": ["kept"]}})  # fmt: skip
-    out = subprocess.run([node, "-e", RUN_JS, CONSOLE_JS, draft], capture_output=True, text=True, timeout=30,
+    spec = json.dumps({"forms": forms, "draft": draft, **more})
+    out = subprocess.run([node, "-e", RUN_JS, CONSOLE_JS, spec], capture_output=True, text=True, timeout=30,
                          check=True)  # fmt: skip
-    got = json.loads(out.stdout.strip().splitlines()[-1])
-    # the fresh CSRF stays, the note and the choice come back, a field typed since is not overwritten
-    assert got["values"] == ["fresh", "half-typed note", False, True, "typed after"]
-    assert got["notes"] and "2" in got["notes"][0]
+    got: dict[str, Any] = json.loads(out.stdout.strip().splitlines()[-1])
+    return got
+
+
+FEEDBACK = {"action": "/feedback", "fields": [["csrf", "hidden", "fresh"], ["comment", "textarea", ""],
+                                             ["rating", "radio", "1"], ["rating", "radio", "2"],
+                                             ["other", "text", "typed after"]]}  # fmt: skip
+KEPT = {"action": "/feedback", "fields": {"comment": ["half-typed note"], "rating": ["2"], "other": ["kept"]}}
+
+
+def test_the_page_script_fills_the_kept_form_and_says_so() -> None:
+    got = _js([FEEDBACK], KEPT)
+    # the page's fresh CSRF stays, the note and the choice come back, a field typed since is not overwritten
+    assert got["values"] == [["fresh", "half-typed note", False, True, "typed after"]]
+    assert got["notes"] == ["Fields restored: 2. Discard"]
+
+
+def _row(pid: str) -> dict[str, Any]:
+    return {"action": "/studies/GZQO/marks", "fields": [["csrf", "hidden", "fresh"], ["pid", "hidden", pid],
+                                                       ["note", "text", ""]]}  # fmt: skip
+
+
+def test_only_the_row_of_the_same_patient_is_filled() -> None:
+    kept = {"action": "/studies/GZQO/marks", "fields": {"pid": ["p2"], "note": ["check the creatinine"]}}
+    got = _js([_row("p1"), _row("p2"), _row("p3")], kept)
+    assert got["values"] == [["fresh", "p1", ""], ["fresh", "p2", "check the creatinine"], ["fresh", "p3", ""]]
+    assert len(got["notes"]) == 1
+
+
+def test_two_forms_that_cannot_be_told_apart_get_nothing() -> None:
+    kept = {"action": "/studies/GZQO/marks", "fields": {"pid": ["p2"], "note": ["check the creatinine"]}}
+    got = _js([_row("p2"), _row("p2")], kept)
+    assert got["values"] == [["fresh", "p2", ""], ["fresh", "p2", ""]] and got["notes"] == []
+    assert _js([_row("p1")], kept)["values"] == [["fresh", "p1", ""]]  # no form of that patient: nothing
+
+
+def test_discard_undoes_the_refill_but_keeps_what_was_typed_since() -> None:
+    got = _js([FEEDBACK], {"action": "/feedback", "fields": {"comment": ["half-typed note"], "other": ["kept"]}},
+              discard=True)  # fmt: skip
+    assert got["values"] == [["fresh", "", False, False, "typed after"]]
+    kept = {"action": "/feedback", "fields": {"comment": ["half-typed note"]}}
+    got = _js([FEEDBACK], kept, edit=[[0, "comment", "half-typed note, then more"]], discard=True)
+    assert got["values"][0][1] == "half-typed note, then more"  # changed since the refill: Discard leaves it

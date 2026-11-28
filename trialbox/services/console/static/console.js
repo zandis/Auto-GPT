@@ -182,28 +182,37 @@
   // 6b. TOL-AUTH (T-A030): a form sent after the session ended comes back once the same account has signed in again.
   // The server kept what it carried (never a password, a code or the CSRF token) and gives it to its page once
   // (#tb-draft, data only). Empty fields of the form with the same action are filled, choices ticked again; the
-  // page's own CSRF token and anything typed since stay; the D-1222 notice says how many came back.
+  // page's own CSRF token and anything typed since stay; the D-1222 notice says how many came back. Only the ONE form
+  // with that action whose hidden values (the patient, the record) are the kept ones is filled: with two such forms,
+  // or none, nothing is (a row's answers never land in another patient's row).
   try {
     var dj = document.getElementById("tb-draft"), dv = dj ? JSON.parse(dj.textContent || "null") : null;
-    if (dv && dv.fields) {
-      document.querySelectorAll("form").forEach(function (f) {
-        if ((f.getAttribute("action") || "") !== dv.action) return;
+    var same = dv && dv.fields ? Array.prototype.filter.call(document.querySelectorAll("form"), function (f) {
+      if ((f.getAttribute("action") || "") !== dv.action) return false;
+      return Array.prototype.every.call(f.elements, function (x) {
+        var v = dv.fields[x.name];
+        return x.type !== "hidden" || !v || v.indexOf(x.value) >= 0;
+      });
+    }) : [];
+    if (same.length === 1) {
+      same.forEach(function (f) {
         var put = [], left = {};
         Object.keys(dv.fields).forEach(function (n) { left[n] = dv.fields[n].slice(); });
         Array.prototype.forEach.call(f.elements, function (x) {
           var v = left[x.name];
           if (!v || x.disabled || ["hidden", "submit", "button", "password", "file"].indexOf(x.type) >= 0) return;
           if (x.type === "checkbox" || x.type === "radio") {
-            if (v.indexOf(x.value) >= 0 && !x.checked) { x.checked = true; put.push(x); }
+            if (v.indexOf(x.value) >= 0 && !x.checked) { put.push({ x: x, was: x.value }); x.checked = true; }
           } else if (!x.value || x.tagName === "SELECT") {
+            put.push({ x: x, was: x.value });
             x.value = v.shift();
-            put.push(x);
+            put[put.length - 1].now = x.value;
           } else {
             v.shift(); // typed since: kept as it is
           }
         });
         if (!put.length) return;
-        put.forEach(function (x) { x.classList.add("restored"); });
+        put.forEach(function (p) { p.x.classList.add("restored"); });
         var note = document.createElement("p"), span = document.createElement("span"), btn = document.createElement("button");
         note.className = "warn";
         note.setAttribute("role", "status");
@@ -213,10 +222,11 @@
         btn.className = "secondary small";
         btn.setAttribute("data-testid", "form-discard");
         btn.textContent = dj.getAttribute("data-discard") || "\u00d7";
-        btn.addEventListener("click", function () {
-          put.forEach(function (x) {
-            if (x.type === "checkbox" || x.type === "radio") x.checked = false; else x.value = "";
-            x.classList.remove("restored");
+        btn.addEventListener("click", function () { // undo: each field as the page showed it, unless changed since
+          put.forEach(function (p) {
+            if (p.x.type === "checkbox" || p.x.type === "radio") p.x.checked = false;
+            else if (p.x.value === p.now) p.x.value = p.was;
+            p.x.classList.remove("restored");
           });
           note.parentNode.removeChild(note);
         });
