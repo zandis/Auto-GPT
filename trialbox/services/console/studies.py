@@ -699,6 +699,7 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
                 "reason": ev.get("reason"),
+                "needs": ev.get("needs"),  # H-7: the view, field and concept the site must supply for an open answer
                 # both quotes (D-120); each says where it came from: the test model, a recorded run or a synthetic
                 # example (T-515)
                 "opinions": [view(o, test_model_in_use()) for o in ev.get("opinions") or [] if o.get("quote")],
