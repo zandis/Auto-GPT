@@ -183,8 +183,10 @@ def test_h76_06_more_screening_prefixes_are_masked(shape: str) -> None:
 SPAWN = {"run", "Popen", "call", "check_call", "check_output", "system", "popen", "spawnl", "spawnv", "execv",
          "execvp", "execl", "startfile", "create_subprocess_exec", "create_subprocess_shell"}  # fmt: skip
 SPAWN_ALLOWED = {
-    ("run_cmd", "subprocess.run"),  # the commands of the bundle; their output goes through the scrub
-    ("last_look", "ds.run"),  # tools.data_scan.run: the last look reads the archive, it starts nothing
+    ("support_bundle:run_cmd", "subprocess.run"),  # the commands of the bundle; their output goes through the scrub
+    ("support_bundle:last_look", "ds.run"),  # tools.data_scan.run: the last look reads the archive, it starts nothing
+    # the egress rules asked of one container of the box image (already on the base: no network, no mount)
+    ("bundle_scrub:_Image.__init__", "subprocess.Popen"),
 }
 
 
@@ -194,15 +196,17 @@ def _spawns(path: Path) -> set[tuple[str, str]]:
 
     def visit(node: ast.AST, fn: str) -> None:
         for child in ast.iter_child_nodes(node):
-            name = child.name if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef) else fn
+            name = fn
+            if isinstance(child, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                name = f"{fn}.{child.name}" if fn else child.name
             if isinstance(child, ast.Call):
                 f = child.func
                 last = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else ""
                 if last in SPAWN:
-                    out.add((fn, ast.unparse(f)))
+                    out.add((f"{path.stem}:{fn or '<module>'}", ast.unparse(f)))
             visit(child, name)
 
-    visit(tree, "<module>")
+    visit(tree, "")
     return out
 
 
