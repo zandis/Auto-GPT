@@ -125,7 +125,7 @@ def refuse_two_people(cfg: AdapterConfig, snap: str, folder: Path) -> None:
     ``IDENTITY_CHECKED``: held by an earlier release, or by a run that stopped before the check; review M1), and so
     does a night compared with another served night than the one served now (review P04: it is run again, so
     compared with the night it would follow)."""
-    from adapter.pipeline import IDENTITY_CHECKED, IDENTITY_CONFLICT, merge_base
+    from adapter.pipeline import IDENTITY_CHECKED, IDENTITY_CONFLICT, merge_base, refuse_future_night
 
     try:
         checked = json.loads((folder / IDENTITY_CHECKED).read_text(encoding="utf-8"))
@@ -138,7 +138,26 @@ def refuse_two_people(cfg: AdapterConfig, snap: str, folder: Path) -> None:
         checked = None
     if not isinstance(checked, dict):
         raise TwoPeopleOneChart(f"the identity check's record of this night ({IDENTITY_CHECKED}) cannot be read")
+    try:
+        tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
+    except FileNotFoundError:
+        tonight = False
+    except (OSError, ValueError, AttributeError):
+        tonight = True
+    if tonight:
+        raise TwoPeopleOneChart(
+            f"a chart number of this night arrived as two different people ({IDENTITY_CONFLICT}): it cannot be "
+            "accepted as it stands. Reject it, correct the chart at the source and run the night again"
+        )
     now = _current(cfg.lake_dir)
+    if now is not None and now > snap:
+        return  # a newer night is served: publish_night refuses it in its own words (review HIGH-1)
+    try:
+        from zoneinfo import ZoneInfo
+
+        refuse_future_night(snap, datetime.now(ZoneInfo(cfg.tz)).date())
+    except ValueError:
+        return  # dated after today: publish_night refuses it in its own words (D-529)
     # ponytail: a record without the two keys is this change's earlier format only (never on a box)
     if ("against" in checked and checked["against"] != merge_base(cfg.lake_dir, snap)) or (
         "current" in checked and now not in (checked["current"], snap)  # ``snap``: its own accept, resumed
@@ -146,17 +165,6 @@ def refuse_two_people(cfg: AdapterConfig, snap: str, folder: Path) -> None:
         raise TwoPeopleOneChart(
             "another night was served since this night's identity check compared it with the served one: run the "
             "night again (it is compared with the night served now), then decide on it"
-        )
-    try:
-        tonight = json.loads((folder / IDENTITY_CONFLICT).read_text(encoding="utf-8")).get("tonight", True)
-    except FileNotFoundError:
-        return
-    except (OSError, ValueError, AttributeError):
-        tonight = True
-    if tonight:
-        raise TwoPeopleOneChart(
-            f"a chart number of this night arrived as two different people ({IDENTITY_CONFLICT}): it cannot be "
-            "accepted as it stands. Reject it, correct the chart at the source and run the night again"
         )
 
 
