@@ -331,7 +331,8 @@ def test_backup_check_fails_in_production_on_a_missing_off_box_target_route_cron
     deploy, cron = _backup_box(tmp_path, f"TB_BACKUP_TARGETS={local}\n")
     prod = {"TB_ENV": "PRODUCTION", "TB_TOPOLOGY": "A", "TB_BACKUP_TARGETS": str(local)}
     c = status(doctor.run(inputs(env=prod, deploy=deploy, cron_dir=cron), (doctor.check_backup,)), "backup")
-    assert c.status == "FAIL" and "no off-box backup target" in c.detail and "no alert route" in c.detail
+    # TOL-1 T-I144: no route given is the health page by default (a WARN naming who opens it), not a FAIL reason
+    assert c.status == "FAIL" and "no off-box backup target" in c.detail and "no alert route" not in c.detail
     assert f"no {cron / bs.CRON_NAME}" in c.detail
     dev = status(doctor.run(inputs(env={**prod, "TB_ENV": "DEV"}, deploy=deploy, cron_dir=cron),
                             (doctor.check_backup,)), "backup")  # fmt: skip

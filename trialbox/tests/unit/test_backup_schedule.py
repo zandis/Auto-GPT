@@ -871,15 +871,21 @@ def _deploy_with_template(tmp_path: Path, env: str) -> Path:
 def test_install_writes_the_cron_file_and_production_needs_an_alert_route(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """CR-058, OPS-028: install installs the cron; in PRODUCTION without an alert route it refuses."""
+    """CR-058, OPS-028: install installs the cron. TOL-INSTALL (the owner's ruling): in PRODUCTION without an alert
+    route the health page is the route, said as a warning, and the cron is written (the backups run); a cron that
+    cannot be written still refuses."""
     for k in ("TB_ENV", "TB_BACKUP_ALERT_CMD", "TB_BACKUP_MAILTO", "TB_BACKUP_TARGETS"):
         monkeypatch.delenv(k, raising=False)
     cron = tmp_path / "cron.d"
     deploy = _deploy_with_template(tmp_path, "TB_ENV=PRODUCTION\n")
     cfg = bs.config(deploy, {"TB_ENV": "PRODUCTION"})
-    with pytest.raises(ValueError, match="PRODUCTION needs a backup alert route"):
-        bs.install_cron(cfg, cron, deploy.parent, has_mta=True)
-    assert not (cron / bs.CRON_NAME).exists()
+    blocked = tmp_path / "not-a-folder"
+    blocked.write_text("", encoding="utf-8")
+    with pytest.raises(OSError):  # the safety case: no schedule can be written, so the install stops
+        bs.install_cron(cfg, blocked, deploy.parent, has_mta=True)
+    notes = bs.install_cron(cfg, cron, deploy.parent, has_mta=True)
+    assert any(n.startswith("warning: no backup alert route was given") for n in notes), notes
+    assert (cron / bs.CRON_NAME).is_file()
     cfg = bs.config(deploy, {"TB_ENV": "PRODUCTION", "TB_BACKUP_MAILTO": "it@hospital.example"})
     with pytest.raises(ValueError, match="no mail transfer agent"):
         bs.install_cron(cfg, cron, deploy.parent, has_mta=False)
@@ -943,8 +949,13 @@ def test_backup_install_installs_the_cron_and_runs_the_first_backup(
     deploy = _deploy_with_template(tmp_path, "TB_ENV=PRODUCTION\nTB_PG_ARCHIVE_MODE=off\n")
     cron = tmp_path / "cron.d"
     monkeypatch.setenv("TB_COMPOSE", "false")
-    assert cli(["backup-install", "--deploy", str(deploy), "--cron-dir", str(cron)]) == 1
-    assert "alert route" in capsys.readouterr().out and not (cron / bs.CRON_NAME).exists()
+    blocked = tmp_path / "not-a-folder"
+    blocked.write_text("", encoding="utf-8")
+    # TOL-INSTALL: a schedule that cannot be written still stops; no alert route is the health page (a warning)
+    assert cli(["backup-install", "--deploy", str(deploy), "--cron-dir", str(blocked)]) == 1
+    assert "backup-install: " in capsys.readouterr().out
+    assert cli(["backup-install", "--deploy", str(deploy), "--cron-dir", str(cron)]) == 0
+    assert "no backup alert route was given" in capsys.readouterr().out and (cron / bs.CRON_NAME).is_file()
     with (deploy / ".env").open("a") as fh:
         fh.write("TB_BACKUP_ALERT_CMD=/usr/local/bin/tb-mail\n")
     assert cli(["backup-install", "--deploy", str(deploy), "--cron-dir", str(cron)]) == 0

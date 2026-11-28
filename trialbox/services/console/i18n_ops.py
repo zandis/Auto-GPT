@@ -83,6 +83,9 @@ EN: dict[str, str] = {
     "ops.update.point": "{images} images kept, {dumps} database copies kept",
     "ops.disk": "Disk",
     "ops.disk.free": "{free} GB free of {total} GB",
+    "ops.open_items": "Still to do after the install ({n})",
+    "ops.open_items.help": "The box runs. Each line is a step that warned and went on: fix it with hospital IT, "
+    "then run that step again.",
     "ops.secrets.missing": "{n} missing",
     "ops.secrets.help": "The service passwords of this box, by name only. A value is never shown, here or anywhere.",
     "ops.secrets.none": "The secrets status is not available yet.",
@@ -227,6 +230,9 @@ JA: dict[str, str] = {
     "ops.update.point": "イメージ {images} 件、データベースのコピー {dumps} 件を保持",
     "ops.disk": "ディスク",
     "ops.disk.free": "{total} GB 中 {free} GB 空き",
+    "ops.open_items": "インストール後に残っている作業（{n}件）",
+    "ops.open_items.help": "機器は動いています。各行は警告を出して続行した手順です。"
+    "病院のIT担当と直してから、その手順をもう一度実行してください。",
     "ops.secrets.missing": "{n} 件不足",
     "ops.secrets.help": "この機器のサービス用パスワードを名前だけで表示します。値はここにもどこにも表示されません。",
     "ops.secrets.none": "シークレットの状態はまだ取得できません。",
@@ -362,6 +368,8 @@ ZH: dict[str, str] = {
     "ops.update.point": "保留 {images} 個映像檔、{dumps} 份資料庫複本",
     "ops.disk": "磁碟",
     "ops.disk.free": "共 {total} GB，剩餘 {free} GB",
+    "ops.open_items": "安裝後尚待處理（{n} 項）",
+    "ops.open_items.help": "本機正在運作。每一行是發出警告後繼續的步驟：請與醫院資訊人員修正後，再執行該步驟一次。",
     "ops.secrets.missing": "缺少 {n} 個",
     "ops.secrets.help": "本機各服務的密碼，只列出名稱。任何地方都不會顯示其值。",
     "ops.secrets.none": "目前尚無法取得密鑰狀態。",

@@ -19,6 +19,11 @@ DEPLOY="${1:?usage: settings_guard.sh DEPLOY_DIR}"
 # stop_or_warn: on a PoC box a warning, a line of the one list (deploy/site/poc-stops.jsonl, which trialbox doctor
 # shows) and the step goes on; on any other box the same stop as before, the same words and exit code. "H-94
 # depends (N)" marks a stop kept because it protects stop N on the input that reaches it (D-1091, H94-03).
+# TOL-1 (the owner's CLINICAL TOLERANCE, 2026-11-28): on the install path (TB_STOP_ALWAYS=1, set by the script
+# itself next to TB_STOP_WHO, never read from a caller's environment) stop_or_warn warns, lists and goes on on EVERY
+# box, PRODUCTION included: the list is the box's open items (the Operations page, trialbox doctor). The update and
+# start paths (TB_STOP_ALWAYS=0) keep the PoC rule below: a PRODUCTION update without a backup is LOSS (TOL-1 T-U064).
+# TB_STOP_KEEP (set the same way): the keys of the points that keep the PoC rule where TB_STOP_ALWAYS=1.
 # A PoC box (tools/trialbox/stops.py poc_box, the same rule): every source that speaks says DEV, TEST or VALIDATION.
 # The sources are TB_ENV in deploy/.env read as compose reads it (an "export", blanks, a comment; the last line wins.
 # A file that cannot be read, or a value none of the four: PRODUCTION), an installed box with none (PRODUCTION,
@@ -61,17 +66,24 @@ tb_stop_list() {  # KEY SKIPPED WHAT: one line of the list, written by root or t
     printf '%s: warning: the PoC list %s cannot be written; the step goes on\n' "$TB_STOP_WHO" "$_f" >&2
   fi
 }
-stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: PoC box: a warning, a line of the list, 0; else the stop
+stop_or_warn() {  # [--rc N] [--silent] KEY SKIPPED WHAT...: install path or PoC box: a warning, a line of the list, 0; else the stop
   _rc=1; _silent=0
   while :; do case "$1" in --rc) _rc="$2"; shift 2 ;; --silent) _silent=1; shift ;; *) break ;; esac; done
   _key="$1"; _skipped="$2"; shift 2
-  if ! tb_poc_box; then
+  _always="${TB_STOP_ALWAYS:-0}"
+  case " ${TB_STOP_KEEP:-} " in *" $_key "*) _always=0 ;; esac  # a point the script keeps on the old rule
+  if [ "$_always" != 1 ] && ! tb_poc_box; then
     if command -v alive_stop >/dev/null 2>&1; then alive_stop; fi
     [ "$_silent" = 1 ] || printf '%s: %s\n' "$TB_STOP_WHO" "$*" >&2
     exit "$_rc"
   fi
   # a warning never says REFUSED (review L-3 of #1430): "update REFUSED" warns as "update"
-  printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  if [ "$_always" = 1 ] && ! tb_poc_box; then
+    printf '%s: warning (the %s goes on; an open item on the Operations page): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" \
+      "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  else
+    printf '%s: warning (PoC box, H-94): %s%s\n' "${TB_STOP_WHO%% REFUSED*}" "$*" "${_skipped:+; skipped: $_skipped}" >&2
+  fi
   tb_stop_list "$_key" "$_skipped" "$*"
   return 0
 }
@@ -83,7 +95,7 @@ tb_kept_fails() {  # stdin: a host check's output; stdout: its FAIL lines of a k
 }
 # ---- end of STOP-OR-WARN
 # H-94: its PoC box is the record (deploy/.env, the mark) alone: it has no command line of its own
-TB_STOP_WHO="TrialBox REFUSED to start"; TB_STOP_FILE=settings_guard.sh; TB_STOP_DEPLOY="$DEPLOY"; TB_STOP_ARG_ENV=""
+TB_STOP_ALWAYS=0; TB_STOP_KEEP=""; TB_STOP_WHO="TrialBox REFUSED to start"; TB_STOP_FILE=settings_guard.sh; TB_STOP_DEPLOY="$DEPLOY"; TB_STOP_ARG_ENV=""
 TB_STOP_REHEARSAL=0
 # H-110 (M-LH-2): every file COMPOSE_FILE names is read by root's compose at this start: the file and each folder above
 # it owned by root (or the user that runs this) and writable by no one else (a shared folder with the sticky bit above

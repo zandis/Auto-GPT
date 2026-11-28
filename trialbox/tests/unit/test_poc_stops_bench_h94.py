@@ -104,6 +104,9 @@ case "$mod ${1:-}" in
     has "$k-did-not-run" && { echo "finish-check: error (stand-in)" >&2; exit 2; }
     exit 0 ;;
   "tools.trialbox secrets") echo "service tokens: present (stand-in)"; exit 0 ;;
+  "tools.settings_wizard --answers")  # TOL-1: the preflight (the settings wizard stands in through docker below)
+    has preflight-answers && { echo "the answers are refused, nothing was loaded or written: tz is required (stand-in)" >&2; exit 1; }
+    exit 0 ;;
   "tools.trialbox anchors-compose")
     has anchors-compose && { echo "anchor: cannot be mounted (stand-in)" >&2; exit 1; }
     has anchor-read && { printf '%s\n%s\n' "$TB_H94_TMP/anchors.yml" "$TB_H94_TMP/anchor"; exit 0; }
@@ -111,7 +114,10 @@ case "$mod ${1:-}" in
   "tools.trialbox pre-start") has pre-start && { echo "pre-start: a step failed (stand-in)"; exit 1; }; exit 0 ;;
   "tools.trialbox db-up") has db-up && { echo "db-up: a step failed (stand-in)"; exit 1; }; exit 0 ;;
   "tools.trialbox selftest") exit 0 ;;
-  "tools.trialbox backup-install") has backup-schedule && { echo "backup: no alert route (stand-in)"; exit 1; }; exit 0 ;;
+  "tools.trialbox backup-install")  # TOL-INSTALL: no alert route is the health page written, a warning; -write: none
+    has backup-schedule-write && { echo "backup-install: cannot write the schedule (stand-in)"; exit 1; }
+    has backup-schedule && echo "backup-install: warning: the backup alert route cannot carry the alerts (stand-in)"
+    exit 0 ;;
   "tools.trialbox audit-sign") exit 0 ;;
   "tools.trialbox.memcaps "*) has memcaps && { echo "memcaps: no record (stand-in)"; exit 1; }; exit 0 ;;
   "tools.trialbox.pgsize "*) has pgsize && { echo "pgsize: no host (stand-in)"; exit 1; }; exit 0 ;;
@@ -151,7 +157,13 @@ echo "update r1 loaded"
 HOST_CHECK = r"""#!/bin/sh
 F=" ${TB_H94_FORCE:-} "
 echo "check_host $*" >> "$TB_H94_LOG"
-case " $* " in *" --gpu-only "*) echo "PASS  gpu (stand-in)"; exit 0 ;; esac
+case " $* " in *" --gpu-only "*)
+  case "$F" in *" gpu-driver "*) echo "FAIL  NVIDIA driver below the image's minimum (stand-in)"; exit 1 ;; esac
+  echo "PASS  gpu (stand-in)"; exit 0 ;; esac
+# env-loose: deploy/.env planted 644 at the first check; FAIL while its mode is not 600 (the install's repair holds)
+case "$F" in *" env-loose "*) e="$TB_H94_TMP/deploy/.env"
+  [ -e "$TB_H94_TMP/env-loose.planted" ] || { chmod 644 "$e"; : > "$TB_H94_TMP/env-loose.planted"; }
+  m="$(stat -c %a "$e")"; [ "$m" = 600 ] || { echo "FAIL  .env mode $m (want 600, root-owned) [H-94 (5)]"; exit 1; } ;; esac
 case "$F" in *" host-check "*) echo "FAIL  disk unlock (stand-in)"; exit 1 ;; esac
 case "$F" in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned) [H-94 (5)]"; exit 1 ;; esac
 case "$F" in *" disk-full "*) echo "FAIL  free space on /var/lib/docker: 4% (below 10%) [H-94 (2)]"; exit 1 ;; esac
