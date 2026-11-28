@@ -42,3 +42,25 @@ def test_the_steward_sees_every_feed_and_pack_with_its_rounding(box: dict[str, A
     assert 'data-testid="published-left"' in r.text
     crc, _ = login(box["app"], "crc", PW)
     assert crc.get("/audit/published").status_code == 403
+
+
+def test_packs_read_by_type_say_when_capped(box: dict[str, Any], monkeypatch: Any) -> None:  # noqa: F811
+    """Review K1: an old pack behind many newer jobs is still listed (the type and state are asked of the store),
+    and a list that reaches the cap says so instead of reading as "every pack"."""
+    from console import egress_page
+
+    _done_feas(box["backend"])
+    asked: list[dict[str, Any]] = []
+    real = box["backend"].list_jobs
+
+    def spy(limit: int = 100, state: str | None = None, **kw: Any) -> Any:
+        asked.append({"limit": limit, "state": state, **kw})
+        return real(limit, state, **kw)
+
+    monkeypatch.setattr(box["backend"], "list_jobs", spy)
+    monkeypatch.setattr(egress_page, "PACKS", 1)
+    box["users"].create("stw", "steward", PW, "stw@hospa.test")
+    stw, _ = login(box["app"], "stw", PW)
+    page = stw.get("/audit/published").text
+    assert {"limit": 1, "state": "done", "type_": "FEAS"} in asked
+    assert 'data-testid="published-capped"' in page

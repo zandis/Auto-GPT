@@ -31,6 +31,7 @@ from console.i18n import CATALOGUES
 from console.rc1_guard import Rc1Guard, _path
 
 DAYS = 30
+PACKS = 1000  # the newest feasibility packs the published page lists
 PATHSEND = "http.response.pathsend"
 #: a handler that serves a file the box recorded when it built it names the record's sha256 here (1523 ruling); the
 #: layer takes it off the answer and hands it to the edge
@@ -214,17 +215,22 @@ def register(app: FastAPI, h: Helpers, _env: Mapping[str, str] | None = None) ->
             )
         ]
         packs = []
-        for job in h.bk.list_jobs(limit=500):
-            if job.type != "FEAS" or job.state != "done":
-                continue
+        # the orchestrator filters by type and state, so an old pack behind many newer jobs is still found; past
+        # PACKS the page says it shows the newest PACKS only (ponytail: no paging; add it if a site ever gets there)
+        done = h.bk.list_jobs(limit=PACKS, state="done", type_="FEAS")
+        for job in done:
             prof = next((o for o in job.outputs or [] if o.filename.startswith("feasprofile_")), None)
             try:
                 got = json.loads(h.bk.get_object(prof.minio_key)) if prof else {}
             except (KeyError, ValueError, OSError):
                 got = {}  # unread: the page says so, never a default
+            got = got if isinstance(got, dict) else {}
             packs.append({"job": job, "small_cell": got.get("small_cell"), "snapshot": got.get("snapshot")})
         rows = egress_record.by_day(events(h))
         for r in rows:
             got = "refusal" if r["result"] == "refused" else str(r["result"])
             r["result_text"] = _word(sess, f"egress.{got}", got)
-        return h.page(request, "published.html", sess, feeds=feeds, packs=packs, rows=rows, days=DAYS)
+        return h.page(
+            request, "published.html", sess, feeds=feeds, packs=packs, rows=rows, days=DAYS,
+            capped=len(done) >= PACKS, cap=PACKS,
+        )  # fmt: skip

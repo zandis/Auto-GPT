@@ -19,6 +19,7 @@
 <tbody>{% for p in packs %}<tr><td><a href="/studies/{{ p.job.ruleset }}/feasibility">{{ p.job.ruleset }}</a> v{{ p.job.ruleset_version }}</td><td>{{ p.snapshot or '–' }}</td><td>{{ p.job.updated_at|local(10) }}</td><td class="num">{{ p.small_cell if p.small_cell is not none else t('pub.cell.unread') }}</td></tr>
 {% endfor %}</tbody></table>
 {% else %}<p data-testid="published-packs">{{ t('pub.packs.none') }}</p>{% endif %}
+{% if capped %}<p class="warn" data-testid="published-capped">{{ t('pub.packs.capped', n=cap) }}</p>{% endif %}
 <p class="hint">{{ t('pub.packs.help') }}</p>
 </section>
 <section class="card" data-testid="published-left">
