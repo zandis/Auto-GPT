@@ -471,12 +471,13 @@ def weekly_rows(
         pid = str(r.get("pid") or "")
         mk = marks.get(pid)
         mval = mk.mark if mk else None
-        if mval == "not_now" and today is not None and recheck_due(mk, today):
-            mval = None  # the re-check date has come: back on the list
+        crits = list(r.get("criteria") or [])
+        watch = watch_state(mk, crits) if mval == "not_now" else None
+        if mval == "not_now" and today is not None and (recheck_due(mk, today) or (watch and watch["fired"])):
+            mval = None  # the re-check date has come, or the watched criterion has another answer: back on the list
         status = derive_status(tier, registry.get(pid), mval, seen.get(pid) == job_id)
         if not include_closed and status in ("closed", "enrolled", "set_aside"):
             continue
-        crits = list(r.get("criteria") or [])
         fit = fit_facts(crits, crit, todo) if fits is None else kept_fit(r, crit, todo, fits)
         nxt = r.get("next_appointment") or ""
         when = None
@@ -502,6 +503,7 @@ def weekly_rows(
                 "changed": list(r.get("changed") or []),
                 "mark": mk,
                 "criteria": crits,
+                "watch": watch,
             }
         )
     order = {"high": 0, "review": 1}
@@ -656,6 +658,46 @@ def recheck_due(mk: Any, today: date) -> bool:
         return date.fromisoformat(str(getattr(mk, "reason", "") or "")[:10]) <= today
     except ValueError:
         return True
+
+
+WATCH = " watch:"  # a "Not now" reason: "<re-check date> watch:<criterion id>=<its answer when marked>"
+
+
+def not_now_reason(when: date, watch: str, row: Mapping[str, Any]) -> str:
+    """The stored reason of a "Not now" mark (lane K watch, H3-PROD §2 row 2): the re-check date first, so every
+    reader of the date (:func:`recheck_due`, the person state) reads it as before; with ``watch`` also the criterion
+    the PI waits on and its answer on the list the mark is made from. A criterion not on the row is refused."""
+    if not watch:
+        return when.isoformat()
+    was = next((str(c.get("verdict") or "") for c in row.get("criteria") or [] if str(c.get("id")) == watch), None)
+    if not was:
+        raise ValueError("the watched criterion is not on this patient's list row")
+    return f"{when.isoformat()}{WATCH}{watch}={was}"
+
+
+def watch_of(mk: Any) -> tuple[str, str] | None:
+    """(criterion id, answer when marked) of a watch mark, else None."""
+    _, sep, rest = str(getattr(mk, "reason", "") or "").partition(WATCH)
+    cid, eq, was = rest.partition("=")
+    return (cid, was) if sep and eq and cid else None
+
+
+def watch_state(mk: Any, crits: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """A watch mark against this list's row: ``fired`` when the criterion has another answer now (a criterion no
+    longer on the row has no answer: fired too, so a changed protocol never hides the patient for good)."""
+    w = watch_of(mk)
+    if w is None:
+        return None
+    now = next((str(c.get("verdict") or "") for c in crits if str(c.get("id")) == w[0]), "")
+    return {"cid": w[0], "was": w[1], "now": now, "fired": now != w[1]}
+
+
+def worklists_for(rows: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    """The worklists a study's page offers: no clinic list when no listed patient has a visit (the site exports no
+    appointment view), so nobody reads an empty visit list as "nobody is coming"."""
+    if any(r.get("visit") is not None for r in rows):
+        return WORKLISTS
+    return tuple(k for k in WORKLISTS if k != "clinic")
 
 
 def week_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
