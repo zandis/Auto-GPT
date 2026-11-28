@@ -1,6 +1,6 @@
 """``adapter`` CLI (SPEC §4.6)::
 
-    adapter run --source {cgrd_sql|csv|fhir_bulk|ssmix2} [--path DIR | --dsn DSN] [--since DATE] [--snapshot DATE]
+    adapter run --source {cgrd_sql|csv|fhir_bulk|ssmix2|xlsx} [--path DIR | --dsn DSN] [--since DATE] [--snapshot DATE]
                 [--no-fhir] [--no-lake] [--no-validate]
     adapter validate [--snapshot DATE] [--per-type 50] [--file RESOURCES.json|.ndjson] [--lake DIR]   # JP Core (D-137)
     adapter backfill [--source KIND] [--path DIR | --dsn DSN] [--snapshot DATE] [--first-years N]
@@ -223,8 +223,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
     run = sub.add_parser("run")
-    run.add_argument("--source", choices=["cgrd_sql", "csv", "fhir_bulk", "ssmix2"])
-    run.add_argument("--path", help="directory (csv, fhir_bulk, ssmix2)")
+    run.add_argument("--source", choices=["cgrd_sql", "csv", "fhir_bulk", "ssmix2", "xlsx"])
+    run.add_argument("--path", help="directory (csv, fhir_bulk, ssmix2) or the .xlsx file (xlsx)")
     run.add_argument("--dsn", help="SQLAlchemy DSN (cgrd_sql)")
     run.add_argument("--since")
     run.add_argument("--snapshot")
@@ -232,8 +232,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--no-lake", action="store_true")
     run.add_argument("--no-validate", action="store_true")
     bf = sub.add_parser("backfill", help="load all history by year, newest first, resumable (T-305b, D-403)")
-    bf.add_argument("--source", choices=["cgrd_sql", "csv", "fhir_bulk", "ssmix2"])
-    bf.add_argument("--path", help="directory (csv, fhir_bulk, ssmix2)")
+    bf.add_argument("--source", choices=["cgrd_sql", "csv", "fhir_bulk", "ssmix2", "xlsx"])
+    bf.add_argument("--path", help="directory (csv, fhir_bulk, ssmix2) or the .xlsx file (xlsx)")
     bf.add_argument("--dsn", help="SQLAlchemy DSN (cgrd_sql)")
     bf.add_argument("--snapshot")
     bf.add_argument(

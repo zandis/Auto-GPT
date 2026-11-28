@@ -82,17 +82,17 @@ def test_fails_on_a_ruleset_without_a_golden() -> None:
 
 def test_fails_on_a_schema_sha_change() -> None:
     now = committed()
-    now["lake/schema@4.json"]["schema_sha"] = "0" * 64
+    now["lake/schema@5.json"]["schema_sha"] = "0" * 64
     res = g.compare(GOLDEN, now)
     assert not res.ok and any(x.startswith("  schema_sha:") for x in res.lines), res.lines
 
 
 def test_a_new_schema_version_needs_its_golden() -> None:
     now = committed()
-    body = now.pop("lake/schema@4.json")
-    now["lake/schema@5.json"] = {**body, "version": 5}
+    body = now.pop("lake/schema@5.json")
+    now["lake/schema@6.json"] = {**body, "version": 6}
     text = "\n".join(g.compare(GOLDEN, now).lines)
-    assert "lake/schema@5.json: no committed golden" in text and "lake/schema@4.json: committed, but" in text
+    assert "lake/schema@6.json: no committed golden" in text and "lake/schema@5.json: committed, but" in text
 
 
 def test_ruleset_version_counts() -> None:
@@ -131,7 +131,7 @@ def test_every_ruleset_has_its_goldens() -> None:
 def test_goldens_carry_their_provenance_and_cover_the_kinds() -> None:
     for rel, body in committed().items():
         meta = body["meta"]
-        assert meta["lake_schema_version"] == 4, rel
+        assert meta["lake_schema_version"] == 5, rel
         assert meta["head"] and g.REASON_RE.search(meta["reason"]), rel
         if not rel.startswith("lake/schema@"):
             assert meta["seed"] == g.SEED and meta["profile"] == "ci", rel

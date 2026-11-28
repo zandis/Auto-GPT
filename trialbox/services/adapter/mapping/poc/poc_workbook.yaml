@@ -1,0 +1,110 @@
+# Site mapping — Japan, source type `xlsx`: ONE workbook, nine Japanese-headed sheets (the proof-of-concept upload).
+# A sheet is a table: `source:` names the sheet, `rename:` maps its Japanese headers onto the canonical columns
+# (templates/CANONICAL.md), `values:` its words onto the canonical codes. The template workbook is
+# poc_workbook_template.xlsx (written by tools/poc_workbook.py; every example row is synthetic: case numbers SYN-...).
+#   adapter run --source xlsx --path <workbook.xlsx> --mapping mapping/poc/poc_workbook.yaml
+# The patient key is the case number (症例番号); there is no national id. Birth is year and month (生年月, 1948-05) and
+# stays year and month. Lab codes are JLAC10 (jlac10_to_loinc.csv, sample rows, verify). 検査 results, スコア
+# (instrument scores) and 所見 (findings) carry their own source codes.
+version: 1
+name: poc_workbook
+extends: ../tw_core/demo_his.yaml
+tz: ~   # the source's zone is the site's own (TB_TZ): the workbook is read in the zone the site settings name
+fhir_profiles: jp-core
+systems:
+  icd10: http://hl7.org/fhir/sid/icd-10
+  nhi_drug: urn:oid:1.2.392.100495.20.1.73
+  lab_local: urn:oid:1.2.392.200119.4.504
+  score: https://trialbox.local/fhir/CodeSystem/clinical-score
+  finding: https://trialbox.local/fhir/CodeSystem/clinical-finding
+tables:
+  patient:
+    source: 患者
+    key: mrn
+    rename: {症例番号: mrn, 氏名: name, 生年月: birth_date, 性別: sex}
+    values: {sex: {男: M, 女: F}}
+    identity: {name: name}
+  encounter:
+    source: 受診
+    key: enc_no
+    rename: {受診番号: enc_no, 症例番号: mrn, 受診日時: visit_datetime, 区分: enc_type}
+    values: {enc_type: {外来: OPD, 入院: IPD, 救急: ER}}
+  diagnosis:
+    source: 病名
+    key: diag_no
+    rename: {病名番号: diag_no, 受診番号: enc_no, 症例番号: mrn, ICD10: icd10, 診断日: diag_date, 状態: status}
+    values: {status: {有効: A, 治癒: R}}
+  medication:
+    source: 処方
+    key: rx_no
+    rename: {処方番号: rx_no, 症例番号: mrn, 受診番号: enc_no, 薬剤コード: nhi_drug_code, ATC: atc, 薬剤名: drug_name, 処方日: order_date, 開始日: start_date, 終了日: end_date, 用量: daily_dose, 単位: dose_unit, 状態: status}
+    values: {status: {処方中: active, 完了: completed, 中止: stopped}}
+  lab:
+    source: 検査
+    key: lab_no
+    rename: {検査番号: lab_no, 症例番号: mrn, 検査コード: local_code, 検査名: item_name, 結果: result_value, 単位: unit, 採取日時: sample_datetime}
+  score:
+    source: スコア
+    key: score_no
+    rename: {スコア番号: score_no, 症例番号: mrn, 尺度: instrument, 得点: score_value, 実施日: score_date}
+  finding:
+    source: 所見
+    key: finding_no
+    rename: {所見番号: finding_no, 症例番号: mrn, 所見コード: finding_code, 所見名: finding_name, 所見内容: finding_text, 所見日: finding_date}
+  report:
+    source: 画像レポート
+    key: rpt_no
+    rename: {レポート番号: rpt_no, 症例番号: mrn, 検査コード: exam_code, 検査名: exam_name, 検査日: exam_date, 結論: conclusion}
+  note:
+    source: 記録
+    key: note_no
+    rename: {記録番号: note_no, 症例番号: mrn, 受診番号: enc_no, 記録日時: note_datetime, 種別: note_type, 本文: text}
+    values: {note_type: {経過: progress, 入院: admission, 退院: discharge, 紹介: consult, 看護: nursing}}
+lookups:
+  lab: {file: ../jp_core/jlac10_to_loinc.csv, key: local_code}
+profiles:
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Patient-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Patient
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Practitioner-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Practitioner
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Encounter-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Encounter
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Condition-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Condition
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-body-height-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_BodyMeasurement
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-body-weight-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_BodyMeasurement
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-bloodPressure-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_VitalSigns
+  # injections too: JP_MedicationRequest_Injection needs medicationReference, and the lake reads medicationCodeableConcept
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/MedicationRequest-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_MedicationRequest
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Procedure-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Procedure
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/DiagnosticReport-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_DiagnosticReport_Common
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/DocumentReference-twcore: ""   # JP Core 1.1.0 has no DocumentReference profile
+overlay:
+  - type: Patient
+    table: patient
+    elements:
+      birthDate: {column: birth_date, type: partial_date, lived_at_most: {years: 122, until: death_date}}  # YYYY-MM stays YYYY-MM
+resources:
+  # an instrument score (MMSE, CDR, GDS, NPI): numeric, the instrument is the code; the source value is kept
+  - type: Observation
+    table: score
+    id: {hid: score_no}
+    where: [{column: score_value, not_empty: true}, {column: instrument, not_empty: true}]
+    elements:
+      status: {const: final}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/observation-category", code: survey}}
+      code.coding[0]: {builder: coding, column: instrument, system: score, display_column: instrument}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: score_date, type: date}
+      valueQuantity.value: {column: score_value, type: decimal}
+      valueQuantity.unit: {const: "{score}"}
+      valueQuantity.system: {template: "{sys.ucum}"}
+      valueQuantity.code: {const: "{score}"}
+  # an imaging or examination finding: free text under its own code
+  - type: Observation
+    table: finding
+    id: {hid: finding_no}
+    where: [{column: finding_code, not_empty: true}, {column: finding_text, not_empty: true}]
+    elements:
+      status: {const: final}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/observation-category", code: exam}}
+      code.coding[0]: {builder: coding, column: finding_code, system: finding, display_column: finding_name}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: finding_date, type: date}
+      valueString: {column: finding_text}

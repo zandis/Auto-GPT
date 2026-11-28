@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "8e6f3b8a4f9c37dc380b472142aa5c21a6ab19f1",
-  "lake_schema_version": 4,
+  "head": "112687d29c47daa51ad5ea6b5d1b45b7dd24c8a9",
+  "lake_schema_version": 5,
   "profile": "ci",
-  "reason": "int/data: the jp-ss synthetic fixture has chart numbers of its own (prefix 9); it shared 2xxxxxxx with synthetic-jp-a, so the H34-06 identity hold fired on 398 chart numbers",
+  "reason": "lake schema 5: birth_ym and value_text columns; no result number moves",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
