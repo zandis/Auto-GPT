@@ -1,17 +1,17 @@
 {
-  "_": "H-83: the 20 costliest unit test files and their shard of 8, from `python -m tools.test_shard plan docs/handover/unit-shard-costs-h83.json` (seconds: the table's estimate). Every other file keeps the hash. A pinned file that is removed or renamed fails tests/unit/test_test_shard.py: re-plan, do not edit by hand.",
+  "_": "H-83: the 40 costliest unit test files and their shard of 8, from `python -m tools.test_shard plan docs/handover/unit-shard-costs-h83.json` (seconds: the table's estimate). Every other file keeps the hash. A pinned file that is removed or renamed fails tests/unit/test_test_shard.py: re-plan, do not edit by hand.",
   "count": 8,
   "files": {
     "tests/console/test_prefs_10f1.py": {
-      "shard": 4,
+      "shard": 2,
       "seconds": 1553
     },
     "tests/unit/test_g1_box_install_run.py": {
-      "shard": 2,
+      "shard": 3,
       "seconds": 1105
     },
     "tests/unit/test_killed_fhir_load.py": {
-      "shard": 3,
+      "shard": 4,
       "seconds": 664
     },
     "tests/integration/test_list_demo.py": {
@@ -19,15 +19,15 @@
       "seconds": 594
     },
     "tests/unit/test_patient_reads_check_person_and_study.py": {
-      "shard": 7,
+      "shard": 6,
       "seconds": 458
     },
     "tests/integration/test_e2e_simple.py": {
-      "shard": 6,
+      "shard": 1,
       "seconds": 387
     },
     "tests/property/test_path_independence.py": {
-      "shard": 1,
+      "shard": 7,
       "seconds": 362
     },
     "tests/console/test_orch_box.py": {
@@ -35,11 +35,11 @@
       "seconds": 352
     },
     "tests/e2e/journeys/test_journeys.py": {
-      "shard": 6,
+      "shard": 1,
       "seconds": 271
     },
     "tests/integration/test_poc_scripts.py": {
-      "shard": 7,
+      "shard": 6,
       "seconds": 261
     },
     "tests/console/test_plain_menu.py": {
@@ -47,27 +47,27 @@
       "seconds": 239
     },
     "tests/unit/test_note_answer_every_path.py": {
-      "shard": 3,
+      "shard": 5,
       "seconds": 179
     },
     "tests/integration/test_cgmh_demo.py": {
-      "shard": 1,
+      "shard": 7,
       "seconds": 173
     },
     "tests/console/test_grant_box.py": {
-      "shard": 5,
+      "shard": 4,
       "seconds": 172
     },
     "tests/console/test_registry_actor_box.py": {
-      "shard": 3,
+      "shard": 1,
       "seconds": 167
     },
     "tests/integration/test_rc_demo.py": {
-      "shard": 1,
+      "shard": 6,
       "seconds": 161
     },
     "tests/unit/test_restore_signal_ends_h142.py": {
-      "shard": 6,
+      "shard": 5,
       "seconds": 152
     },
     "tests/unit/test_feed_completeness.py": {
@@ -75,12 +75,92 @@
       "seconds": 135
     },
     "tests/unit/test_omop_core.py": {
-      "shard": 8,
+      "shard": 4,
       "seconds": 124
     },
     "tests/unit/test_ingest_streams.py": {
-      "shard": 5,
+      "shard": 8,
       "seconds": 112
+    },
+    "tests/integration/test_cohort_inproc.py": {
+      "shard": 1,
+      "seconds": 110
+    },
+    "tests/integration/test_screen_inproc.py": {
+      "shard": 8,
+      "seconds": 108
+    },
+    "tests/unit/test_qualify.py": {
+      "shard": 4,
+      "seconds": 104
+    },
+    "tests/unit/test_support_bundle_h76.py": {
+      "shard": 7,
+      "seconds": 95
+    },
+    "tests/unit/test_one_chart_two_people.py": {
+      "shard": 6,
+      "seconds": 94
+    },
+    "tests/unit/test_sitesetup_code_tables_layer.py": {
+      "shard": 5,
+      "seconds": 93
+    },
+    "tests/console/test_wording_walk.py": {
+      "shard": 1,
+      "seconds": 92
+    },
+    "tests/unit/test_criteria_safety.py": {
+      "shard": 6,
+      "seconds": 86
+    },
+    "tests/console/test_home_today.py": {
+      "shard": 7,
+      "seconds": 84
+    },
+    "tests/unit/test_measure48_vm_h53.py": {
+      "shard": 8,
+      "seconds": 84
+    },
+    "tests/unit/test_scale_gate_stall.py": {
+      "shard": 3,
+      "seconds": 84
+    },
+    "tests/unit/test_first_night_tables.py": {
+      "shard": 4,
+      "seconds": 84
+    },
+    "tests/integration/test_rerun.py": {
+      "shard": 5,
+      "seconds": 83
+    },
+    "tests/integration/test_ad_mab.py": {
+      "shard": 1,
+      "seconds": 83
+    },
+    "tests/console/test_committee_walks_japan.py": {
+      "shard": 7,
+      "seconds": 79
+    },
+    "tests/unit/test_poc_stops_h94.py": {
+      "shard": 6,
+      "seconds": 78
+    },
+    "tests/unit/test_tripwire_name_gate.py": {
+      "shard": 8,
+      "seconds": 73
+    },
+    "tests/integration/test_twpas_inproc.py": {
+      "shard": 3,
+      "seconds": 72
+    },
+    "tests/unit/test_site_profile.py": {
+      "shard": 4,
+      "seconds": 70
+    },
+    "tests/console/test_consent_by_a_representative_and_assent.py": {
+      "shard": 5,
+      "seconds": 66
     }
   }
 }

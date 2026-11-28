@@ -1,7 +1,7 @@
 {
  "_": "H-83, measured again: seconds of test time per unit-tier test file, the sum of every test's setup, call and teardown time (pytest --junitxml, xunit1) from one local run of the 8 unit shards (SHARD=i/8, 4 xdist workers each, all 8 side by side on 32 cores at nice 10) in the gate image tbgate:3 at commit 75b1b8bc42a8 on 2026-11-28 to 29. NOT measured on CI runners: the 8 shards shared one set of cores, so the numbers carry the load of that run. Tests that fail on this commit count by their time as run. Files with no unit-tier test (all deselected by -m) are not listed. `python -m tools.test_shard plan` over this table gives tools/test_shard_pins.json.",
  "count": 8,
- "pin": 20,
+ "pin": 40,
  "test_files": 1520,
  "tests": 32283,
  "tree_files": 1539,
