@@ -34,6 +34,15 @@ Schema version 5 adds `patient.birth_ym` and `observation.value_text`. A snapsho
 unknown through the compatibility view (tested). The finding text is patient text: a test holds it out of the log and
 of every night report file.
 
+## A year-month birth and the age criteria
+
+`tests/unit/test_poc_workbook_age_unknown.py` screens a patient born `1958-11` (lake `birth_date` NULL) through the
+real compiled SQL and the cascade, with an age inclusion (>= 65) and an age exclusion (>= 86), beside a patient with a
+whole birth date and one aged 96. The year-month patient stays on the list (tier review), both criteria are unknown,
+and the funnel keeps them through every stage (3 in, 2 after the exclusion: only the 96-year-old leaves). The compiled
+base keeps a NULL-birth patient (`p.birth_date IS NULL OR ...`) and the age expression is NULL for them, which the
+cascade reads as unknown. The test passed on the existing compiler: nothing in the compiler changed.
+
 ## Not done
 
 See the findings: no code-level test-data stop, the finer age rule, `settings.yaml` naming `xlsx`, and the
