@@ -15,10 +15,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-import pytest
 from adapter.mapping.engine import Mapping
 from adapter.ndjson import read_all, read_type, snapshot_dir
-from adapter.pipeline import AdapterConfig, make_source, run_ingest
+from adapter.pipeline import COMPLETENESS, AdapterConfig, make_source, run_ingest
+from adapter.sources.xlsx.source import XlsxSource
 from openpyxl import Workbook, load_workbook
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +46,12 @@ def _night(tmp: Path, book: Path) -> Any:
     cfg = _cfg(tmp)
     rep = run_ingest(cfg, "xlsx", str(book), snapshot=SNAP, load_fhir=False, rebuild_lake=False, validate=False)
     return cfg, rep
+
+
+def _tables(cfg: AdapterConfig) -> dict[str, dict[str, Any]]:
+    """The run report's per-table counts (``completeness.json`` beside the snapshot)."""
+    got = json.loads((snapshot_dir(cfg.lake_dir, SNAP) / COMPLETENESS).read_text(encoding="utf-8"))
+    return dict(got["tables"])
 
 
 def _copy(tmp: Path) -> Path:
@@ -87,8 +93,9 @@ def test_japanese_headers_map_by_rename() -> None:
 def test_template_loads_end_to_end_to_canonical_and_resources(tmp_path: Path) -> None:
     cfg, rep = _night(tmp_path, TEMPLATE)
     assert not rep.errors
+    tables = _tables(cfg)
     for table in TABLE_OF.values():
-        assert rep.tables[table]["present"] is True and rep.tables[table]["rows"] == 1, table
+        assert tables[table]["present"] is True and tables[table]["rows"] == 1, table
     feed = read_all(snapshot_dir(cfg.lake_dir, SNAP))
     for rtype in ("Patient", "Encounter", "Condition", "MedicationRequest", "DiagnosticReport", "DocumentReference"):
         assert len(feed[rtype]) == 1, rtype
@@ -109,13 +116,14 @@ def test_a_formula_cell_is_a_refused_row_not_a_stop(tmp_path: Path) -> None:
     header = [c.value for c in ws[1]]
     ws.cell(row=2, column=header.index("結果") + 1).value = "=1+1"
     wb.save(book)
-    src = make_source("xlsx", str(book))
+    src = XlsxSource(book)
     assert list(src.rows("lab", "検査", None, None)) == []
     (why,) = src.refused_rows("検査")
     assert why[0] == 2 and "formula" in why[1]
-    cfg, rep = _night(tmp_path, book)
-    assert rep.tables["lab"]["rows"] == 0 and rep.tables["lab"]["refused_rows"] == 1
-    assert rep.tables["patient"]["rows"] == 1  # the other sheets load
+    cfg, _ = _night(tmp_path, book)
+    tables = _tables(cfg)
+    assert tables["lab"]["rows"] == 0 and tables["lab"]["refused_rows"] == 1
+    assert tables["patient"]["rows"] == 1  # the other sheets load
 
 
 def test_a_missing_sheet_is_reported_as_missing(tmp_path: Path) -> None:
@@ -123,9 +131,10 @@ def test_a_missing_sheet_is_reported_as_missing(tmp_path: Path) -> None:
     wb = load_workbook(book)
     del wb["所見"]
     wb.save(book)
-    cfg, rep = _night(tmp_path, book)
-    assert rep.tables["finding"]["present"] is False and rep.tables["finding"]["rows"] == 0
-    assert rep.tables["score"]["rows"] == 1
+    cfg, _ = _night(tmp_path, book)
+    tables = _tables(cfg)
+    assert tables["finding"]["present"] is False and tables["finding"]["rows"] == 0
+    assert tables["score"]["rows"] == 1
 
 
 def test_a_sheet_over_the_row_limit_is_refused_with_a_reason(tmp_path: Path, monkeypatch: Any) -> None:
@@ -133,16 +142,16 @@ def test_a_sheet_over_the_row_limit_is_refused_with_a_reason(tmp_path: Path, mon
 
     book = tmp_path / "big.xlsx"
     wb = Workbook()
-    ws = wb.active
-    ws.title = "患者"
+    ws = wb.create_sheet("患者")
+    wb.remove(wb["Sheet"])
     ws.append(["症例番号", "氏名", "生年月", "性別"])
     for i in range(5):
         ws.append([f"SYN-{i:04d}", "テスト", "1950-01", "女"])
     wb.save(book)
     monkeypatch.setattr(xs, "MAX_ROWS", 3)
-    src = make_source("xlsx", str(book))
+    src = XlsxSource(book)
     assert list(src.rows("patient", "患者", None, None)) == []
-    assert "limit" in (src.quarantine_reason("患者") or src.refused_sheet("患者") or "")
+    assert "limit" in (src.refused_sheet("患者") or "")
 
 
 def test_a_date_cell_with_a_month_format_is_read_as_year_and_month(tmp_path: Path) -> None:
@@ -150,8 +159,8 @@ def test_a_date_cell_with_a_month_format_is_read_as_year_and_month(tmp_path: Pat
 
     book = tmp_path / "ym.xlsx"
     wb = Workbook()
-    ws = wb.active
-    ws.title = "患者"
+    ws = wb.create_sheet("患者")
+    wb.remove(wb["Sheet"])
     ws.append(["症例番号", "氏名", "生年月", "性別"])
     ws.append(["SYN-0009", "テスト", datetime(1948, 5, 1), "男"])
     ws["C2"].number_format = "yyyy-mm"
@@ -178,8 +187,3 @@ def test_scores_and_findings_reach_omop(tmp_path: Path, db_url: str) -> None:
         assert person == [(1948, 5, None)]
     finally:
         db.close()
-
-
-def test_the_run_report_is_json(tmp_path: Path) -> None:
-    _, rep = _night(tmp_path, TEMPLATE)
-    json.dumps(rep.tables)

@@ -31,3 +31,9 @@ console <http://127.0.0.1:8090>, web mail (MailHog) <http://127.0.0.1:8025>, mai
   run against it; `make down` stops it.
 - Ports taken: `TB_HOST_CONSOLE_PORT`, `TB_HOST_MAILHOG_PORT`, `TB_HOST_SMTP_PORT`. "No snapshot": run the ingest
   (`console.cli ingest`).
+- **Loading one workbook** (proof of concept): fill the template `services/adapter/mapping/jp_core/poc_workbook_template.xlsx`
+  (nine sheets with Japanese headers, one example row each, all marked `SYN-`: replace them), then
+  `adapter run --source xlsx --path <workbook.xlsx> --mapping mapping/jp_core/poc_workbook.yaml`. The case number
+  (症例番号) is the patient key; the birth is the year and month (生年月, e.g. 1948-05). A cell that is a formula leaves
+  its row out and the run report says so; a sheet the workbook lacks is reported as missing. The example rows are test
+  data: do not load the template into a box that holds real patients.

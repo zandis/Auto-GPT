@@ -9,7 +9,7 @@ roc}`; `era`), and the source's placeholder dates in `empty_dates` (D-589); noth
 
 | table | key | columns | canonical codes (`values`) |
 | --- | --- | --- | --- |
-| patient | mrn | mrn, name, id_no, birth_date, sex, death_date†, phone† | sex: `M`, `F` |
+| patient | mrn | mrn, name, id_no, birth_date, sex, death_date†, phone† | sex: `M`, `F`; birth_date may be `YYYY-MM` (a mapping that types it `partial_date`, as `jp_core/poc_workbook.yaml` does): the month is kept, no day is invented |
 | practitioner | staff_id | staff_id, name, dept_code | — |
 | encounter | enc_no | enc_no, mrn, visit_datetime, dept_code, staff_id, enc_type | enc_type: `OPD`, `IPD`, `ER` |
 | appointment | appt_no | appt_no, mrn, appt_datetime, duration_min, staff_id, dept_code, status | status: `B` booked, `A` arrived, `C` cancelled, `N` no-show |
@@ -20,6 +20,8 @@ roc}`; `era`), and the source's placeholder dates in `empty_dates` (D-589); noth
 | procedure | proc_no | proc_no, mrn, order_code, proc_name, proc_date | — |
 | report | rpt_no | rpt_no, mrn, exam_code, exam_name, exam_date, conclusion | exam_code `RAD-CXR` = chest X-ray |
 | note | note_no | note_no, mrn, enc_no, note_datetime, note_type, text | note_type: `progress`, `admission`, `discharge`, `consult`, `nursing` |
+| score | score_no | score_no, mrn, instrument, score_value, score_date | instrument: the scale's own code as the site writes it (`MMSE`, `CDR`, `GDS`, `NPI`); it is the OMOP measurement's source code, score_value is numeric (a value that is not a number is a refused row); no unit |
+| finding | finding_no | finding_no, mrn, finding_code, finding_name†, finding_text, finding_date | finding_code: the site's own code for an imaging or examination finding (its OMOP observation's source code); finding_text: the finding as written (the source value is kept as it was) |
 | claim | claim_no | claim_no, mrn, created_date, product_code, apply_type, outcome, approval_start†, approval_end† | outcome: `approved`, `denied`, `pending` |
 | registry† | mrn | mrn, consent_contact, consent_date | consent_contact: `Y`, `N` |
 
@@ -47,3 +49,8 @@ pid map (TWPAS only); they never reach the lake.
 Check a filled mapping against a real export before the first nightly run:
 
     python tools/mapping_check.py --mapping services/adapter/mapping/<profile>/<site>.yaml --source csv --path <dir>
+
+A workbook door (`--source xlsx --path <file.xlsx>`, `jp_core/poc_workbook.yaml`): one `.xlsx`, each sheet a table (the
+mapping's `source:` is the sheet name, Japanese headers are `rename`d like any local column). Values only: a cell that
+holds a formula makes its row a refused row (counted in the run report with the reason, the night goes on), and a sheet
+over 100,000 rows or a workbook over 25 MB is refused whole with a reason. A missing sheet is a missing table.
