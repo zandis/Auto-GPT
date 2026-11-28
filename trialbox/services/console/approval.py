@@ -255,41 +255,47 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
     async def save(request: Request, job_id: str) -> Response:
         """H3-UX fix 2: the approval page's one form. Amber rows read, codes ticks and site labels in one round trip;
         each criterion keeps the record and the audit event its one-row route writes (D-146, D-309, D-120). Only a
-        label the person changed is saved, so a pre-filled ruleset label stays the ruleset's."""
+        label the person changed on the page (against the value it was shown with) is saved, so a pre-filled label
+        stays as it is, and a label saved meanwhile in another tab is not written over; the labels are in the language
+        the page was shown in. Each event is written before its record (an event without the record, never the
+        reverse)."""
         sess = h.need(request)
         form = await request.form()
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
             raise h.problem(400, "csrf")
         opened, tick = [str(x) for x in form.getlist("opened")], [str(x) for x in form.getlist("tick")]
         label_id, label_text = [str(x) for x in form.getlist("label_id")], [str(x) for x in form.getlist("label_text")]
+        label_was = [str(x) for x in form.getlist("label_was")]
         if not (sess.user.can_request or sess.user.can_approve) or ((opened or tick) and not sess.user.can_approve):
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         if label_id and sess.lang == "en":
             raise h.problem(400, "request.refused", reason="choose the page language the label is in first")
+        if label_id and str(form.get("label_lang") or "") != sess.lang:
+            raise h.problem(409, "request.refused", reason="the page language changed since this page was shown")
         job, book = waiting_job(sess, job_id)
         ctx = context(sess, job, book)
         ids = {str(r["id"]) for r in ctx["rows"]}
-        if not {*opened, *tick, *label_id} <= ids or len(label_id) != len(label_text):
+        if not {*opened, *tick, *label_id} <= ids or not len(label_id) == len(label_text) == len(label_was):
             raise h.problem(404, "notfound")
         now = h.clock().isoformat()
         why = {str(r["id"]): ",".join(r["amber"]) for r in ctx["rows"]}
         for crit in dict.fromkeys(opened):
             if crit in ctx["ambers"] and crit not in ctx["opened"]:
-                store.open_row(job.job_id, crit, sess.user.username, now)
                 au.append("console.approval_open", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
                           detail={"action": crit, "reason": why[crit]})  # fmt: skip
-        for crit, text in zip(label_id, label_text, strict=True):
+                store.open_row(job.job_id, crit, sess.user.username, now)
+        for crit, text, was in zip(label_id, label_text, label_was, strict=True):
             words = " ".join(text.split())[:80]
-            if words and words != ctx["labels"].get(crit, ""):
-                store.save_label(job.ruleset or "", crit, sess.lang, words, sess.user.username, now)
+            if words and words != " ".join(was.split())[:80] and words != ctx["labels"].get(crit, ""):
                 au.append("console.criterion_label", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
                           detail={"action": crit, "role": sess.user.role, "lang": sess.lang})  # fmt: skip
+                store.save_label(job.ruleset or "", crit, sess.lang, words, sess.user.username, now)
         for crit in dict.fromkeys(tick):
             if crit not in ctx["ticks"]:
-                store.tick_codes(job.job_id, crit, sess.user.username, now)
                 au.append("console.code_tick", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
                           detail={"action": crit, "role": sess.user.role})  # fmt: skip
+                store.tick_codes(job.job_id, crit, sess.user.username, now)
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=saved", status_code=303)
 
     @app.post("/pilot/jobs/{job_id}/approve")

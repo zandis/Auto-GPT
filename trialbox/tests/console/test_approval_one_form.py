@@ -16,7 +16,8 @@ from tests.console.test_criterion_labels import _approval_job, _gzqo_rows
 box = _app.box  # the fixture, found by name
 login, name_pi = _app.login, _app.name_pi
 PW = "approval-one-form-password-01"
-IDS = [f"GZQO-INC-{n}" for n in range(31, 51)]  # 20 criteria with no shipped label
+IDS = [f"GZQO-INC-{n}" for n in range(31, 51)]
+N = len(IDS)  # 20 criteria with no shipped label
 AMBER = IDS[:6]  # left to a person at screening: amber
 
 
@@ -45,7 +46,13 @@ def test_the_coordinator_gives_twenty_labels_in_one_post(box: dict[str, Any]) ->
     assert all(f'data-testid="label-missing-{i}"' in page for i in IDS)
     assert "/approval/label" not in page and "/approval/tick" not in page  # no one-row form is left on the page
     assert page.count('action="/pilot/jobs/' + job.job_id + '/approval/save"') == 1
-    data = {"csrf": csrf, "label_id": IDS, "label_text": [f"基準{i[-2:]}" for i in IDS]}
+    data = {
+        "csrf": csrf,
+        "label_lang": "ja",
+        "label_id": IDS,
+        "label_text": [f"基準{i[-2:]}" for i in IDS],
+        "label_was": [""] * N,
+    }
     r = c.post(f"/pilot/jobs/{job.job_id}/approval/save", data=data, follow_redirects=False)
     assert r.status_code == 303
     page = c.get(r.headers["location"]).text
@@ -65,7 +72,14 @@ def test_an_unchanged_label_is_not_saved_again(box: dict[str, Any]) -> None:
     c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
     page, csrf = _page_and_csrf(c, job.job_id)
     assert 'value="18歳以上"' in page and 'data-testid="label-shipped-GZQO-INC-01"' in page
-    data = {"csrf": csrf, "label_id": ["GZQO-INC-01", "GZQO-EXC-01"], "label_text": ["18歳以上", "別の表示名"]}
+    ids, shown = ["GZQO-INC-01", "GZQO-EXC-01"], ["18歳以上", ""]
+    data = {
+        "csrf": csrf,
+        "label_lang": "ja",
+        "label_id": ids,
+        "label_text": ["18歳以上", "別の表示名"],
+        "label_was": shown,
+    }
     page = c.post(f"/pilot/jobs/{job.job_id}/approval/save", data=data).text
     assert 'data-testid="label-shipped-GZQO-INC-01"' in page
     assert [e["action"] for e in _events(box, "console.criterion_label")] == ["GZQO-EXC-01"]
@@ -80,7 +94,11 @@ def test_the_pi_records_amber_rows_and_ticks_in_one_post_then_approves(box: dict
     assert all(f'data-testid="open-{i}"' in page for i in AMBER) and 'data-testid="approve-missing"' in page
     assert all(f'data-testid="tick-btn-{i}"' in page for i in IDS)
     # an amber row is read inside its own disclosure: the box that records it is only reachable once it is opened
-    assert page.index(f'data-testid="open-{AMBER[0]}"') > page.index(f'id="{AMBER[0]}"')
+    for i in AMBER:
+        row = page[page.index(f'<tr id="{i}"') :]
+        row = row[: row.index("</tr>")]
+        inside = row[row.index('<details class="codes"') : row.index("</details>")]
+        assert f'data-testid="open-{i}"' in inside
     data = {"csrf": csrf, "opened": AMBER, "tick": IDS}
     r = p.post(f"/pilot/jobs/{job.job_id}/approval/save", data=data, follow_redirects=False)
     assert r.status_code == 303
@@ -110,3 +128,22 @@ def test_approve_still_waits_for_every_amber_row(box: dict[str, Any]) -> None:
     r = p.post(f"/pilot/jobs/{job.job_id}/approval/save", data={"csrf": csrf, "opened": [AMBER[5], "GZQO-INC-99"]})
     assert r.status_code == 404 and AMBER[5] not in [e["action"] for e in _events(box, "console.approval_open")]
     assert p.post(f"/pilot/jobs/{job.job_id}/approval/save", data={"csrf": "x", "tick": IDS[:1]}).status_code == 400
+
+
+def test_a_label_saved_in_another_tab_or_language_is_not_written_over(box: dict[str, Any]) -> None:
+    """Review R1, R2: the page's labels are compared with the values it was shown with, in the language it was shown
+    in; a label nobody touched on this page is never written, and a page shown in another language is refused."""
+    job = _approval_job(box, _rows())
+    box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
+    c, csrf = login(box["app"], "crc", PW)
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    _, csrf = _page_and_csrf(c, job.job_id)
+    one = {"csrf": csrf, "label_lang": "ja", "label_id": IDS[:1], "label_was": [""]}
+    c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**one, "label_text": ["新しい表示名"]})  # the other tab
+    stale = {**one, "label_was": ["旧い表示名"], "label_text": ["旧い表示名"]}  # shown before, not touched
+    c.post(f"/pilot/jobs/{job.job_id}/approval/save", data=stale)
+    page, _ = _page_and_csrf(c, job.job_id)
+    assert f'data-testid="site-label-{IDS[0]}">新しい表示名' in page
+    assert len(_events(box, "console.criterion_label")) == 1
+    r = c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**one, "label_lang": "zh-TW", "label_text": ["別"]})
+    assert r.status_code == 409 and len(_events(box, "console.criterion_label")) == 1
