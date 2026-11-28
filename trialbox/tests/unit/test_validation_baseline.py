@@ -175,7 +175,9 @@ def test_the_same_pattern_passes_after_one_accept_and_a_new_class_holds(
     assert vb.load(cfg.lake_dir) == {BIRTH: 7.0}
     rows3 = [*rows, _row("D3", "2026-10-02")]
     rep = run_ingest(cfg, "csv", _night(tmp_path, "n3", rows3, mrns), snapshot=N3, validator=SAME)  # type: ignore[arg-type]
-    assert rep.passed and not rep.held and _held(cfg) == []  # the same pattern: no accept
+    # the same pattern: night 3 waits for no accept (night 2's row stays HELD here: publish_held is called without
+    # the store's decide, which the console's accept goes through)
+    assert rep.passed and not rep.held and [b.snapshot for b in _held(cfg)] == [N2]
     gate = (snapshot_dir(cfg.lake_dir, N3) / "gate.json").read_text(encoding="utf-8")
     assert "PUBLISH_WITH_WARNINGS" in gate and "Patient.birthDate" in gate
     new = _Pattern({BIRTH: 7, CODE: 3}, {"Patient": 100, "Condition": 100})
