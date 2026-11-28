@@ -122,6 +122,7 @@ class OrchestratorJudge(NoteJudge):
             calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
             sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
             affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
+            qualification=r.qualification,  # SAFE-1 A1
         )
 
 
