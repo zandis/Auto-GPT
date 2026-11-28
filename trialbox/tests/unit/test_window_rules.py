@@ -434,6 +434,8 @@ def test_an_unbounded_first_dose_clause_is_read_beside_a_numeric_one() -> None:
     """W07: the month does not hide "surgery prior to the first dose"."""
     text = "Chemotherapy in the past month and surgery prior to the first dose"
     assert any(r.anchor == "first_dose" and r.relation == "unbounded" for r in parse_windows(text))
+    first = "Prior to the first dose and within 30 days of screening"  # the clause before the number too
+    assert any(r.anchor == "first_dose" and r.relation == "unbounded" for r in parse_windows(first))
     both = {"op": "and", "args": [_atom(from_days=-30, to_days=0), _atom(from_days=-90, to_days=0)]}
     out = reconcile(text, both)
     assert out.flags == ["window_anchor_unsupported"] and out.hold is not None

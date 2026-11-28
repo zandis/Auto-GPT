@@ -336,7 +336,11 @@ def parse_windows(text: str) -> list[Result]:
     # an unbounded "prior to the first dose" in a clause of its own is read beside the numbers ("chemotherapy in the
     # past month and surgery prior to the first dose"), not only on a line that has none
     for fd in re.finditer(_UNBOUNDED_FIRST_DOSE, s):
-        if not any(re.fullmatch(r"[\s)]*(?:\([^)]*\)\s*)?(?:or more\s+)?", s[e : fd.start()]) for _, e in spans):
+        attached = (
+            e <= fd.start() and re.fullmatch(r"[\s)]*(?:\([^)]*\)\s*)?(?:or more\s+)?", s[e : fd.start()])
+            for _, e in spans
+        )
+        if not any(attached):
             out.append(Result(None, "", "first_dose", "window", "unbounded", fd.group()))
     if out:
         # A single temporal tuple cannot encode alternative anchors/arm scope.
