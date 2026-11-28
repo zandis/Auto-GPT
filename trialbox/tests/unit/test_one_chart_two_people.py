@@ -273,7 +273,13 @@ def test_an_accept_of_a_night_the_identity_check_never_ran_on_is_refused(good: A
     with pytest.raises(TwoPeopleOneChart, match="never ran on this night"):
         publish_held(cfg, NEXT)
     assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD and rb.calls == []
-    (folder / IDENTITY_CHECKED).write_text(json.dumps({"snapshot": NEXT}) + "\n", encoding="utf-8")
+    mark = {"snapshot": NEXT, "against": GOOD, "current": GOOD}  # #1561 P02: the whole mark (name + baseline)
+    for part in ({"snapshot": NEXT}, {**mark, "snapshot": GOOD}, {"snapshot": NEXT, "against": GOOD}):
+        (folder / IDENTITY_CHECKED).write_text(json.dumps(part) + "\n", encoding="utf-8")
+        with pytest.raises(TwoPeopleOneChart, match="run the night again"):
+            publish_held(cfg, NEXT)  # #1561 P02: a mark without this night's name or a baseline field is no check
+    assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD and rb.calls == []
+    (folder / IDENTITY_CHECKED).write_text(json.dumps(mark) + "\n", encoding="utf-8")
     assert publish_held(cfg, NEXT).promoted and rb.calls == [NEXT]  # checked, no conflict listed: the steward's
 
 
@@ -398,5 +404,27 @@ def test_a_bulk_export_with_two_national_ids_under_one_patient_id_is_held(tmp_pa
     text = " ".join(rep.errors or [])
     assert rep.held and "two different people" in text, text
     assert "Z100000001" not in text and "Z200000002" not in text  # counts only
+    said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
+    assert said["tonight"] == [bulk_id(KEY, "Patient", "p1")]
+
+
+def test_two_identifier_sets_that_join_alike_are_two_people(tmp_path: Path) -> None:
+    """#1561 P03: ["A|B", "C"] and ["A", "B|C"] of one system are two different sets, never one joined text."""
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(KEY)
+    cfg = AdapterConfig(lake_dir=tmp_path / "lake", secrets_dir=sec, site_id="T", audit_dir=tmp_path / "audit",
+                        mapping_path=MAPPING)  # fmt: skip
+    exp = tmp_path / "bulk"
+    exp.mkdir()
+
+    def patient(*values: str) -> dict[str, Any]:
+        return {"resourceType": "Patient", "id": "p1", "gender": "female", "birthDate": "1971-03-01",
+                "identifier": [{"system": "urn:synthetic:id", "value": v} for v in values]}  # fmt: skip
+
+    items = [patient("A|B", "C"), patient("A", "B|C")]
+    (exp / "Patient.ndjson").write_text("\n".join(json.dumps(r) for r in items) + "\n", encoding="utf-8")
+    rep = run_ingest(cfg, "fhir_bulk", str(exp), snapshot=NEXT, load_fhir=False, rebuild_lake=False, validate=False)
+    assert rep.held and "two different people" in " ".join(rep.errors or []), rep.errors
     said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
     assert said["tonight"] == [bulk_id(KEY, "Patient", "p1")]
