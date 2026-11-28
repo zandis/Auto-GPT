@@ -61,16 +61,34 @@ class Window:
     to_days: int
 
 
+MAX_WINDOW_DAYS = 3650  # OPT-1 W3 (iv)
+
+
 def window(atom: Atom) -> Window:
     if atom.derived and atom.window is None:
         return Window(-DEFAULT_WINDOW_DAYS[atom.derived], 0)
     if atom.window is None:
         return Window(None, 0)
     if atom.window.anchor not in (None, "index"):
-        raise CompileError("window anchor 'event' is not supported in v1.0 (use index-relative windows)")
+        raise CompileError(
+            f"window anchor {atom.window.anchor!r} is not supported in v1.0 (use index-relative windows)"
+        )
     to_days = 0 if atom.window.to_days is None else atom.window.to_days
     if atom.window.from_days is not None and atom.window.from_days > to_days:
         raise CompileError(f"empty window [{atom.window.from_days}, {to_days}]")
+    # OPT-1 W3 (iv): a window of more than ten years is a unit slip ("5 years" read as days, a lifetime as 99999)
+    reach = max(abs(x) for x in (atom.window.from_days, to_days) if x is not None)
+    if reach > MAX_WINDOW_DAYS:
+        raise CompileError(f"window of {reach} days is over {MAX_WINDOW_DAYS} (ten years); a person reads it")
+    # OPT-1 W3 (v): one length said twice, as the window and as the duration ("stable for 3 months" given both
+    # -90..0 and 90 days); a course of N days inside a longer window is the medication duration
+    if (
+        atom.duration is not None
+        and atom.duration.min_days is not None
+        and atom.window.from_days is not None
+        and to_days - atom.window.from_days == atom.duration.min_days
+    ):
+        raise CompileError("the same length is a window and a duration; a time limit is a window, a duration a length")
     return Window(atom.window.from_days, to_days)
 
 

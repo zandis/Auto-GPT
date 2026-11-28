@@ -28,6 +28,7 @@ from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtrac
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
+from criteria_compiler.ir_extract import window_rules
 from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, demographic_alone, kind
@@ -576,6 +577,25 @@ def postprocess(
         cid = f"{ruleset}-{code}-{counters[code]:02d}"
         flags: list[str] = []
         raw = dump(ec)
+        # OPT-1 W3: what the line says about time is read by rules first (``window_rules``), and the model's windows
+        # are compared with it: the rule's window wins where it has a form in days from the index date, a window the
+        # line never says is dropped, a window from the study's own dosing or end is held for a person; each is
+        # flagged (``window_*``) and so needs review. A line the rules do not understand keeps the model's windows.
+        line = str(raw.get("text") or "")
+        held: str | None = None
+        if isinstance(raw.get("logic"), dict):
+            seen = window_rules.reconcile(line, raw["logic"], drop_unstated=window_rules.DROP_UNSTATED_WINDOWS)
+            held = seen.hold
+            flags.extend(seen.flags)
+            if (
+                held is None
+                and window_rules.DROP_UNSTATED_WINDOWS
+                and (invented := window_rules.lint(line, raw["logic"]))
+            ):
+                held = invented
+                flags.append("window_invented")
+            if seen.flags and held is None:
+                warnings.append(f"{cid}: the line's window and the model's differ ({', '.join(seen.flags)}); check it")
         logic_raw, stray = strip_stray(
             raw.get("logic") or {"domain": "demographic"}, str(raw.get("text") or ""), str(ec.kind)
         )
@@ -599,6 +619,14 @@ def postprocess(
         if stray:
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
+        if held is not None and ir.class_ in FILTERED:
+            if ir.class_ == "mixed" and ir.note_question:  # as demote_uncompilable keeps it (D-98): the notes decide
+                ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
+                warnings.append(f"{cid}: {held}; the notes decide it (check it)")
+            else:
+                ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                           "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+                warnings.append(f"{cid}: {held}; kept for a person to check")
         # card 10A-1 (review 15, P2b): "No prior chemotherapy" (inclusion) compiled to "any of chemotherapy", which
         # meets the line only for the patients it should exclude. An inclusion whose logic asks the presence of a
         # concept that a negation in its line governs (negation_scope) is never run: a person checks it (rewriting it
