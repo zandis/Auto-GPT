@@ -1329,7 +1329,7 @@ def _run_ingest(
                     {
                         k: v
                         for k, v in dump(omop_load).items()
-                        if k in ("state", "seconds", "counts", "relational_failed")
+                        if k in ("state", "seconds", "counts", "relational_failed", "dqd")
                     }
                     if omop_load is not None
                     else None
