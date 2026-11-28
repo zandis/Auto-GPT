@@ -110,6 +110,7 @@ class JudgeReply:
     # round 5 (#639 7115208555): the model said the quote affirms the condition, the patient's, now (judge v6's
     # certainty, experiencer and time: ``note_answer.affirms``); in a pair, both models said it
     affirmed: bool = False
+    qualification: str = ""  # SAFE-1 A1: "unqualified" when a model behind the answer holds no record
 
     @property
     def all_calls(self) -> tuple[str, ...]:
@@ -229,6 +230,7 @@ class GatewayJudge:
                 "the answer is outside the judge schema",
                 call_id=res.call_id,
                 build_sha=res.build_sha,
+                qualification=res.qualification,
                 prompt=prompt,
                 prompt_sha=p.sha256,
                 tokens_in=res.tokens_in,
@@ -243,6 +245,7 @@ class GatewayJudge:
             reason=str(data.get("reason") or ""),
             call_id=res.call_id,
             build_sha=res.build_sha,
+            qualification=res.qualification,
             prompt=prompt,
             prompt_sha=p.sha256,
             tokens_in=res.tokens_in,
@@ -288,12 +291,13 @@ class AgreementJudge:
         if d.disagreement:
             self.disagreements += 1
         calls = first.all_calls + second.all_calls  # D-989: the verifier's call counts too
+        qualification = first.qualification or second.qualification  # SAFE-1 A1: either model unqualified
         if d.verdict == first.verdict:
             # L3: the verifier's quote is read too, in its sentence of the excerpts (never published); M1: it was found
             other = next((x for t in texts if found and (x := sentence_of(found, t))), str(found or ""))
             # round 5: the exclusion stands only when both models said the quote affirms it
             return replace(first, confidence=d.confidence, calls=calls, sentence=other,
-                           affirmed=first.affirmed and second.affirmed)  # fmt: skip
+                           affirmed=first.affirmed and second.affirmed, qualification=qualification)  # fmt: skip
         return JudgeReply(
             "unknown",
             0.0,
@@ -309,6 +313,7 @@ class AgreementJudge:
             refused=second.refused,
             opinions=[_opinion("judge", first), _opinion("verifier", answered, mismatch)] if d.disagreement else [],
             calls=calls,
+            qualification=qualification,
         )
 
 

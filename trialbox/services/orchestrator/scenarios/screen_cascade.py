@@ -431,10 +431,12 @@ def _row_of(o: Outcome, pair: bool) -> CriterionVerdict | _Shared:
     confidence: float | None = None
     opinions: list[Opinion] = []
     prov: list[str] = []  # D-989: the model calls behind the answer; none on S1's coded answer (stated, not absent)
+    qualification: str | None = None  # SAFE-1 A1: a model behind the answer holds no record
     for e in o.evidence:
         prov.extend(str(x) for x in (e.get("calls") or ([e["call_id"]] if e.get("call_id") else [])))
         if e.get("opinions"):
             opinions = [Opinion(**x) for x in e["opinions"]]
+        qualification = str(e["qualification"]) if e.get("qualification") else qualification
         if e.get("did"):
             refs.append(f"DocumentReference/{e['did']}")
             quote = str(e.get("quote")) if e.get("quote") else quote
@@ -460,6 +462,7 @@ def _row_of(o: Outcome, pair: bool) -> CriterionVerdict | _Shared:
             confidence=confidence,
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
             opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
+            qualification=qualification,  # SAFE-1 A1
         ),
         final=_final(o, status),
         basis=basis_of(o, status, pair),

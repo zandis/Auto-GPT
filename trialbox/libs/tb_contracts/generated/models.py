@@ -527,6 +527,10 @@ class Evidence(BaseModel):
     quote_date: str | None = None
     confidence: float | None = None
     reason: str | None = None
+    qualification: Literal["unqualified"] | None = None
+    """
+    SAFE-1 A1: unqualified when a model behind this answer holds no qualification record for its weights on this box (it ran, labelled). Absent: qualified, or no model answered.
+    """
     opinions: list[Opinion] | None = None
     """
     When the two checks disagree (D-120): each model's answer and its quote, so a person sees both.

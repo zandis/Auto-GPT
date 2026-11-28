@@ -94,9 +94,9 @@ def test_a_build_holding_a_record_is_tried_first_and_is_not_labelled() -> None:
 @pytest.mark.parametrize(
     ("build", "code"),
     [
-        (_b(sha256=OTHER), "weights_unexpected"),
+        (_b(status="champion", sha256=OTHER), "weights_unexpected"),
         (_b(context_length=None), "context_unknown"),
-        (_b(sha256=OTHER, weights={"trust": "rehearsal_placeholder"}), "weights_unexpected"),
+        (_b(status="champion", sha256=OTHER, weights={"trust": "rehearsal_placeholder"}), "weights_unexpected"),
         (_b(status="champion", expected=None), "champion_unqualified"),
         (_b(expected=None), "no_eligible_build"),
     ],
@@ -190,7 +190,7 @@ def _site(tmp_path: Path, **pin: Any) -> Path:
     row = next(b for b in doc["builds"] if (b.get("expected") or {}).get("manifest_sha256"))
     out = tmp_path / "registry.site.yaml"
     entry = {"sha256": row["expected"]["manifest_sha256"], "served": {"serving": "j"}, "context_length": 32768, **pin}
-    out.write_text(yaml.safe_dump({"builds": {row["build_id"]: entry}}), encoding="utf-8")
+    out.write_text(yaml.safe_dump({"kind": "registry-site-override", "builds": {row["build_id"]: entry}}), encoding="utf-8")
     return out
 
 

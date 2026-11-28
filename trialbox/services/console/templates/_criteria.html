@@ -12,7 +12,8 @@
 {# D-309: the criterion text in the page language with the protocol's own words one tap away; an answer read from
    notes by the test model says so #}
 {% if c.text_original %}<details class="original"><summary>{{ t('crit.original') }}</summary><span class="hint" data-original data-testid="text-original-{{ c.id }}">{{ given(c.text_original) }}</span></details>{% endif %}
-{% if c.test_model %}<br><span class="pill warn" data-testid="test-model-{{ c.id }}" title="{{ t('model.test.why') }}">{{ t('model.test') }}</span>{% endif %}</td>
+{% if c.test_model %}<br><span class="pill warn" data-testid="test-model-{{ c.id }}" title="{{ t('model.test.why') }}">{{ t('model.test') }}</span>{% endif %}
+{% if c.unqualified %}<br><span class="pill warn" data-testid="unqualified-{{ c.id }}" title="{{ t('model.unqualified.why') }}">{{ t('model.unqualified') }}</span>{% endif %}</td>
 <td>{{ t_or('kind.' + c.kind, c.kind) }}</td>
 <td>{% set vk = 'verdict.exclusion.' + c.verdict if c.kind == 'exclusion' and c.verdict in ('pass', 'fail') else 'verdict.' + c.verdict %}<span class="pill" data-tone="{{ tone('verdict', c.verdict) }}" data-testid="verdict-{{ c.id }}">{{ t(vk) }}</span></td>
 <td>{# the evidence cell, one line per part: the record's words and date, the coded records' value, unit, date and

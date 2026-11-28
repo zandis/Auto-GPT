@@ -1228,6 +1228,8 @@ class _Run:
         }
         if reply.opinions:
             meta["opinions"] = list(reply.opinions)
+        if reply.qualification:  # SAFE-1 A1: the page says the model is not qualified on this box
+            meta["qualification"] = reply.qualification
         if reply.verdict not in ("pass", "fail"):  # keep the judge's coded reason (disagree, low_confidence, ...)
             why = reply.reason if reply.reason in REASON_CODES else "abstained"
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason=why)

@@ -662,6 +662,8 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "test_model": bool(meta and meta.cls in ("note", "mixed") and v.get("verdict") != "pending_human")
                 and test_model_in_use(),
                 "verdict": v.get("verdict"),
+                # SAFE-1 A1: the model pair that answered holds no qualification record on this box
+                "unqualified": ev.get("qualification") == "unqualified",
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
                 "reason": ev.get("reason"),

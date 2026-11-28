@@ -38,6 +38,11 @@
         "quote_date": {"type": ["string", "null"]},
         "confidence": {"type": ["number", "null"]},
         "reason": {"type": ["string", "null"]},
+        "qualification": {
+          "description": "SAFE-1 A1: unqualified when a model behind this answer holds no qualification record for its weights on this box (it ran, labelled). Absent: qualified, or no model answered.",
+          "type": ["string", "null"],
+          "enum": ["unqualified", null]
+        },
         "opinions": {
           "description": "When the two checks disagree (D-120): each model's answer and its quote, so a person sees both.",
           "type": ["array", "null"],

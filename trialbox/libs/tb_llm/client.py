@@ -147,6 +147,7 @@ class ChatResult:
     tokens_in: int
     tokens_out: int
     data: Any = field(default=None)
+    qualification: str = ""  # SAFE-1 A1: "unqualified" when the gateway said so
 
 
 def json_schema_format(name: str, schema: dict[str, Any], *, strict: bool = True) -> dict[str, Any]:
@@ -363,6 +364,7 @@ class GatewayClient:
             tokens_in=int(usage.get("prompt_tokens") or 0),
             tokens_out=int(usage.get("completion_tokens") or 0),
             data=data,
+            qualification=str(tb.get("qualification") or ""),
         )
 
     def models(self) -> list[str]:
