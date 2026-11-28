@@ -137,6 +137,8 @@ closed). Checks:
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
   ``TB_SITE_PATIENTS``. FAIL when a cap is below the need (the night's ingest or rebuild may be killed); WARN when there
   is no count or no record.
+* ``console_users`` (P2-11): WARN "console users not set; using 25" when ``TB_CONSOLE_USERS`` is missing or not a whole
+  number (the install warns the same and goes on with 25); PASS with the number otherwise.
 * ``release_tree`` (H-144): on an installed release, the install folder holds no copy of a folder the box image
   carries and the signed host tree does not (``services/``, ``models/``, ``rulesets/``, ``catalogue/``, ``eval/``:
   ``host_tree.IMAGE_ONLY``). An update neither replaces nor checks such a copy: WARN, naming it and the command that
@@ -2103,6 +2105,20 @@ def check_postgres_memory(inp: DoctorInputs) -> Check:
     return Check("postgres_memory", status, detail)
 
 
+def check_console_users(inp: DoctorInputs) -> Check:
+    """P2-11: the site's declared concurrent users (``TB_CONSOLE_USERS``), which size the console's workers."""
+    from tools.trialbox import console_size
+
+    try:
+        n, declared = console_size.users(dict(inp.env))
+    except ValueError:
+        declared = False
+    if not declared:
+        return Check("console_users", "WARN", f"console users not set; using {console_size.DEFAULT_USERS} "
+                     "(set TB_CONSOLE_USERS in deploy/.env to a whole number, then re-run the install)")  # fmt: skip
+    return Check("console_users", "PASS", f"{n} concurrent users declared (TB_CONSOLE_USERS)")
+
+
 # No check here warns on last night's peak against 80 % of a cap: the box keeps no per-container peak record (only
 # `docker stats` by hand and the test VM's sampler), and doctor does not invent one.
 def check_memory_caps(inp: DoctorInputs) -> Check:
@@ -2804,6 +2820,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_bench_serving,
     check_prefix_cache,
     check_memory_caps,
+    check_console_users,
     check_postgres_memory,
     check_db_passwords,
     check_wsl2_memory,

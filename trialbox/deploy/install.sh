@@ -1197,7 +1197,8 @@ fi
 # P2-11 (ASSESS-1-ADDENDUM D7): the site's concurrent users, declared with the patient count (TB_CONSOLE_USERS, 25 when
 # unset, written so the box says it), size the console's worker processes (TB_CONSOLE_WORKERS; one set by hand is kept)
 if command -v python3 >/dev/null; then
-  python3 -m tools.trialbox.console_size --env-file deploy/.env --write 2>&1 | indent || stop_or_warn console-size "the console's worker processes (one)" "the concurrent users could not be read (above): set TB_CONSOLE_USERS in deploy/.env to a whole number, then re-run"
+  # never a stop on any box: a missing or bad number warns and the default (25) is used (integrator's ruling, #1601)
+  python3 -m tools.trialbox.console_size --env-file deploy/.env --write --default-if-bad 2>&1 | indent || echo "install: warning: the console's worker processes could not be sized (above): TB_CONSOLE_WORKERS keeps the compose default (one); set TB_CONSOLE_USERS and TB_CONSOLE_WORKERS in deploy/.env to whole numbers, then re-run" >&2
 fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
