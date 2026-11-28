@@ -25,14 +25,32 @@ def _block() -> str:
     return INSTALL[start : INSTALL.index("# ---- end of CONSENT-PROXY", start)]
 
 
+def _line(start: str) -> str:
+    """install.sh's own line that begins with ``start`` (review R5 of #1572: the real one, not a copy)."""
+    (line,) = [x for x in INSTALL.splitlines() if x.startswith(start)]
+    return line + "\n"
+
+
+def _parse(tmp: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """install.sh up to the end of its argument loop, run as deploy/install.sh of ``tmp``, with ``args``."""
+    (tmp / "deploy" / "site").mkdir(parents=True, exist_ok=True)
+    (tmp / "deploy" / "site" / "poc-stops.jsonl").write_text("{}\n", encoding="utf-8")
+    head = INSTALL[: INSTALL.index("\nsay() {")] + '\necho "parsed CONSENT_PROXY=$CONSENT_PROXY"\n'
+    (tmp / "deploy" / "install.sh").write_text(head, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
+    cmd = ["/bin/bash", str(tmp / "deploy" / "install.sh"), *args]
+    return subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=tmp, check=False)
+
+
 def _run(tmp: Path, value: str, before: str = "TB_ENV=PRODUCTION\n") -> subprocess.CompletedProcess[str]:
     (tmp / "deploy").mkdir(exist_ok=True)
     (tmp / "deploy" / ".env").write_text(before, encoding="utf-8")
     script = (
         "set -euo pipefail\n"
         'die() { echo "install: $*" >&2; exit 1; }\n'
-        'envset() { sed -i "/^$1=/d" deploy/.env && printf "%s=%s\\n" "$1" "$2" >> deploy/.env; }\n'
-        f'cd "{tmp}"\nCONSENT_PROXY="{value}"\n' + _block()
+        + _line("envset() {")
+        + f'cd "{tmp}"\nCONSENT_PROXY="{value}"\n'
+        + _block()
     )
     env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
     return subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True, env=env, check=False)
@@ -82,3 +100,27 @@ def test_the_option_is_parsed_and_the_refusal_names_it() -> None:
     for lang in ("ja", "zh-TW"):
         said = localize_reason(reason, lang)
         assert said not in ("", UNTRANSLATED[lang]) and "--consent-proxy on" in said
+
+
+@pytest.mark.parametrize("args", [("--consent-proxy", "yes"), ("--consent-proxy", "ON"), ("--consent-proxy",)])
+def test_a_bad_or_missing_value_is_refused_before_anything_runs(tmp_path: Path, args: tuple[str, ...]) -> None:
+    """Review R1 and R2 of #1572: refused while the arguments are read, so "nothing was changed" is true (the PoC list,
+    the first thing an install empties, is still there); a trailing --consent-proxy is named, not a silent exit."""
+    res = _parse(tmp_path, "--yes", *args)
+    assert res.returncode == 2, (res.returncode, res.stdout, res.stderr)
+    assert "--consent-proxy takes on or off" in res.stderr and "nothing was changed" in res.stderr
+    assert "parsed" not in res.stdout
+    assert (tmp_path / "deploy" / "site" / "poc-stops.jsonl").exists()
+
+
+@pytest.mark.parametrize("word", ["on", "off"])
+def test_on_and_off_are_read(tmp_path: Path, word: str) -> None:
+    res = _parse(tmp_path, "--consent-proxy", word, "--yes")
+    assert res.returncode == 0, res.stderr
+    assert f"parsed CONSENT_PROXY={word}" in res.stdout
+
+
+def test_no_later_step_of_the_install_writes_the_setting() -> None:
+    """Review R3 of #1572: after the block, install.sh never names TB_CONSENT_PROXY: --consent-proxy is the last word."""
+    after = INSTALL[INSTALL.index("# ---- end of CONSENT-PROXY") :]
+    assert "TB_CONSENT_PROXY" not in after

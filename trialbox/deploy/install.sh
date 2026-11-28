@@ -165,6 +165,12 @@ for _a in "$@"; do
   case "$_a" in --check|--tier-check|--ctgov-check|--keep-poc-list) _clear=0 ;; esac
   _prev="$_a"
 done
+# CONSENT-PROXY (P-23, review R1 and R2 of #1572): its value is read here, before the install does anything (the PoC
+# list below is the first thing it changes): a word other than on or off, or none, is refused
+_prev=""; for _a in "$@" ""; do
+  [ "$_prev" != --consent-proxy ] || case "$_a" in on|off) ;; *) echo "install: --consent-proxy takes on or off, not '$_a': nothing was changed" >&2; exit 2 ;; esac  # H-94 not a stop: a usage error, refused by name on every box
+  _prev="$_a"
+done
 # the list is this install's (review L-3 of #1396): emptied when an install starts, before its first stop_or_warn;
 # kept by the run from the signed tree (the same install, TB_INSTALL_SIGNED naming the release `current` names) and
 # by a run that only checks, and when box-install.sh runs it (--keep-poc-list: box-install.sh empties it itself; the
@@ -1084,7 +1090,7 @@ envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/
 case "$CONSENT_PROXY" in
   "") ;;
   on|off) envset TB_CONSENT_PROXY "$CONSENT_PROXY"; echo "    consent by a representative: $CONSENT_PROXY (--consent-proxy)" ;;
-  *) die "--consent-proxy takes on or off, not '$CONSENT_PROXY': nothing was changed" ;;  # H-94 not a stop: a usage error, refused by name on every box
+  *) die "--consent-proxy takes on or off, not '$CONSENT_PROXY'" ;;  # H-94 not a stop: a usage error, refused by name on every box
 esac
 # ---- end of CONSENT-PROXY
 # TEST-BOX (H-106): deploy/.env carries the record (the box's name, project and ports): every later compose command
