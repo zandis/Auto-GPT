@@ -10,9 +10,12 @@ import pytest
 from console.i18n_review import EN, JA, ZH
 from tb_common.wording import FORBIDDEN, LATER, check
 
+import tests.console.test_console_app as _app
 from tests.console.test_coded_criterion_row import CRITERIA, _client, _put, _rows
-from tests.console.test_console_app import _done_screen, _ulid, box  # noqa: F401 - box is a fixture
 from tests.console.test_criterion_labels import _gzqo
+
+box = _app.box  # the fixture, found by name
+_done_screen, _ulid = _app._done_screen, _app._ulid
 
 A = "a" * 32
 WORDS = {"en": EN["model.unqualified"], "ja": JA["model.unqualified"], "zh-TW": ZH["model.unqualified"]}
@@ -32,7 +35,7 @@ def _run(b: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize("lang", sorted(WORDS))
 def test_the_patient_page_labels_an_unqualified_answer(
-    box: dict[str, Any],  # noqa: F811
+    box: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
     lang: str,
 ) -> None:

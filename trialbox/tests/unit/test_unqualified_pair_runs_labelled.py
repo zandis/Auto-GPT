@@ -37,7 +37,10 @@ from tools.trialbox import doctor
 ROOT = Path(__file__).resolve().parents[2]
 SHA = "ab" * 32
 OTHER = "cd" * 32
-ok = lambda caller, study, step: True  # noqa: E731
+
+
+def ok(caller: str, study: str, step: str) -> bool:
+    return True
 
 
 def _b(build_id: str = "j-1", **over: Any) -> dict[str, Any]:
@@ -79,6 +82,15 @@ def test_a_thinking_only_release_build_routes_labelled() -> None:
     assert res.qualification == "unqualified"
 
 
+def test_a_thinking_only_build_with_a_record_but_no_thinking_on_measurement_is_labelled() -> None:
+    held = _b(status="champion", thinking_control="thinking_only", qualification=qualified(SHA))
+    res = _resolve(_reg(held))
+    assert res.build.build_id == "j-1" and res.qualification == "unqualified"
+    measured = _b(status="champion", thinking_control="thinking_only",
+                  qualification={**qualified(SHA), "thinking_on_role": "judge"})  # fmt: skip
+    assert _resolve(_reg(measured)).qualification == ""
+
+
 def test_validation_labels_its_candidate_and_test_does_not() -> None:
     reg = _reg(_b())
     assert _resolve(reg, Environment.VALIDATION).qualification == "unqualified"
@@ -99,10 +111,20 @@ def test_a_build_holding_a_record_is_tried_first_and_is_not_labelled() -> None:
         (_b(status="champion", sha256=OTHER), "weights_unexpected"),
         (_b(context_length=None), "context_unknown"),
         (_b(status="champion", sha256=OTHER, weights={"trust": "rehearsal_placeholder"}), "weights_unexpected"),
+        (_b(status="champion", weights={"trust": "rehearsal_placeholder"}), "champion_unqualified"),
+        (_b(weights={"trust": "rehearsal_placeholder"}), "no_eligible_build"),
         (_b(status="champion", expected=None), "champion_unqualified"),
         (_b(expected=None), "no_eligible_build"),
     ],
-    ids=["other-weights", "no-context", "placeholder", "hand-champion-nothing-expected", "first-use-candidate"],
+    ids=[
+        "other-weights",
+        "no-context",
+        "placeholder",
+        "placeholder-release-weights-champion",
+        "placeholder-release-weights-candidate",
+        "hand-champion-nothing-expected",
+        "first-use-candidate",
+    ],
 )
 def test_what_stays_refused(build: dict[str, Any], code: str) -> None:
     with pytest.raises(RegistryError) as e:
@@ -132,6 +154,31 @@ def test_a_qualified_build_carries_no_label(tmp_path: Path) -> None:
     assert r.status == 200 and "qualification" not in r.body["tb"] and "X-TB-Qualification" not in r.headers
     (rec,) = [x for x in _records(tmp_path) if x["event"] == "llm.gateway.call"]
     assert "qualification" not in rec["detail"]
+
+
+def test_the_llm_call_row_carries_the_label(tmp_path: Path) -> None:
+    """The orchestrator's client (``tb_common.llm``) writes the label in its own ``llm.call`` audit row."""
+    from tb_common.audit import AuditLog
+    from tb_common.llm import LlmClient
+
+    gw = _gw(tmp_path / "gw", env=Environment.PRODUCTION, registry=_reg(_b()), http=_mock("j-test"), confirm=ok)
+
+    def through(req: httpx.Request) -> httpx.Response:
+        res = gw.chat(dict(req.headers), json.loads(req.content))
+        return httpx.Response(res.status, json=res.body, headers=res.headers)
+
+    client = GatewayClient("http://gateway", "orchestrator", http=httpx.Client(transport=httpx.MockTransport(through)))
+    llm = LlmClient("http://unused/v1", "j", gateway=client, audit=AuditLog(tmp_path / "box"))
+    variables = {
+        "criterion_text": "Known HIV infection", "note_question": "Does the patient have HIV?",
+        "index_date": "2026-02-01",
+        "excerpts": [{"date": "2026-01-10", "note_type": "progress", "text": "q", "did": "D1"}],
+    }  # fmt: skip
+    res = llm.chat_json("judge_v4", variables, job_id="STUDY-1")
+    assert res.qualification == "unqualified"
+    rows = [json.loads(x) for f in sorted((tmp_path / "box").glob("*.jsonl")) for x in f.read_text().splitlines()]
+    (row,) = [r for r in rows if r["event"] == "llm.call"]
+    assert row["detail"]["qualification"] == "unqualified"
 
 
 def test_the_client_result_carries_the_label(tmp_path: Path) -> None:
@@ -184,14 +231,19 @@ def test_the_candidate_list_row_carries_the_label() -> None:
 
 
 # ------------------------------------------------------------------------------------------------ doctor, install
-def _site(tmp_path: Path, **pin: Any) -> Path:
+def _site(tmp_path: Path, *, sized: bool = True, **pin: Any) -> Path:
+    """A site pin of the release's own weights; ``sized=False``: a row the committed file gives no context, pinned
+    without one (refused in PRODUCTION: ``context_unknown``)."""
     import yaml
     from registry.registry import DEFAULT_PATH
 
     doc = yaml.safe_load(DEFAULT_PATH.read_text(encoding="utf-8"))
-    row = next(b for b in doc["builds"] if (b.get("expected") or {}).get("manifest_sha256"))
+    rows = [b for b in doc["builds"] if (b.get("expected") or {}).get("manifest_sha256")]
+    row = rows[0] if sized else next(b for b in rows if not b.get("context_length"))
     out = tmp_path / "registry.site.yaml"
-    entry = {"sha256": row["expected"]["manifest_sha256"], "served": {"serving": "j"}, "context_length": 32768, **pin}
+    entry = {"sha256": row["expected"]["manifest_sha256"], "served": {"serving": "j"}, **pin}
+    if sized:
+        entry["context_length"] = 32768
     out.write_text(
         yaml.safe_dump({"kind": "registry-site-override", "builds": {row["build_id"]: entry}}), encoding="utf-8"
     )
@@ -205,6 +257,14 @@ def test_doctor_warns_that_the_pair_runs_unqualified_in_production(tmp_path: Pat
     )
     assert c.status == "WARN" and "labelled unqualified" in c.detail, c.detail
     assert "route nothing" not in c.detail
+
+
+def test_doctor_does_not_say_a_build_with_no_context_runs(tmp_path: Path) -> None:
+    out = _site(tmp_path, sized=False)
+    c = doctor.check_registry_pins(
+        doctor.DoctorInputs(env={"TB_ENV": "PRODUCTION", "TB_REGISTRY_OVERRIDE": str(out)}, deploy=tmp_path / "d")
+    )
+    assert "labelled unqualified" not in c.detail, c.detail
 
 
 def test_doctor_says_nothing_of_it_once_a_record_is_promoted(tmp_path: Path) -> None:

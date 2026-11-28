@@ -147,7 +147,7 @@ def test_a_record_that_is_not_this_boxs_promotes_nothing_and_says_why(
     rec = box.record("other", **change)
     ok, lines = box.promote()
     assert not ok and any(ln.startswith(f"{rec.name}: ") and said in ln for ln in lines), lines
-    assert {p.get("status") for p in box.pins().values()} == {"candidate"} and not box.routes()
+    assert {p.get("status") for p in box.pins().values()} == {"candidate"} and not box.routes() and box.labelled()
 
 
 def test_an_edited_record_is_refused(box: Box) -> None:
@@ -156,7 +156,7 @@ def test_an_edited_record_is_refused(box: Box) -> None:
     doc["steps"]["n12"]["reason"] = "edited after the run"
     rec.write_text(json.dumps(doc), encoding="utf-8")
     ok, lines = box.promote()
-    assert not ok and "edited after it was written" in lines[0] and not box.routes()
+    assert not ok and "edited after it was written" in lines[0] and not box.routes() and box.labelled()
     rec.write_text("{ not json", encoding="utf-8")
     ok, lines = box.promote()
     assert not ok and "not a readable qualification record" in lines[0]
@@ -200,7 +200,7 @@ def test_the_cli(box: Box, capsys: pytest.CaptureFixture[str]) -> None:
     assert pin_model.main(["--confirm-shipped", "rtxpro6000", "--out", str(box.out)]) == 0  # the canary passed
     assert pin_model.main(["--promote-shipped", "rtxpro6000", *args]) == 4  # champion already: its own code
     assert pin_model.main(["--demote-pair", "rtxpro6000", "--out", str(box.out)]) == 0
-    assert not box.routes()
+    assert not box.routes() and box.labelled()
 
 
 # ------------------------------------------------------------------------------------------------ the record
@@ -328,8 +328,7 @@ def test_without_a_matching_record_the_install_goes_on_labelled_unqualified(tmp_
     calls = r.calls  # type: ignore[attr-defined]
     assert r.returncode == 0 and "selftest" not in calls and "restart gateway" not in calls
     assert r.fails == []  # type: ignore[attr-defined]
-    said = next(ln for ln in r.stdout.splitlines() if "the model pair is not qualified on this box" in ln)
-    assert "deploy/qualification" in said and "runs labelled unqualified" in said
+    assert "labelled unqualified" not in r.stdout  # said once, at the start of the install, never at the end
 
 
 def test_a_pair_that_was_champion_before_the_install_is_left_alone(tmp_path: Path) -> None:
@@ -380,7 +379,7 @@ def test_review_a_judge_pinned_without_its_template_is_not_promoted(box: Box) ->
     del doc["builds"][JUDGE]["weights"]["chat_template"]
     box.out.write_text(yaml.safe_dump(doc), encoding="utf-8")
     ok, lines = box.promote()
-    assert not ok and "pinned without the chat template" in lines[0] and not box.routes()
+    assert not ok and "pinned without the chat template" in lines[0] and not box.routes() and box.labelled()
 
 
 def test_review_a_shipped_promotion_is_checked_again_and_taken_back_when_the_release_changed(box: Box) -> None:
@@ -391,7 +390,7 @@ def test_review_a_shipped_promotion_is_checked_again_and_taken_back_when_the_rel
     box.lock.write_text(json.dumps({"third_party": {"vllm": {"image": "v", "digest": "sha256:" + "cd" * 32}}}))
     ok, lines = box.promote()
     assert not ok and any("model server image" in ln for ln in lines) and any("back to candidate" in ln for ln in lines)
-    assert not box.routes()
+    assert not box.routes() and box.labelled()
 
 
 def test_review_a_champion_by_hand_without_a_record_is_not_called_qualified(box: Box) -> None:
