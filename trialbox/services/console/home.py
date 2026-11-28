@@ -1296,11 +1296,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         ``/api/v1`` alike); while the death records cannot be read, no Approach and no contact outcome. Audited.
         SAFE-1 A6: an Approach or a contact outcome asks the death records for this one patient now (one pid), so a
         list whose own check was not answered never holds the patient being approached; not answered: refused."""
-        if wk is None:
-            return
         why = ""
         fn = getattr(bk, "deceased", None)
-        if pid in (wk.get("deceased") or ()):
+        if wk is not None and pid in (wk.get("deceased") or ()):
             why, key, status = "deceased", "patient.deceased", 409
         elif fn is not None and (action == "approach" or action in OUTCOMES):
             try:
