@@ -185,6 +185,35 @@ def data_gap_map(failures: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return sorted(out, key=lambda x: (-x["n"], x["view"], x["field"], x["reason_code"]))
 
 
+_DIFF_KEYS = ("pid", "protocol_id", "criterion_id", "stage", "attempt")
+_DIFF_ON = " AND ".join(f"a1.{c} = b1.{c}" for c in _DIFF_KEYS) + (
+    " AND a1.verdict IS NOT DISTINCT FROM b1.verdict AND a1.rv = b1.rv"
+)
+#: per (patient, criterion, stage, attempt): identical verdicts are paired first, the rest one-to-one in order
+_DIFF_SQL = (
+    (
+        """
+WITH a1 AS (SELECT *, row_number() OVER (PARTITION BY KEYS, verdict ORDER BY basis NULLS FIRST) AS rv FROM a),
+b1 AS (SELECT *, row_number() OVER (PARTITION BY KEYS, verdict ORDER BY basis NULLS FIRST) AS rv FROM b),
+paired AS (SELECT a1.protocol_id, a1.criterion_id, a1.basis AS ba, b1.basis AS bb, false AS changed
+           FROM a1 JOIN b1 ON ON_ab),
+ra AS (SELECT *, row_number() OVER (PARTITION BY KEYS ORDER BY verdict NULLS FIRST, basis NULLS FIRST) AS rep
+       FROM a1 WHERE NOT EXISTS (SELECT 1 FROM b1 WHERE ON_ab)),
+rb AS (SELECT *, row_number() OVER (PARTITION BY KEYS ORDER BY verdict NULLS FIRST, basis NULLS FIRST) AS rep
+       FROM b1 WHERE NOT EXISTS (SELECT 1 FROM a1 WHERE ON_ab)),
+rest AS (SELECT ra.protocol_id, ra.criterion_id, ra.basis AS ba, rb.basis AS bb,
+                ra.verdict IS DISTINCT FROM rb.verdict AS changed
+         FROM ra JOIN rb USING (KEYS, rep))
+SELECT protocol_id, criterion_id, coalesce(ba, bb, 'none') AS basis, count(*) AS n,
+       count(*) FILTER (WHERE changed) AS changed
+FROM (SELECT * FROM paired UNION ALL SELECT * FROM rest) GROUP BY ALL ORDER BY ALL
+"""
+    )
+    .replace("ON_ab", _DIFF_ON)
+    .replace("KEYS", ", ".join(_DIFF_KEYS))
+)
+
+
 def diff_runs(a: Any, b: Any) -> list[dict[str, Any]]:
     """The unstable-criteria table, and the drift join: two ledgers of the same patients (a repeat, another
     concurrency, another model pin) joined on (patient, protocol, criterion); per criterion and basis, how many
@@ -193,19 +222,12 @@ def diff_runs(a: Any, b: Any) -> list[dict[str, Any]]:
 
     con = duckdb.connect(":memory:")
     for name, src in (("a", a), ("b", b)):
-        # the n-th identical repeat of a (patient, criterion, stage, attempt) is paired with the n-th of the other run
         tbl = src.execute(
             "SELECT pid, protocol_id, criterion_id, verdict, basis, coalesce(stage, '') AS stage, "
-            "coalesce(attempt, 0) AS attempt, row_number() OVER (PARTITION BY pid, protocol_id, criterion_id, "
-            "coalesce(stage, ''), coalesce(attempt, 0) ORDER BY verdict NULLS FIRST, basis NULLS FIRST) AS rep "
-            "FROM match_stage WHERE criterion_id <> '' AND stage NOT IN ('S0', 'tier')"
+            "coalesce(attempt, 0) AS attempt FROM match_stage WHERE criterion_id <> '' AND stage NOT IN ('S0', 'tier')"
         ).to_arrow_table()
         con.register(name, tbl)
-    rows = con.execute(
-        "SELECT a.protocol_id, a.criterion_id, coalesce(a.basis, b.basis, 'none') AS basis, count(*) AS n, "
-        "count(*) FILTER (WHERE a.verdict IS DISTINCT FROM b.verdict) AS changed "
-        "FROM a JOIN b USING (pid, protocol_id, criterion_id, stage, attempt, rep) GROUP BY ALL ORDER BY ALL"
-    ).fetchall()
+    rows = con.execute(_DIFF_SQL).fetchall()
     return [
         {"protocol_id": p, "criterion_id": c, "basis": basis, "n": int(n), "changed": int(ch),
          "rate": round(ch / n, 4) if n else None, "coded_bug": basis == "coded" and ch > 0}

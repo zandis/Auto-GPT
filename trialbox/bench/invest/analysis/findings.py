@@ -65,13 +65,14 @@ def cmd_battery(a: argparse.Namespace) -> int:
     if protected and not a.real:
         _warn("a run is not marked synthetic or public: exporting the protected (suppressed, checked) form")
     recs = residual_records(con, b, meta) if a.records else []
-    if recs and not protected:
+    if a.records and not protected:
         Path(a.records).write_text(json.dumps(recs, ensure_ascii=False) + "\n", encoding="utf-8")
     elif recs:  # real: the records hold exact small counts, so they are clustered here and never written
         x, embedder = cluster.embed([cluster.record_text(r) for r in recs], a.embedder_path)
         labels, method = cluster.cluster(x)
         b["residual"] = cluster.residual_clusters(recs, labels)
         b["residual_method"] = {"clustering": method, "embedder": embedder, "namer": "rule"}
+    b["protected"] = protected
     if protected:
         pids = export.pids_of(con) | (export.pids_of(rep) if rep is not None else set())
         out = battery.protect(b, pids, known_ids(meta, protos))
@@ -91,22 +92,32 @@ def _cell(n: int, protected: bool) -> int | None:
 
 def cmd_residual(a: argparse.Namespace) -> int:
     b = json.loads(Path(a.battery).read_text("utf-8"))
+    con = battery.open_runs(_dirs(a.runs)) if a.runs else None
+    # a battery keeps the protection it was written with; one with no marker is protected unless its ledgers are open
+    marked = b["protected"] is not False if "protected" in b else not (con and battery.is_open(con))
+    protected = bool(a.real) or marked
+    if protected and con is None:
+        _warn(
+            "residual update skipped: it could expose patient identifiers without the source ledger (--runs) "
+            "to check against; the battery file is unchanged"
+        )
+        print(json.dumps({"residual_clusters": None, "skipped": True}))
+        return 0
     recs = json.loads(Path(a.records).read_text("utf-8"))
     lab = json.loads(Path(a.labels).read_text("utf-8"))
     b["residual"] = cluster.residual_clusters(recs, lab["labels"])
     b["residual_method"] = {"clustering": lab["method"], "embedder": lab["embedder"],
                             "namer": "rule"}  # fmt: skip
     n = len(b["residual"])
-    if a.real:  # the final payload is suppressed and checked against the source ledger's patient ids
-        if not a.runs:
-            _warn("--real without --runs: no patient id of the source ledger is checked")
-        pids = export.pids_of(battery.open_runs(_dirs(a.runs))) if a.runs else set()
+    if protected:  # the final payload is suppressed and checked against the source ledger's patient ids
+        b["protected"] = True
+        pids = export.pids_of(con)
         protos = sorted({r["protocol_id"] for r in recs} | {p for c in b["clusters"] for p in c["protocols"]})
         meta = battery.criteria_meta(protos)
         battery.write_real(Path(a.battery), b, pids, known_ids(meta, protos))
     else:
         Path(a.battery).write_text(json.dumps(b, indent=1, sort_keys=True, ensure_ascii=False) + "\n", "utf-8")
-    print(json.dumps({"residual_clusters": _cell(n, bool(a.real)), **b["residual_method"]}))
+    print(json.dumps({"residual_clusters": _cell(n, protected), **b["residual_method"]}))
     return 0
 
 
@@ -215,12 +226,24 @@ def metamorphic_table(m: Mapping[str, Any]) -> list[str]:
     return head + _table(["transform", "compared", "not comparable", "broken", "result", "failing criteria"], rows)
 
 
+def _set_row(b: Mapping[str, Any]) -> list[str]:
+    if "trial_failure_rows" not in b:  # written before the split: one combined total, no patient-side share
+        return [b["set"], _n(b["criterion_rows"]), f"{_n(b['failure_rows'])} (patient and trial combined)", "—", "—"]
+    share = _pct(b["failure_rows"] / b["criterion_rows"]) if b["criterion_rows"] and b["failure_rows"] else "—"
+    return [b["set"], _n(b["criterion_rows"]), _n(b["failure_rows"]), _n(b["trial_failure_rows"]), share]
+
+
+def _failure_cells(r: Mapping[str, Any]) -> str:
+    if "trial_failure_rows" not in r:
+        return f"{_n(r['failure_rows'])} failure rows (patient and trial combined)"
+    return f"{_n(r['failure_rows'])} patient failure rows, {_n(r['trial_failure_rows'])} trial failure rows"
+
+
 def real_section(r: Mapping[str, Any]) -> list[str]:
     """The real-data part: refused first (no identifier, quote or day date, no unsuppressed small count), then
     rendered from counts alone."""
     battery.refuse(r, (), _ids_in(r))
-    out = [f"Set `{r['set']}`: {_n(r['criterion_rows'])} criterion rows, {_n(r['failure_rows'])} patient failure rows, "
-           f"{_n(r.get('trial_failure_rows'))} trial failure rows. "
+    out = [f"Set `{r['set']}`: {_n(r['criterion_rows'])} criterion rows, {_failure_cells(r)}. "
            "Counts only; cells below 10 shown as <10.", "", "Codes:", ""]  # fmt: skip
     out += [*codes_table(r), "", "Clusters (deterministic):", "", *clusters_table(r)]
     out += ["", "Residual clusters:", "", *residual_table(r), "", "Data-gap map:", "", *gap_table(r)]
@@ -250,9 +273,7 @@ def render(
             "real-data section holds counts only.", ""]  # fmt: skip
     if prior:
         out += [f"The round's instrument table (§1.3) is in {prior}.", ""]
-    sets = [[b["set"], _n(b["criterion_rows"]), _n(b["failure_rows"]), _n(b.get("trial_failure_rows")),
-             _pct(b["failure_rows"] / b["criterion_rows"]) if b["criterion_rows"] and b["failure_rows"] else "—"]
-            for b in [*batteries, *([real] if real else [])]]  # fmt: skip
+    sets = [_set_row(b) for b in [*batteries, *([real] if real else [])]]
     head = ["set", "criterion rows", "failure rows", "trial failure rows", "failure share"]
     out += ["## Sets", "", *_table(head, sets)]
     for b in batteries:

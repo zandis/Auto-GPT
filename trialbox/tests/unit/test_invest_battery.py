@@ -405,3 +405,59 @@ def test_the_metamorphic_run_never_deletes_its_source(tmp_path: Path) -> None:
     _site(work / "site-base")  # the source is the directory the run used to wipe
     out = metamorphic.run(work / "site-base", work, 2, (), "UTC", ("shift",), lambda *_a, **_k: ({}, {}))
     assert (work / "site-base" / "patient.csv").exists() and out["patients"] == 2
+
+
+def test_a_protected_battery_stays_protected_in_the_residual_pass_and_is_untouched_without_the_ledger(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    d = _real_ledger(tmp_path / "real", {"real_twin": ["GZQO"]})
+    out = tmp_path / "b.json"
+    findings.main(["battery", "--runs", str(d), "--name", "twin", "--out", str(out)])  # written protected, no --real
+    con = battery.open_runs([d])
+    meta = battery.criteria_meta(["GZQO"])
+    recs = findings.residual_records(con, battery.run_battery(con, meta, name="twin"), meta)
+    recs_f, labels_f = tmp_path / "recs.json", tmp_path / "labels.json"
+    labels_f.write_text(json.dumps({"labels": [0] * len(recs), "method": "kmeans", "embedder": "hash"}), "utf-8")
+    recs_f.write_text(json.dumps(recs), "utf-8")
+    argv = ["residual", "--battery", str(out), "--records", str(recs_f), "--labels", str(labels_f)]  # no --real
+    before = out.read_bytes()
+    capsys.readouterr()
+    assert findings.main(argv) == 0  # no --runs: the update is skipped, the file is byte-identical
+    shown = capsys.readouterr()
+    assert out.read_bytes() == before and shown.err.count("WARN") == 1 and "residual update skipped" in shown.err
+    _clean(shown.out)
+    assert findings.main([*argv, "--runs", str(d)]) == 0  # with the ledger: updated, and still protected
+    assert json.loads(out.read_text("utf-8"))["protected"] is True and out.read_bytes() != before
+    for text in (out.read_text("utf-8"), capsys.readouterr().out):
+        _clean(text)
+
+
+def test_the_renderer_does_not_compute_a_patient_share_from_a_combined_total() -> None:
+    old = {"set": "old", "criterion_rows": 100, "failure_rows": 40}  # written before the trial split
+    row = findings._set_row(old)
+    assert "combined" in row[2] and row[4] == "—"
+    assert findings._set_row({**old, "trial_failure_rows": 15})[4] == "40 %"
+
+
+def test_identical_verdicts_are_paired_first_in_the_repeat_join() -> None:
+    import duckdb
+
+    def con(verdicts: list[str | None]) -> Any:
+        c = duckdb.connect(":memory:")
+        c.execute("CREATE TABLE match_stage (pid VARCHAR, protocol_id VARCHAR, criterion_id VARCHAR, verdict VARCHAR, "
+                  "basis VARCHAR, stage VARCHAR, attempt BIGINT)")  # fmt: skip
+        for v in verdicts:
+            c.execute("INSERT INTO match_stage VALUES ('p0', 'GZQO', 'c1', ?, 'coded', 'S1', 0)", [v])
+        return c
+
+    (row,) = battery.diff_runs(con(["F", "T"]), con(["T", None]))
+    assert (row["n"], row["changed"]) == (2, 1)  # T pairs with T; only F against the unknown changed
+
+
+def test_an_open_run_without_residuals_writes_an_empty_records_file(tmp_path: Path) -> None:
+    d = _ledger(tmp_path / "l", _rows(_crits()))  # synthetic header, fewer than 21 groups
+    rec = tmp_path / "rec.json"
+    findings.main(
+        ["battery", "--runs", str(d), "--name", "syn", "--out", str(tmp_path / "b.json"), "--records", str(rec)]
+    )
+    assert json.loads(rec.read_text("utf-8")) == []
