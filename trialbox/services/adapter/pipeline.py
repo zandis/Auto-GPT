@@ -654,6 +654,7 @@ def _run_ingest(
                 identity_conflicts.add(pid)
 
     against_served: set[str] = set()  # H34-06: chart numbers whose name or national id differ from the served one
+    merge_recorded: list[dict[str, Any]] = []  # #1561 P01: recorded merges applied over differing demographics
     patient_pairs: list[tuple[str, str]] = []
     identities: list[tuple[str, dict[str, str]]] = []
     fhir_profiles = ""
@@ -992,6 +993,20 @@ def _run_ingest(
                 if _two_people(pm.identity(pid) or {}, _named(said)):
                     against_served.add(pid)
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
+            # ruling (#1561, P01): a recorded merge (reason and ticket) is the operator's attested decision and
+            # overrides differing demographics, never silently: the night's audit event and its page say so.
+            # ponytail: the surviving patient's served birth date and sex are not read here (its name and national
+            # id are, from the pid map); tonight's are when it arrives tonight
+            said_by, tickets = dict(identities), pm.tickets()
+            for old, new in sorted(aliases.items()):
+                if old in patient_who and _two_people(
+                    {**patient_who[old], **_named(said_by.get(old, {}))},
+                    {**patient_who.get(new, {}), **_named(said_by.get(new) or pm.identity(new) or {})},
+                ):
+                    merge_recorded.append({"pids": [old, new], "ticket": tickets[old], "said": MERGE_RECORDED})
+            if merge_recorded:
+                log.warning("patient identity: %d recorded chart merge(s) applied: %s", len(merge_recorded),
+                            MERGE_RECORDED)  # fmt: skip
         finally:
             pm.close()
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
@@ -1396,6 +1411,8 @@ def _run_ingest(
                     else None
                 ),
                 "aliased": aliased or None,
+                # #1561 P01: the recorded merges applied over differing demographics (pseudonymous pids, ticket)
+                "merge_recorded": merge_recorded or None,
                 # T-106: the dual write into OMOP and the foreign-key checks after it (None: the flag is off)
                 "omop": (
                     {
@@ -1874,6 +1891,8 @@ COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate
 IDENTITY_CONFLICT = "identity_conflict.json"  # H34-06: the pids that arrived as two people (tonight / against)
 IDENTITY_CHECKED = "identity_checked.json"  # H34-06 review M1: the identity check ran on this night
 _WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of who the person is
+#: #1561 P01: what the night says of a recorded merge applied over differing demographics
+MERGE_RECORDED = "demographics differ: merge recorded"
 _NAMED = ("name", "national_id")  # H34-06 review B1: what of a mapping's identity says who (not a phone)
 
 

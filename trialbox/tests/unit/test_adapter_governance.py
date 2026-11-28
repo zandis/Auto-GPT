@@ -262,7 +262,6 @@ def test_the_ingest_writes_a_merged_patients_records_under_the_surviving_pid(tmp
     assert f"Patient/{old}" not in obs and f"Patient/{new}" in obs
 
 
-
 def test_a_recorded_merge_of_differing_demographics_passes_and_the_night_says_so(tmp_path: Path) -> None:
     """Ruling (#1561, P01): a recorded merge (reason and ticket) is the operator's attested decision and overrides
     differing demographics (synthetic 10000002 and 10000003 differ by birth date), never silently: the night's audit
