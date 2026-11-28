@@ -10,11 +10,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from adapter.pipeline import IDENTITY_CONFLICT, IDENTITY_NIGHT_MIN, IDENTITY_NIGHT_SHARE
 from adapter.ndjson import snapshot_dir
+from adapter.pipeline import IDENTITY_CONFLICT, IDENTITY_NIGHT_MIN, IDENTITY_NIGHT_SHARE
 from tb_common.crypto import pid_for_mrn
 
-from tests.unit.test_one_chart_two_people import (  # noqa: F401 - good is a fixture
+import tests.unit.test_one_chart_two_people as _two
+from tests.unit.test_one_chart_two_people import (
     KEY,
     NEXT,
     SITE_A,
@@ -24,12 +25,13 @@ from tests.unit.test_one_chart_two_people import (  # noqa: F401 - good is a fix
     _other_person,
     _rows,
     _write,
-    good,
 )
+
+good = _two.good  # the fixture, found by name
 
 
 def _two_people_on(good: Any, tmp_path: Path, n: int) -> tuple[Any, Any, list[str]]:
-    cfg, rb = _from_good(good, tmp_path)
+    cfg, _rb = _from_good(good, tmp_path)
     feed = _feed(tmp_path)
     rows = _rows(feed / "patient.csv")
     _write(feed / "patient.csv", [*rows, *(_other_person(r) for r in rows[:n])])
