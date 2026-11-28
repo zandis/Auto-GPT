@@ -217,8 +217,9 @@ def test_every_clear_resolves_and_the_worker_runs_each() -> None:
     # NEW-MAIL-1 (D-863) adds held_mail: a mail held for an opt-out loses the job files that name the patient
     # ERASE-A4 (D-869) adds setup_uploads: a patient's own upload to the site set-up goes whole
     # ERASE-A2 (D-875) adds screening_log: a never-consented patient's screening-log rows stay under a token
+    # P-19 (D-989 point 5) adds provenance_index: the provenance index's use rows of the patient go
     assert names == ["candidate_pool", "candidate_registry", "held_mail", "omop", "owed_tables", "pid_pending",
-                     "profile", "screening_log", "setup_uploads", "vec"]  # fmt: skip
+                     "profile", "provenance_index", "screening_log", "setup_uploads", "vec"]  # fmt: skip
     for c in erasure.clears():
         clear, verify = c.resolve()
         assert callable(clear) and callable(verify), c.name

@@ -101,6 +101,7 @@ def test_default_install_passes() -> None:
         "named_choices",  # D-1365
         "mail_auth",  # D-825
         "memory_caps",
+        "console_users",  # P2-11
         "postgres_memory",  # D-751
         "wsl2_memory",
         "update_window",

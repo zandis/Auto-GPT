@@ -1245,7 +1245,16 @@ fi
 # P2-11 (ASSESS-1-ADDENDUM D7): the site's concurrent users, declared with the patient count (TB_CONSOLE_USERS, 25 when
 # unset, written so the box says it), size the console's worker processes (TB_CONSOLE_WORKERS; one set by hand is kept)
 if command -v python3 >/dev/null; then
-  python3 -m tools.trialbox.console_size --env-file deploy/.env --write 2>&1 | indent || stop_or_warn console-size "the console's worker processes (one)" "the concurrent users could not be read (above): set TB_CONSOLE_USERS in deploy/.env to a whole number, then re-run"
+  # never a stop on any box: a missing or bad number warns and the default (25) is used (integrator's ruling, #1601)
+  python3 -m tools.trialbox.console_size --env-file deploy/.env --write --default-if-bad 2>&1 | indent || {
+    echo "install: warning: the console's worker processes could not be sized (above): TB_CONSOLE_WORKERS keeps the compose default (one); set TB_CONSOLE_USERS and TB_CONSOLE_WORKERS in deploy/.env to whole numbers, then re-run" >&2
+    # a bad override left in deploy/.env would stop compose supplying its default (one): put the default in its place
+    w="$(sed -n 's/^TB_CONSOLE_WORKERS=//p' deploy/.env | tail -1 || true)"
+    [ "${w:-1}" -ge 1 ] 2>/dev/null || {
+      echo "install: warning: TB_CONSOLE_WORKERS='$w' is not a whole number of processes, 1 or more; using 1 (the compose default)" >&2
+      sed -i '/^TB_CONSOLE_WORKERS=/d' deploy/.env && echo "TB_CONSOLE_WORKERS=1" >> deploy/.env
+    }
+  }
 fi
 # T-703 (D-751): PostgreSQL's buffers, WAL, maintenance memory, /dev/shm and idle-transaction limit from TB_MEM_DB;
 # a value set by hand is kept and `trialbox doctor` (postgres_memory) fails on the defaults of a large host
@@ -2064,7 +2073,8 @@ HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU" ${RRS_HOST[@]+"${RRS_
 # file (box-install.sh's install.log, a rehearsal's step log) /dev/fd/8 is opened again, and without -a it is emptied
 host_check() {  # HOST_OUT: the host check's output (shown as it runs); HOST_RC: 1 when it reported FAIL lines
   HOST_RC=0; exec 8>&1
-  HOST_OUT="$(sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee -a /dev/fd/8)" || HOST_RC=1
+  # TB_DOCTOR_INSTALL_PHASE: the backup key can only be made after the install (RUNBOOK §5), so doctor reads its absence as a WARN here
+  HOST_OUT="$(TB_DOCTOR_INSTALL_PHASE=1 sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} | tee -a /dev/fd/8)" || HOST_RC=1
   exec 8>&-
 }
 host_check

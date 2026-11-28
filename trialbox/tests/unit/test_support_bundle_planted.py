@@ -396,3 +396,33 @@ def test_the_writer_finder_finds_a_writer() -> None:
         assert _writers(f) == {"leak": {"open", "addfile"}}
     finally:
         f.unlink()
+
+
+#: the encodings H-76a covers, by name (the integrator's ruling of 2026-11-22 12:50: whatever leaves the box masks the
+#: pseudonym, and the bundle's invariant test asserts it for each); ``test_support_bundle_h76`` keeps this list equal
+#: to the scrub tests' ``ENCODED``
+ENCODINGS = {
+    "percent-2F": "%2F{t}", "percent-2f": "%2f{t}", "percent-quote": "%22{t}%22", "percent-equals": "%3D{t}",
+    "percent-colon-comma": "%3A{t}%2C", "percent-twice": "%252F{t}", "percent-three-times": "%25252F{t}",
+    "backslash-u": "\\u002F{t}", "backslash-u-escaped": "\\\\u002F{t}", "backslash-x": "\\x2F{t}",
+    "backslash-U": "\\U0000002F{t}", "entity-hex": "&#x2F;{t}", "entity-decimal": "&#47;{t}",
+    "entity-named": "&quot;{t}&quot;", "quoted-printable": "=3D{t}", "percent-json": "%7B%22pid%22%3A%22{t}%22%7D",
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("name", sorted(ENCODINGS))
+def test_the_invariant_masks_a_pseudonym_in_every_encoding(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A built bundle, a collected log that holds a pseudonym in one encoding: no 8 of its digits leave, in any
+    member or name, in any form the archive's reader could decode."""
+    deploy, p, _add = make_box(tmp_path, monkeypatch)
+    pid = _pid_with_a_letter()
+    line = f"2026-11-21T03:00:00Z gateway | GET /x?back={ENCODINGS[name].format(t=pid)}&y=1 200\n"
+    _gz(deploy.parent / "logs" / "services" / DAY / "gateway.log.gz", line.encode())
+    out = sb.build(deploy, tmp_path / "usb", runner=_runner(p), now=NOW, say=lambda _: None)
+    members = _archive(out)
+    assert f"support/logs/{DAY}/gateway.log" in dict(members)
+    blob = "\n".join(n + "\n" + data.decode("utf-8", errors="replace") for n, data in members)
+    seen = (blob + "\n" + bs._decode(blob)).lower()
+    assert not [pid[i : i + 8] for i in range(25) if pid[i : i + 8] in seen], name

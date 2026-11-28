@@ -242,6 +242,18 @@ def vs_changes(old: dict[str, dict[str, Any]], new: dict[str, dict[str, Any]]) -
     return out
 
 
+def note_lint(rs: Any) -> list[str]:
+    """U6: a note or mixed criterion whose text gives the S2 lexicon no term is "not evaluated" on every SCREEN night
+    (inv-j5 P5); one line per such criterion, by name."""
+    from matching.cascade.engine import lexicon_terms
+
+    return [
+        f"{rs.id}: note criterion {c.id} has no lexicon keys (S2 cannot retrieve for it)"
+        for c in rs.active()
+        if c.class_ in ("note", "mixed") and not lexicon_terms(c, {})
+    ]
+
+
 def offline(rulesets_dir: Path, ids: list[str], write: bool) -> int:
     """``--check`` (``write`` False) or ``--recompile``: see the module docstring."""
     from criteria_compiler.compile_cql.translator import Translator
@@ -262,9 +274,11 @@ def offline(rulesets_dir: Path, ids: list[str], write: bool) -> int:
     comp = Compiler(deps)
     print(f"terminology release {term.release}")
     drift = 0
+    dead: list[str] = []
     for rid in ids:
         target = rulesets_dir / rid
         rs = Ruleset.load(target)
+        dead += note_lint(rs)
         vs = compiled_valuesets(rid, rs, term)
         scopes = c.dump(rs.manifest).get("scopes") or {}
         lookback = int((scopes.get("feas") or {}).get("lookback_months") or 36)
@@ -302,6 +316,9 @@ def offline(rulesets_dir: Path, ids: list[str], write: bool) -> int:
             f"{drift} shipped ruleset(s) drifted from the compiler: run `python -m tools.build_rulesets --recompile` "
             "(then check tests/expected.json and the goldens)"
         )
+        return 1
+    if dead and not write:
+        print("\n".join(dead))
         return 1
     return 0
 

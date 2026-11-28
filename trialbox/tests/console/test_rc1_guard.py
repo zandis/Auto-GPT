@@ -6,9 +6,11 @@ R22-34; ``tb_common.rc1_refusals``).
 * ``patient_mail_and_downloads``: the mail gateway holds a mail with a job's patient-level files
   (``mail_gateway.gateway.Gateway._still_current``), and the console gives no patient-level file to download.
 
-On a box with ``TB_ENV`` unset, PRODUCTION or unknown: nothing is listed, shown, sent or downloaded; the person reads the
-table's message (the problem page, JSON on ``/api/``, the job's error, the held mail's reason) and the refusal is an
-audited event. On DEV, TEST and VALIDATION (D-1072) the guards let it through. Synthetic data only."""
+On a box with ``TB_ENV`` unset, PRODUCTION or unknown: nothing is sent or downloaded; the person reads the table's
+message (the problem page, JSON on ``/api/``, the job's error, the held mail's reason) and the refusal is an audited
+event. On DEV, TEST and VALIDATION (D-1072) the guards let it through. Lists: SAFE-1 A2 (the owner's decision of
+2026-11-28) allows them in every known environment, PRODUCTION and unset too; a box whose ``TB_ENV`` is unknown
+(``PILOT`` here) lists nothing, so it is the refused box of the list tests below. Synthetic data only."""
 
 from __future__ import annotations
 
@@ -82,8 +84,13 @@ def _events(b: dict[str, Any]) -> list[dict[str, Any]]:
     return [e for e in out if e["event"] == rg.EVENT and (e.get("detail") or {}).get("refusal")]
 
 
-def _refused(env: str) -> bool:
-    return env not in rc1_refusals.ALLOWED
+#: SAFE-1 A2: where a list is made and shown (an unknown name lists nothing); files keep D-1072's ``ALLOWED``
+LISTS_OPEN = ("", "PRODUCTION", "DEV", "TEST", "VALIDATION")
+REFUSED_BOX = "PILOT"  # an unknown TB_ENV: the box that lists nothing
+
+
+def _refused(env: str, key: str) -> bool:
+    return env not in (LISTS_OPEN if key == LIST_KEY else rc1_refusals.ALLOWED)
 
 
 def _ask(b: dict[str, Any], paths: list[str], key: str, env: str, methods: tuple[str, ...] = ("GET", "HEAD")) -> None:
@@ -93,7 +100,7 @@ def _ask(b: dict[str, Any], paths: list[str], key: str, env: str, methods: tuple
     asked = [(m, p) for p in paths for m in methods]
     for method, path in asked:
         r = c.request(method, path)
-        if _refused(env):
+        if _refused(env, key):
             assert r.status_code == 403, (method, path, r.status_code)
             if method == "HEAD":
                 assert r.content == b"", path  # the same refusal, with no body
@@ -105,7 +112,7 @@ def _ask(b: dict[str, Any], paths: list[str], key: str, env: str, methods: tuple
         else:
             assert r.status_code != 403 and shown not in r.text, (method, path, r.status_code)
     seen = _events(b)
-    if _refused(env):
+    if _refused(env, key):
         assert [e["detail"] for e in seen] == [{"refusal": rc1_refusals.row(key.removeprefix("rc1.")).name,
                                                 "environment": env or "PRODUCTION", "action": p} for _, p in asked]  # fmt: skip
         assert all(e["actor"] == "console:-" for e in seen)
@@ -125,7 +132,7 @@ def test_no_live_patient_list_on_a_production_box(
     else:
         monkeypatch.delenv("TB_ENV", raising=False)
     monkeypatch.delenv("TB_DB_URL", raising=False)  # a bare stack: the restore hold and the study state are open
-    if _refused(env):
+    if _refused(env, LIST_KEY):
         for first_step in (require_released, lambda: require_open("GZQO")):
             with pytest.raises(StepFailed) as got:
                 first_step()
@@ -147,7 +154,7 @@ def test_no_live_patient_list_on_a_production_box(
     _ask(b, paths, LIST_KEY, env)
     c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
     assert c.get(f"/pilot/jobs/{b['feas'].job_id}").status_code != 403  # a card of counts stays open
-    assert (c.get("/week").status_code == 403) is _refused(env)  # fail-closed: a route the list does not name
+    assert (c.get("/week").status_code == 403) is _refused(env, LIST_KEY)  # fail-closed: a route the list does not name
 
 
 @pytest.mark.parametrize("env", ["", "PRODUCTION", "DEV"])
@@ -176,7 +183,7 @@ def test_no_patient_mail_or_download_on_a_production_box(
     gw = _gw(tmp_path / "mail", mta, reg)
     gw.send(_phi("rc1"))
     state, why = _state(gw, "rc1")
-    if _refused(env):
+    if _refused(env, FILE_KEY):
         assert mta.sent == [] and reg.asked == []  # held before anything is read or sent
         assert state == "failed" and FILE_KEY in why and (env or "PRODUCTION") in why  # held at once, for a person
         assert gw.drain(force=True) == {} and mta.sent == []  # never tried again by itself
@@ -200,11 +207,12 @@ def test_no_patient_mail_or_download_on_a_production_box(
 
 
 def test_the_guard_reads_the_consoles_environment_and_the_table(db_url: str, tmp_path: Path) -> None:
-    """One rule: the console's own ``TB_ENV`` (unset is PRODUCTION), an unknown name refused, the table's sets."""
-    for env, refused in (("", True), ("PRODUCTION", True), ("PILOT", True), ("VALIDATION", False), ("dev", False),
-                         ("TEST", False)):  # fmt: skip
+    """One rule: the console's own ``TB_ENV`` (unset is PRODUCTION), an unknown name refused, the table's sets
+    (SAFE-1 A2: lists are refused only on an unknown name; downloads keep D-1072)."""
+    for env, lists, downloads in (("", False, True), ("PRODUCTION", False, True), ("PILOT", True, True),
+                                  ("VALIDATION", False, False), ("dev", False, False), ("TEST", False, False)):  # fmt: skip
         g = _console(tmp_path / (env or "unset"), env)["app"].state.rc1_guard
-        assert g.lists_refused() is refused and g.downloads_refused() is refused, env
+        assert g.lists_refused() is lists and g.downloads_refused() is downloads, env
 
 
 def test_the_consoles_words_are_the_tables_words() -> None:
@@ -252,8 +260,9 @@ def _routes(app: Any) -> list[tuple[str, str, Any]]:
 
 def test_every_route_is_allowed_by_name_or_refused_and_the_guard_is_outermost(db_url: str, tmp_path: Path) -> None:
     """Fail-closed by construction: each route of the console is on :data:`rg.ALLOWED` or answers rc1's refusal on
-    a PRODUCTION box; a route that gives a file is refused as a download unless its row above says why not."""
-    b = _console(tmp_path, "PRODUCTION")
+    a refused box (an unknown TB_ENV; SAFE-1 A2: PRODUCTION lists); a route that gives a file is refused as a download
+    unless its row above says why not."""
+    b = _console(tmp_path, REFUSED_BOX)
     app, g = b["app"], b["app"].state.rc1_guard
 
     async def live(ws: WebSocket) -> None:  # a websocket route, as a later card might add one
@@ -297,7 +306,7 @@ def test_a_people_list_address_of_j5_is_refused_before_its_rewrite(env: str, db_
     _ask(b, paths, LIST_KEY, env)
 
 
-@pytest.mark.parametrize("env", ["", "PRODUCTION"])
+@pytest.mark.parametrize("env", [REFUSED_BOX, "STAGING"])  # SAFE-1 A2: unset and PRODUCTION list
 def test_what_a_refused_box_still_serves(env: str, db_url: str, tmp_path: Path) -> None:
     """Sign-in, health, the ops and admin pages, aggregate counts and static files answer; the refusal carries the
     console's security headers although no inner middleware ran; the audit records the path, never the query."""
@@ -309,14 +318,14 @@ def test_what_a_refused_box_still_serves(env: str, db_url: str, tmp_path: Path) 
     r = c.get("/home?pid=" + PATIENT)
     assert r.status_code == 403 and r.headers["X-Frame-Options"] == "DENY" and "Content-Security-Policy" in r.headers
     (ev,) = _events(b)
-    assert ev["detail"] == {"refusal": "live_patient_lists", "environment": env or "PRODUCTION", "action": "/home"}
+    assert ev["detail"] == {"refusal": "live_patient_lists", "environment": env, "action": "/home"}
     assert PATIENT not in json.dumps(ev)  # M17: the query is never recorded
 
 
 def test_a_card_of_any_list_job_is_refused_and_a_store_that_fails_refuses(db_url: str, tmp_path: Path) -> None:
     """M11 and M12: a NAV job's card is a list (as SCREEN, MICROBATCH, COHORT, CASE); a store that does not answer
     shows no card, not even one of counts."""
-    b = _console(tmp_path, "PRODUCTION")
+    b = _console(tmp_path, REFUSED_BOX)
     nav = _job(b["app"].state.helpers.bk, 9, "NAV", (("nav_GZQO.json", b"{}", "phi"),))
     g = b["app"].state.rc1_guard
     assert g.refusal_of("GET", f"/pilot/jobs/{nav.job_id}") == "live_patient_lists"
@@ -333,7 +342,7 @@ def test_a_card_of_any_list_job_is_refused_and_a_store_that_fails_refuses(db_url
 
 
 # ---------------------------------------------------------------------------------------------- the third look
-@pytest.mark.parametrize("env", ["PRODUCTION", "VALIDATION"])
+@pytest.mark.parametrize("env", [REFUSED_BOX, "PRODUCTION", "VALIDATION"])  # SAFE-1 A2: PRODUCTION mails its rows
 def test_the_admins_send_now_mails_no_candidate_row_on_a_refused_box(
     env: str, db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -373,18 +382,18 @@ def test_the_admins_send_now_mails_no_candidate_row_on_a_refused_box(
     assert r.status_code == 200, r.text[-300:]
     bodies = [body for _kind, _to, _subject, body in h.bk.notices]
     rows = [x for x in bodies if "11111111" in x or "22222222" in x]
-    if env == "PRODUCTION":
+    if env == REFUSED_BOX:
         assert rows == []  # no candidate row leaves
     else:
         assert rows  # the same round on an allowed box mails its rows
 
 
-@pytest.mark.parametrize("env", ["", "PRODUCTION", "VALIDATION"])
+@pytest.mark.parametrize("env", [REFUSED_BOX, "", "PRODUCTION", "VALIDATION"])
 def test_the_audit_page_of_one_patient_is_refused_on_a_refused_box(env: str, db_url: str, tmp_path: Path) -> None:
     """R2234-14: ``/audit?pid=`` is the same list as ``/audit/patients/{pid}``; the plain log stays an admin page."""
     b = _console(tmp_path, env)
     g = b["app"].state.rc1_guard
-    refused = env != "VALIDATION"
+    refused = _refused(env, LIST_KEY)  # SAFE-1 A2: the unknown name only
     assert (g.refusal_of("GET", "/audit", f"pid={PATIENT}") == "live_patient_lists") is refused
     assert (g.refusal_of("GET", "/audit", f"kind=reveal&pid=%20{PATIENT[:8]}") == "live_patient_lists") is refused
     assert g.refusal_of("GET", "/audit", "kind=reveal") is None and g.refusal_of("GET", "/audit", "pid=") is None
@@ -399,7 +408,7 @@ def test_the_audit_page_of_one_patient_is_refused_on_a_refused_box(env: str, db_
 @pytest.mark.parametrize("kind", ["SCREEN", "MICROBATCH", "COHORT", "NAV", "CASE", "SUBMIT"])
 def test_the_card_of_every_job_that_names_a_patient_is_refused(kind: str, db_url: str, tmp_path: Path) -> None:
     """R2234-15 and mutants M09, M10: each list job's card, and SUBMIT's (its card names the patient), is refused."""
-    b = _console(tmp_path, "PRODUCTION")
+    b = _console(tmp_path, REFUSED_BOX)
     job = _job(b["app"].state.helpers.bk, 20, kind, (("counts.json", b"{}", "aggregate"),))
     c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
     assert c.get(f"/pilot/jobs/{job.job_id}").status_code == 403
@@ -421,7 +430,7 @@ def test_every_file_of_a_job_that_is_not_aggregate_is_refused(tag: str, db_url: 
 @pytest.mark.parametrize("method", ["OPTIONS", "PUT", "PATCH", "DELETE", "POST", "HEAD", "GET"])
 def test_a_refused_route_is_refused_by_every_method(method: str, db_url: str, tmp_path: Path) -> None:
     """Mutants M14 and M15 (the review's M13 to M15): OPTIONS, PUT, PATCH and DELETE meet the same refusal."""
-    b = _console(tmp_path, "PRODUCTION")
+    b = _console(tmp_path, REFUSED_BOX)
     c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
     for path in ("/studies/GZQO/week", "/api/v1/studies/GZQO/patients", "/studies/GZQO/screening-log.xlsx"):
         assert c.request(method, path).status_code == 403, (method, path)
@@ -431,7 +440,7 @@ def test_a_refused_route_is_refused_by_every_method(method: str, db_url: str, tm
 def test_a_websocket_on_a_refused_box_is_closed_before_it_opens(db_url: str, tmp_path: Path) -> None:
     """R2234-16 (a): ``BaseHTTPMiddleware`` lets a websocket through; the guard is a plain ASGI layer that closes it."""
     sent: list[str] = []
-    for env in ("PRODUCTION", "VALIDATION"):
+    for env in (REFUSED_BOX, "PRODUCTION", "VALIDATION"):  # SAFE-1 A2: PRODUCTION lists
         b = _console(tmp_path / env, env)
 
         async def rows(ws: WebSocket) -> None:
@@ -442,7 +451,7 @@ def test_a_websocket_on_a_refused_box_is_closed_before_it_opens(db_url: str, tmp
 
         b["app"].add_api_websocket_route("/studies/{rs}/live", rows)
         c = TestClient(b["app"], base_url="https://testserver")
-        if env == "PRODUCTION":
+        if env == REFUSED_BOX:
             with pytest.raises(WebSocketDisconnect) as got, c.websocket_connect("/studies/GZQO/live") as ws:
                 ws.receive_text()
             assert got.value.code == 1008 and sent == []
@@ -454,7 +463,7 @@ def test_a_websocket_on_a_refused_box_is_closed_before_it_opens(db_url: str, tmp
 
 def test_the_guard_reads_the_path_without_the_root_path(db_url: str, tmp_path: Path) -> None:
     """R2234-16 (b): behind a proxy that mounts the console under a root path, the route's own path is matched."""
-    b = _console(tmp_path, "PRODUCTION")
+    b = _console(tmp_path, REFUSED_BOX)
     c = TestClient(b["app"], base_url="https://testserver", root_path="/tb", follow_redirects=False)
     assert c.get("/tb/studies/GZQO/week").status_code == 403
     assert c.get("/tb/healthz").status_code != 403
@@ -463,7 +472,7 @@ def test_the_guard_reads_the_path_without_the_root_path(db_url: str, tmp_path: P
 
 def test_an_address_is_matched_as_it_is_sent(db_url: str, tmp_path: Path) -> None:
     """Mutants M20 and M21: a trailing slash is another address (refused), and a query is never part of the match."""
-    b = _console(tmp_path, "PRODUCTION")
+    b = _console(tmp_path, REFUSED_BOX)
     c = TestClient(b["app"], base_url="https://testserver", follow_redirects=False)
     assert c.get("/healthz/").status_code == 403 and c.get("/login/").status_code == 403
     assert c.get("/login?next=/home").status_code != 403 and c.get("/healthz?full=1").status_code != 403
@@ -471,7 +480,7 @@ def test_an_address_is_matched_as_it_is_sent(db_url: str, tmp_path: Path) -> Non
 
 def test_a_new_admin_page_is_refused_until_it_is_listed(db_url: str, tmp_path: Path) -> None:
     """R2234-16 (c): the admin pages are listed one by one; an admin address the list does not name is refused."""
-    g = _console(tmp_path, "PRODUCTION")["app"].state.rc1_guard
+    g = _console(tmp_path, REFUSED_BOX)["app"].state.rc1_guard
     assert g.refusal_of("GET", "/admin/ops") is None and g.refusal_of("POST", "/admin/jobs/01J/retry") is None
     for path in ("/admin/patients", "/admin/ops/x/y", "/admin/jobs/01J/rows", "/adminx"):
         assert g.refusal_of("GET", path) == "live_patient_lists", path

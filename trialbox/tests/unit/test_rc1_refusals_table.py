@@ -62,11 +62,13 @@ def test_the_table_has_the_six_refusals_of_the_ruling_and_one_answer_for_the_env
                                              "patient_mail_and_downloads", "support_exports", "unattended_updates",
                                              "key_ceremonies"]  # fmt: skip
     assert len({r.key for r in rr.REFUSALS}) == len(rr.REFUSALS) and len({r.test for r in rr.REFUSALS}) == 6
-    assert sorted(rr.ALLOWED) == ["DEV", "TEST", "VALIDATION"] and all(
-        r.allowed is rr.ALLOWED for r in rr.REFUSALS
-    )  # D-1072
-    for r in rr.REFUSALS:
-        assert r.allowed <= rr.KNOWN_ENVIRONMENTS and "PRODUCTION" not in r.allowed and r.sites and r.what, r.name
+    assert sorted(rr.ALLOWED) == ["DEV", "TEST", "VALIDATION"]  # D-1072
+    for r in rr.REFUSALS:  # SAFE-1 A2: three rows are allowed in every known environment, the other three keep D-1072
+        if r.name in A2_ALLOWED_EVERYWHERE:
+            assert r.allowed == rr.KNOWN_ENVIRONMENTS, r.name
+        else:
+            assert r.allowed is rr.ALLOWED and "PRODUCTION" not in r.allowed, r.name
+        assert r.allowed <= rr.KNOWN_ENVIRONMENTS and r.sites and r.what, r.name
         assert r.audit.strip(), f"{r.name}: say which audit event records the refusal, or none and why"
         events = ("console.denied", "mail.failed", "console.ops", "screen.reveal_refused", "registry.export_refused")
         assert r.audit.startswith("none (") or any(e in r.audit for e in events), r.audit
@@ -81,7 +83,48 @@ def test_the_rule_and_the_environments_are_the_boxs_own() -> None:
     for env in ({}, {"TB_ENV": ""}, {"TB_ENV": " dev "}, {"TB_ENV": "Validation"}, {"TB_ENV": "PILOT"}):
         assert rr.environment(env) == environment_name(env), env
     assert rr.label({"TB_ENV": "validation"}) == {"rc1": "validation"}
-    assert rr.label({"TB_ENV": "DEV"}) == rr.label({}) == {}
+    assert rr.label({"TB_ENV": "DEV"}) == rr.label({"TB_ENV": "TEST"}) == rr.label({"TB_ENV": "PILOT"}) == {}
+
+
+#: SAFE-1 A2 (the owner's decision of 2026-11-28): allowed on PRODUCTION, and everywhere a box's name is known
+A2_ALLOWED_EVERYWHERE = ("live_patient_lists", "support_exports", "key_ceremonies")
+#: and these stay refused on PRODUCTION (A2 keeps EDC writes and unattended updates; mail and downloads are not flipped)
+A2_KEPT = ("edc_writes_from_screening", "unattended_updates", "patient_mail_and_downloads")
+
+
+def test_a2_production_allows_lists_support_exports_and_key_ceremonies_with_the_validation_label() -> None:
+    production: tuple[dict[str, str], ...] = (
+        {},
+        {"TB_ENV": ""},
+        {"TB_ENV": "PRODUCTION"},
+        {"TB_ENV": " production "},
+    )  # unset is PRODUCTION
+    assert sorted(A2_ALLOWED_EVERYWHERE + A2_KEPT) == sorted(r.name for r in rr.REFUSALS)
+    for name in A2_ALLOWED_EVERYWHERE:
+        for env in (*production, {"TB_ENV": "VALIDATION"}, {"TB_ENV": "DEV"}, {"TB_ENV": "TEST"}):
+            assert rr.refused(name, env) is False, (name, env)
+            rr.check(name, env)  # no raise
+        with pytest.raises(rr.Rc1Refused):  # an unknown name is still allowed nowhere
+            rr.check(name, {"TB_ENV": "PILOT"})
+    for name in A2_KEPT:
+        for env in production:
+            assert rr.refused(name, env) is True, (name, env)
+            with pytest.raises(rr.Rc1Refused):
+                rr.check(name, env)
+    for env in production:  # an allowed act carries on PRODUCTION the label it carries on VALIDATION
+        assert rr.label(env) == rr.label({"TB_ENV": "VALIDATION"}) == {"rc1": "validation"}, env
+
+
+@pytest.mark.parametrize(
+    ("box", "caller", "asked"),
+    [("PRODUCTION", "PILOT", "PILOT"), ("PILOT", "PRODUCTION", "PILOT"), ("PRODUCTION", "DEV", "PRODUCTION"),
+     ("DEV", "PRODUCTION", "PRODUCTION"), ("", "DEV", "PRODUCTION"), ("DEV", "TEST", "DEV")],
+)  # fmt: skip
+def test_a_host_tool_asks_with_the_stricter_name_and_an_unknown_one_is_stricter_than_production(
+    box: str, caller: str, asked: str
+) -> None:
+    """SAFE-1 A2: PRODUCTION allows three rows and an unknown name none, so the unknown name is the stricter."""
+    assert rr.host_env({"TB_ENV": box}, {"TB_ENV": caller}) == {"TB_ENV": asked}
 
 
 def test_every_site_asks_the_table_with_its_rows_name() -> None:
@@ -178,9 +221,10 @@ def test_every_message_is_in_three_languages_with_the_environment() -> None:
                                               ({"TB_ENV": "VALIDATION"}, False), ({"TB_ENV": "PILOT"}, True),
                                               ({"TB_ENV": "dev"}, False), ({"TB_ENV": " TEST "}, False)])  # fmt: skip
 def test_the_one_rule_decides_and_an_unknown_name_fails_closed(env: dict[str, str], refused: bool) -> None:
-    for r in rr.REFUSALS:
-        assert rr.refused(r.name, env) is refused
-        if refused:
+    for r in rr.REFUSALS:  # SAFE-1 A2: three rows are allowed wherever the name is known, PRODUCTION too
+        is_refused = refused and not (r.name in A2_ALLOWED_EVERYWHERE and rr.environment(env) in rr.KNOWN_ENVIRONMENTS)
+        assert rr.refused(r.name, env) is is_refused, r.name
+        if is_refused:
             with pytest.raises(rr.Rc1Refused) as got:
                 rr.check(r.name, env)
             assert got.value.refusal is r and got.value.environment == rr.environment(env)
@@ -208,7 +252,7 @@ def test_a_host_tool_asks_with_the_stricter_of_the_box_and_its_caller(tmp_path: 
     assert rr.host_env({}, {"TB_ENV": "TEST"}) == {"TB_ENV": "PRODUCTION"}
     assert rr.host_env({"TB_ENV": "TEST"}, {"TB_ENV": "PILOT"}) == {"TB_ENV": "PILOT"}
     assert rr.host_env(tmp_path / "none", {"TB_ENV": "TEST"}) == {"TB_ENV": "TEST"}  # no box file: the caller's
-    assert rr.host_env(tmp_path / "none", {}) == {} and rr.refused("support_exports", {})
+    assert rr.host_env(tmp_path / "none", {}) == {} and rr.refused("unattended_updates", {})  # A2 keeps this row
 
 
 def test_a_box_file_that_cannot_be_read_is_production_whatever_the_caller_says(tmp_path: Path) -> None:
@@ -221,4 +265,4 @@ def test_a_box_file_that_cannot_be_read_is_production_whatever_the_caller_says(t
     (binary / ".env").write_bytes(b"TB_ENV=DEV\n\xff\xfe")
     for box in (folder, link, binary):
         assert rr.host_env(box, {"TB_ENV": "DEV"}) == {"TB_ENV": "PRODUCTION"}, box.name
-        assert rr.refused("support_exports", rr.host_env(box, {"TB_ENV": "DEV"}))
+        assert rr.refused("unattended_updates", rr.host_env(box, {"TB_ENV": "DEV"}))  # A2 keeps this row

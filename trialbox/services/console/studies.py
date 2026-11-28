@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_common.config import environment_name
+from tb_common.reasons import Reason
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job
 
@@ -507,8 +508,15 @@ def weekly_rows(
             }
         )
     order = {"high": 0, "review": 1}
-    rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2), x["pid"]))
+    rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2),
+                             second_opinion_differs(x["criteria"]), x["pid"]))  # fmt: skip
     return rows
+
+
+def second_opinion_differs(crits: Sequence[Mapping[str, Any]]) -> bool:
+    """A criterion of the row stands on the judge's answer that the second model did not confirm (BENCH-2 §2): the
+    row sorts below the unflagged ones of its tier, never off the list."""
+    return any((c.get("evidence") or {}).get("reason") == Reason.SECOND_OPINION_DIFFERS.value for c in crits)
 
 
 # ---------------------------------------------------------------------------------------------- amendment re-screen
@@ -716,12 +724,21 @@ def n_open(row: Mapping[str, Any]) -> int:
     return len(getattr(fit, "open", []) or [])
 
 
+def n_not_documented(row: Mapping[str, Any]) -> int:
+    """How many criteria of the row are exclusions the notes do not mention (BENCH-2 §2): still open, but sorted as
+    lighter than a real unknown, below the fully decided rows."""
+    return sum(1 for c in row.get("criteria") or [] if (c.get("evidence") or {}).get("reason") == "not_documented")
+
+
 def worklist_sorted(rows: Sequence[dict[str, Any]], key: str) -> list[dict[str, Any]]:
     """The clinic list stays in visit order; every other list puts the fewest unknowns first (the patients closest
     to a decision), then the visit (none last), then the pseudonym (D-120)."""
     if key == "clinic":
         return list(rows)
-    return sorted(rows, key=lambda r: (n_open(r), r["visit"] is None, r["visit_text"] or "9", r["pid"]))
+    return sorted(rows, key=lambda r: (n_open(r) - min(n_not_documented(r), n_open(r)),
+                                       min(n_not_documented(r), n_open(r)),
+                                       second_opinion_differs(r.get("criteria") or []),
+                                       r["visit"] is None, r["visit_text"] or "9", r["pid"]))  # fmt: skip
 
 
 def paged(rows: Sequence[dict[str, Any]], page: int, size: int = PAGE_SIZE) -> tuple[list[dict[str, Any]], int, int]:

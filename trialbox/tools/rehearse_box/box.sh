@@ -407,6 +407,14 @@ doctor)
   # the site's TLS proxy in front of the console (RUNBOOK §9) is not part of the rehearsal; the doctor's secure-cookie
   # check needs it in PRODUCTION, so the rehearsal sets what such a site sets
   grep -q '^TB_CONSOLE_SECURE_COOKIE=1' "$BOX/deploy/.env" || { envset TB_CONSOLE_SECURE_COOKIE 1; dc up -d --wait console; }
+  # the install ends without a backup key (the key ceremony follows it, RUNBOOK §5) and doctor FAILs that from here on;
+  # the rehearsal does what the ceremony does, with a throwaway pair (the private half stays in the --rm container)
+  if [ ! -s "$BOX/deploy/secrets/backup.pub" ]; then
+    img="$(envget TB_BACKUP_IMAGE)"; img="${img:-trialbox-backup:1.0.0}"
+    docker run --rm --network none --user 0 -e TB_ENV="$(envget TB_ENV)" -v "$BOX/deploy/secrets:/ceremony" "$img" \
+      python -m tools.trialbox backup-keygen --private /tmp/backup.key --public /ceremony/backup.pub >/dev/null \
+      || fail "cannot make the throwaway backup key pair for the doctor"
+  fi
   out="$(doctor --live 2>&1)"; rc=$?
   echo "$out"
   # D-887: the rehearsal box is VALIDATION, which FAILs what only a site's host has; these, and nothing else, are
