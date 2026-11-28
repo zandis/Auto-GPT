@@ -96,14 +96,21 @@ class Built:
         row = self._db.fetchone("SELECT snapshot, seq, state FROM built WHERE artefact = ?", (artefact,))
         return (Generation(str(row[0]), int(row[1])), str(row[2])) if row else None
 
-    def begin(self, artefact: str, generation: Generation | str, back: bool = False) -> Generation:
+    def begin(
+        self, artefact: str, generation: Generation | str, back: bool = False, upgrade: bool = False
+    ) -> Generation:
         """A build of ``artefact`` from ``generation`` starts. Refused (:class:`OlderGeneration`, nothing written)
         when the artefact holds a newer generation, whatever its state; the same generation again is a retry.
 
         ``back``: a put-back. The build of the newer generation did not end (its row is still ``building``) and the
         store is taken back to the generation that is served (T-723's FHIR put-back after a load that broke, D-489).
         Allowed only over a build that never finished: a finished newer generation is never gone back from.
-        Only the FHIR store has one (ValueError for any other artefact)."""
+        Only the FHIR store has one (ValueError for any other artefact).
+
+        ``upgrade`` (with ``back``; E2E P-03, review H5): the put-back to the served night on a box whose newer
+        generation the FHIR loader from before E2E P-03 finished (its "finished" was its last resource in, never
+        checked as served). Allowed over a finished generation too; the adapter asks it only under its own lock, for
+        the night the lake serves, on a box that has no FHIR_STATE (``adapter.load_fhir.upgrade_put_back``)."""
         self._check(artefact)
         if back and artefact != "fhir":
             raise ValueError("a put-back is the fhir store's alone: no other artefact is taken back")
@@ -113,7 +120,7 @@ class Built:
             row = tx.fetchone("SELECT snapshot, seq, state FROM built WHERE artefact = ?", (artefact,))
             if row is not None:
                 holds = Generation(str(row[0]), int(row[1]))
-                if gen < holds and not (back and str(row[2]) == BUILDING):
+                if gen < holds and not (back and (upgrade or str(row[2]) == BUILDING)):
                     raise OlderGeneration(artefact, gen, holds)
             tx.execute(
                 "INSERT INTO built (artefact, snapshot, seq, state, started_at, finished_at) VALUES (?,?,?,?,?,NULL) "

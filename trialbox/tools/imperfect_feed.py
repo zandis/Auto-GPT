@@ -16,7 +16,10 @@ The entry point is the box's own command line, as a process of its own: ``python
 --path <feed> --snapshot <night> --no-fhir``, configured from the environment and a settings file written by the
 settings wizard (``tools.settings_wizard``, from the box rehearsal's answers) as an installed box is; the lake step
 local (``TB_ADAPTER_LAKE=local``, the hash embedder). ``adapter.run_job``, which the adapter service starts at
-night, calls the same ``run_ingest`` with the same ``build_config``. ``--no-fhir``: no FHIR store runs here.
+night, calls the same ``run_ingest`` with the same ``build_config``. ``--no-fhir``: no FHIR store runs here; a
+fresh box may publish its lake alone. A case of two nights runs both with the FHIR load, against the FHIR store
+stand-in of the P-03 tests (``tests/fhir_store_stub.py``): the box's FHIR endpoint is always configured, so once a
+night is served the store is owed it, and a second night without a store to put it in is refused (P-03).
 
 What it records per case and format (D-1100 defines the words): the exit status and whether a traceback was printed;
 what ``ingest_report.json`` and ``completeness.json`` say (rows read per table, rows rejected and why, the hold);
@@ -35,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import csv
 import functools
 import io
@@ -47,7 +51,7 @@ import sys
 import time
 import uuid
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
@@ -1424,10 +1428,27 @@ def box_env(work: Path, fmt: str, feed: str, db_base: str) -> dict[str, str]:
     return out
 
 
-def _night(env: dict[str, str], fmt: str, feed: str, snap: str) -> subprocess.CompletedProcess[str]:
+def _night(env: dict[str, str], fmt: str, feed: str, snap: str, fhir: bool = False) -> subprocess.CompletedProcess[str]:
     where = ["--dsn", feed] if fmt == "cgrd_sql" else ["--path", feed]
-    cmd = [PY, "-m", "adapter.cli", "run", "--source", fmt, *where, "--snapshot", snap, "--no-fhir"]
+    off = [] if fhir else ["--no-fhir"]
+    cmd = [PY, "-m", "adapter.cli", "run", "--source", fmt, *where, "--snapshot", snap, *off]
     return subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=900, check=False)
+
+
+@contextlib.contextmanager
+def _fhir_store(work: Path) -> Iterator[str]:
+    """The FHIR store stand-in (``tests/fhir_store_stub.py``) as a process of its own; yields its FHIR base URL."""
+    port = work / "fhir.port"
+    proc = subprocess.Popen([PY, str(ROOT / "tests" / "fhir_store_stub.py"), str(port)])
+    try:
+        for _ in range(1000):
+            if port.exists():
+                break
+            time.sleep(0.01)
+        yield f"http://127.0.0.1:{port.read_text(encoding='utf-8')}/fhir"
+    finally:
+        proc.kill()
+        proc.wait()
 
 
 def _exception(stderr: str) -> str:
@@ -1500,11 +1521,13 @@ def run_one(case: Case, fmt: str, clean: Tables, scratch: Path, db_base: str,
     if keys.returncode != 0:
         run.exception = "keys-init failed"
         return run
-    snap = NIGHT
-    if case.nights == 2:
-        _night(env, fmt, feed.path, NIGHT)
-        snap = NIGHT2
-    proc = _night(env, fmt, feed.path, snap)
+    snap, fhir = NIGHT, case.nights == 2
+    with _fhir_store(work) if fhir else contextlib.nullcontext("") as url:
+        if url:
+            env.update({"FHIR_BASE_URL": url, "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"})
+            _night(env, fmt, feed.path, NIGHT, fhir)
+            snap = NIGHT2
+        proc = _night(env, fmt, feed.path, snap, fhir)
     (work / "stderr.txt").write_text(proc.stderr, encoding="utf-8")
     run.exit = proc.returncode
     run.traceback = "Traceback (most recent call last)" in proc.stderr
