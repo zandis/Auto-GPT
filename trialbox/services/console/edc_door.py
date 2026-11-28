@@ -16,6 +16,8 @@ from edc_backend import events, linkmap, oidc, tools
 from edc_backend import store as door
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from tb_common import egress_edge
+from tb_common.http import EgressRefused, declared_host, guard_of
 
 from console.home import Helpers
 
@@ -162,9 +164,34 @@ def register(app: FastAPI, h: Helpers) -> None:
     def connection() -> dict[str, Any]:
         """D-1046: the EDC connection's state for the page; one capabilities read, closed at once."""
         base, token = tools.tool_base(), tools.tool_token()
+        where = declared_host(base)  # the one reading of the address: the client declares it, the edge names it
+        if base and token and where is None:  # not a valid address: nothing is tried
+            return {"configured": True, "reachable": False, "module": False, "pending": None, "dead_letter": None,
+                    "invalid": True, "reason": "the EDC's tool URL is not a valid address"}  # fmt: skip
+        named = [where[0]] if where else []  # no EDC set: none named, nothing leaves
         http = tools.http_client()
+        guard = guard_of(http)
+
+        def edge(req: Any) -> None:  # P-13 ruling: each request through the egress edge, as its own route
+            why = "no_guard"  # a client without the egress guard checks no address: refused, never sent
+            if guard is not None:  # the guard first: an address it refuses is recorded refused, never sent
+                try:
+                    guard.check(req.url, req)
+                    why = ""
+                except EgressRefused as exc:
+                    why = exc.reason
+            egress_edge.leave("edc.tool", req.url.host, req.content.decode("utf-8", "replace"), audit=h.au,
+                              actor="console", named=named, refused=why)  # fmt: skip
+
+        http.event_hooks["request"].append(edge)
         try:
-            return tools.connection_status(base, token, http)
+            out = tools.connection_status(base, token, http)
+            out["plain_http"] = bool(guard and base.lower().startswith("http://")
+                                     and guard.environment not in ("DEV", "TEST"))  # fmt: skip
+            return out
+        except egress_edge.Refused as exc:
+            return {"configured": bool(base and token), "reachable": False, "module": False, "pending": None,
+                    "dead_letter": None, "reason": f"refused by the egress edge ({exc.reason})"}  # fmt: skip
         finally:
             http.close()
 

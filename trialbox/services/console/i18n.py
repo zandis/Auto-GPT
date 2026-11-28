@@ -38,6 +38,7 @@ from console import (
     i18n_sae,
     i18n_screennow,
     i18n_stillneeded,
+    i18n_support,
     i18n_tier,
     i18n_today,
 )
@@ -1327,6 +1328,7 @@ for _mod in (
     i18n_roles,
     i18n_sae,
     i18n_stillneeded,
+    i18n_support,
     i18n_tier,
     i18n_today,
 ):

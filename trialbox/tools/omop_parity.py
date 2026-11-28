@@ -162,10 +162,17 @@ def _ingest(work: Path, kind: str, src: Path, snapshot: str, tz: str, mapping: s
 
     from tools import pglocal
 
-    sec = work / "sec"
-    sec.mkdir(parents=True, exist_ok=True)
+    shared = work / "sec" / "site_hmac.key"
+    shared.parent.mkdir(parents=True, exist_ok=True)
+    if not shared.exists():
+        shared.write_bytes(secrets.token_bytes(32))
+    # one secrets directory per site, as on a box (adapter.pidmap: one map per key file): the synthetic sites reuse
+    # chart numbers (20000001...) for other people, so one shared pid map would hold one site's identities under
+    # another's chart. The site key is the shared one, so every pseudonym stays as before
+    sec = work / "sec" / site_id
+    sec.mkdir(exist_ok=True)
     if not (sec / "site_hmac.key").exists():
-        (sec / "site_hmac.key").write_bytes(secrets.token_bytes(32))
+        (sec / "site_hmac.key").write_bytes(shared.read_bytes())
     lake = work / f"ingest-{site_id}"
     cfg = AdapterConfig(
         lake_dir=lake,

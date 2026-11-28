@@ -91,6 +91,7 @@ DETAIL_KEYS = (
     "quarantined",
     "duplicate_keys",
     "identity_conflicts",  # H34-06: chart numbers that arrived as two people (counts only)
+    "merge_recorded",  # #1561 P01: recorded merges applied over differing demographics (pseudonymous pids, ticket)
     "unmapped",
     "unmapped_kinds",  # NEW-B-39 (D-740): the same rows per table split by kind, counts only
     "site_profile",  # 10B-6 (D-1233): the profile's id, version, digest and coverage counts (type names, no code)

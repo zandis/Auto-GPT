@@ -342,7 +342,7 @@ def publish(body: PublishBody) -> JSONResponse:
         if run_mode() == "process" and runs.running(ac.lake_dir):  # D-663: an ingest of an earlier life still runs
             raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
         try:
-            refuse_two_people(held_folder(ac, body.snapshot))  # H34-06: refused before the accept starts anything
+            refuse_two_people(ac, body.snapshot, held_folder(ac, body.snapshot))  # H34-06: before the accept starts
         except TwoPeopleOneChart as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except NothingToPublish as exc:

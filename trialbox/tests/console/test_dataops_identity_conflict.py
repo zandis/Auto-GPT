@@ -57,3 +57,38 @@ def test_a_night_held_for_another_reason_has_no_such_line(box: dict[str, Any]) -
     _user(box, "stwj", "steward")
     c, _csrf = login(box["app"], "stwj", PW)
     assert 'data-testid="batch-identity-conflict"' not in c.get(f"/data-ops/batches/{bid}").text
+
+
+@pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])
+def test_the_page_counts_the_held_chart_numbers_within_the_night_and_against_the_served_one(
+    box: dict[str, Any], lang: str
+) -> None:
+    """Ruling (#1561, round 2, A): the steward's role holds no ``id.reveal`` (the permission matrix), so the page
+    shows the held chart numbers as two counts, never an identifier, and says where a chart number is shown."""
+    bid = _held(box, {"tonight": 1, "against_served": 2})
+    _user(box, "stwk", "steward")
+    c, csrf = login(box["app"], "stwk", PW)
+    c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+    page = html.unescape(c.get(f"/data-ops/batches/{bid}").text)
+    assert 'data-testid="batch-identity-conflict-counts" data-tonight="1" data-against="2"' in page
+    assert translate(lang, "dataops.identity_conflict_counts", tonight=1, against=2) in page
+
+
+@pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])
+def test_a_night_that_applied_a_merge_of_differing_people_says_so_on_its_page(box: dict[str, Any], lang: str) -> None:
+    """Ruling (#1561, P01): a recorded merge overrides differing demographics and the night passes, but its page
+    names the merged pids and the ticket and says "demographics differ: merge recorded"."""
+    ops = DataOps()
+    try:
+        said = [{"pids": ["p-old", "p-new"], "ticket": "HIS-1", "said": "demographics differ: merge recorded"}]
+        batch, _ = ops.record_night(AuditLog(Path(box["dir"]) / "audit", "UTC"), "ingest.done", source="csv",
+                                    snapshot="2026-11-10", passed=True, held=False, by="adapter", at=AT,
+                                    actor="adapter", detail={"counts": {"Patient": 10}, "merge_recorded": said})  # fmt: skip
+    finally:
+        ops.close()
+    _user(box, "stwm", "steward")
+    c, csrf = login(box["app"], "stwm", PW)
+    c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+    page = html.unescape(c.get(f"/data-ops/batches/{batch.id}").text)
+    assert 'data-testid="batch-merge-recorded"' in page
+    assert translate(lang, "dataops.merge_recorded", old="p-old", new="p-new", ticket="HIS-1") in page

@@ -152,6 +152,9 @@ class Helpers:
     scope_check: Callable[[Request, Session], None] | None = None
     # set by register(): read again by console.team (D-147)
     crit_of: Callable[..., dict[str, Any]] | None = None
+    #: set by register(): one JSON output of a job (job, prefix, suffix, tag), the console's listed reader of a stored
+    #: output (tests/console/test_reveal_paths.py), for pages that read an aggregate such as the published page
+    load: Callable[..., dict[str, Any] | None] | None = None
     registry_map: Callable[[str], dict[str, str]] | None = None
     #: set by register() (D-1221): the people of one study and their one state each (``console.person_state.read``)
     people: Callable[[str], ps.People] | None = None
@@ -637,6 +640,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.trials = trials
     h.settings_of = settings_of
     h.crit_of = crit_of
+    h.load = load
     h.registry_map = registry_map
     h.people = lambda rs: ps.read(h, rs)
 

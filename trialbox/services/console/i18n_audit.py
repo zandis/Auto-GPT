@@ -495,7 +495,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "ops.watchdog.gave_up": ("Service restarts stopped", "サービス再起動の停止", "停止重新啟動服務"),
     # R1+1 P-27: events their writers name through a module constant (the walk read literals only)
     "backup.restore_drill": ("Restore rehearsal", "復元の予行演習", "還原演練"),
-    "dataops.decide": ("Data batch decided", "データバッチの判断", "資料批次判定"),
+    "dataops.decide": (
+        "Held data batch accepted or rejected",
+        "保留データバッチの承認・却下",
+        "接受或駁回暫停的資料批次",
+    ),
     "dataops.step": ("Data batch step", "データバッチの手順", "資料批次步驟"),
     "demo.ack": ("Demonstration acknowledged", "デモンストレーションの確認", "示範確認"),
     "demo.refused": ("Refused on the demonstration box", "デモンストレーション機での拒否", "示範機上遭拒"),
