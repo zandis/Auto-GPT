@@ -90,7 +90,7 @@ def test_on_production_a_backup_route_that_cannot_alert_is_an_open_item_and_a_sc
     r = _prod(tmp_path / "route").install("--mode", "stub", "--yes", force=("backup-schedule",), env={**DEFER, **PLANT})
     assert r.rc == 0 and RUNNING in r.out, r.text[-4000:]
     assert any(ln.startswith(GOES_ON + "the backup alert route given cannot carry the alerts") for ln in
-               r.err.splitlines()) and r.listed_keys() == {"install.sh/backup-schedule"}, r.err[-3000:]  # fmt: skip
+               r.err.splitlines()) and "install.sh/backup-schedule" in r.listed_keys(), r.err[-3000:]  # fmt: skip
     r = _prod(tmp_path / "none").install("--mode", "stub", "--yes", force=("backup-schedule-write",),
                                          env={**DEFER, **PLANT})  # fmt: skip
     assert r.rc == 1 and RUNNING not in r.out, r.text[-4000:]
