@@ -388,3 +388,15 @@ def test_bench2_the_cascade_labels_an_unmentioned_exclusion_not_documented_and_o
     assert inc.status == "unknown" and inc.reason == "abstained"  # inclusion absence: never relabelled
     odd = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("scripted")).traces["P-HIT"].outcomes[EXC_FLARE.id]
     assert odd.reason == "abstained"  # only the models' own abstention reads not documented (review)
+
+
+def test_bench2_a_reply_carrying_not_documented_is_stored_abstained_unless_the_check_holds(lake: Any) -> None:
+    def said(quote: str | None) -> Any:
+        return ScriptedJudge(lambda role, kw: replace(reply("unknown", 0.0), reason="not_documented", quote=quote))
+
+    inc = _run(lake, ruleset([INC]), ["P-HIT"], said(None)).traces["P-HIT"].outcomes[INC.id]
+    assert inc.status == "unknown" and inc.reason == "abstained"  # the label is derived, never taken from a reply
+    quoted = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said("flare in March")).traces["P-HIT"]
+    assert quoted.outcomes[EXC_FLARE.id].reason == "abstained"
+    bare = _run(lake, ruleset([EXC_FLARE]), ["P-HIT"], said(None)).traces["P-HIT"]
+    assert bare.outcomes[EXC_FLARE.id].reason == "abstained"  # reply reason is not "abstained": the check fails
