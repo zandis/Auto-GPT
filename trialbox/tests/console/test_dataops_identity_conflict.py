@@ -57,3 +57,18 @@ def test_a_night_held_for_another_reason_has_no_such_line(box: dict[str, Any]) -
     _user(box, "stwj", "steward")
     c, _csrf = login(box["app"], "stwj", PW)
     assert 'data-testid="batch-identity-conflict"' not in c.get(f"/data-ops/batches/{bid}").text
+
+
+@pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])
+def test_the_page_counts_the_held_chart_numbers_within_the_night_and_against_the_served_one(
+    box: dict[str, Any], lang: str
+) -> None:
+    """Ruling (#1561, round 2, A): the steward's role holds no ``id.reveal`` (the permission matrix), so the page
+    shows the held chart numbers as two counts, never an identifier, and says where a chart number is shown."""
+    bid = _held(box, {"tonight": 1, "against_served": 2})
+    _user(box, "stwk", "steward")
+    c, csrf = login(box["app"], "stwk", PW)
+    c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/home"})
+    page = html.unescape(c.get(f"/data-ops/batches/{bid}").text)
+    assert 'data-testid="batch-identity-conflict-counts" data-tonight="1" data-against="2"' in page
+    assert translate(lang, "dataops.identity_conflict_counts", tonight=1, against=2) in page
