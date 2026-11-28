@@ -1150,10 +1150,17 @@ def publish_held(
     """The steward's accept (T-723, D-489): publish the held night's folder as it stands, with the same function a
     night that passed the gate goes through. The gate's verdict is what the steward overrode; the lake's own
     refusal of the data (D-271) still stands."""
-    from adapter.pipeline import merge_base
+    from zoneinfo import ZoneInfo
+
+    from adapter.pipeline import FutureNight, merge_base, refuse_future_night
 
     folder = held_folder(cfg, snap)
-    refuse_two_people(folder)  # H34-06
+    try:
+        refuse_future_night(snap, datetime.now(ZoneInfo(cfg.tz)).date())
+    except FutureNight:
+        pass  # D-529: publish_night refuses it by name, before anything is read
+    else:
+        refuse_two_people(folder)  # H34-06
     try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
         since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
         full: bool | None = not since

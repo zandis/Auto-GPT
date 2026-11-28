@@ -108,7 +108,12 @@ def test_the_taiwanese_mapping_reads_an_english_site(tmp_path: Path) -> None:
     assert rep.counts.get("DocumentReference") == notes  # every English note read
     tw = tmp_path / "tw"
     run(tw / "synth", sites="tw-a:TW:200", chunk=200)
-    twrep = run_ingest(replace(cfg, lake_dir=tw / "lake", site_id="TW-A"), "csv", str(tw / "synth" / "tw-a"),
-                       snapshot="2026-10-31", load_fhir=False, rebuild_lake=False, validate=False)  # fmt: skip
+    # another site: its own secrets and pid map (the two synthetic sites give the same chart numbers to other people,
+    # which one site's pid map holds as one chart number on two people: H34-06)
+    (tw / "sec").mkdir()
+    (tw / "sec" / "site_hmac.key").write_bytes(b"k" * 32)
+    twrep = run_ingest(replace(cfg, lake_dir=tw / "lake", secrets_dir=tw / "sec", site_id="TW-A"), "csv",
+                       str(tw / "synth" / "tw-a"), snapshot="2026-10-31", load_fhir=False, rebuild_lake=False,
+                       validate=False)  # fmt: skip
     # the mapping leaves nothing more unread in an English site than in the Taiwanese site it was written for
     assert set(rep.fhir_unread or {}) <= set(twrep.fhir_unread or {})
