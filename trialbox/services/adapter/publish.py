@@ -1126,9 +1126,11 @@ def publish_held(
     """The steward's accept (T-723, D-489): publish the held night's folder as it stands, with the same function a
     night that passed the gate goes through. The gate's verdict is what the steward overrode; the lake's own
     refusal of the data (D-271) still stands."""
+    from adapter import validation_baseline
     from adapter.pipeline import merge_base
 
     folder = held_folder(cfg, snap)
+    accepted = validation_baseline.read_night(folder)  # TOL-HOLDS (SAFE-1 A5): before the publish moves the folder
     try:  # 10B-23 (D-1254): whether the held night read whole, from its own report, before the publish moves it
         since = json.loads((folder / "ingest_report.json").read_text(encoding="utf-8")).get("since")
         full: bool | None = not since
@@ -1139,6 +1141,8 @@ def publish_held(
         from adapter import full_nights
 
         full_nights.completed(cfg.lake_dir, snap, full=full)
+    if out.ok and out.promoted:  # the steward accepted these classes at these rates: later nights are judged so
+        validation_baseline.accept(cfg.lake_dir, accepted)
     return out
 
 
