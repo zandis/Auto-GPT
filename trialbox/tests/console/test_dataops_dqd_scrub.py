@@ -1,4 +1,3 @@
-# ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
 """FU-DQD-NAMES: a synthetic chart number and a Japanese name planted in a data quality row's name and note are
 absent from the night's page, its API answer, the audit event and the batch row; a wrongly typed record is not
 copied. Synthetic data."""
@@ -10,8 +9,7 @@ from typing import Any
 
 from datacore.dataops import DataOps
 
-from tests.console.test_console_app import box  # noqa: F401 - the fixture is used by name
-from tests.console.test_dataops_dqd import FAIL, _api, _night, _orch, _steward  # noqa: F401
+from tests.console.test_dataops_dqd import FAIL, _api, _night, _steward
 
 CHART = "00123456"
 NAME = "山田太郎"
