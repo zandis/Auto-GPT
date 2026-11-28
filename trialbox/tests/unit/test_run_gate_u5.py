@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 from adapter import pipeline
-from adapter.pipeline import AdapterConfig, SiteNeeded
+from adapter.pipeline import AdapterConfig
 from tb_common import site_needs
 
 GIVEN_ENV = {
@@ -88,7 +88,7 @@ def test_production_runs_with_everything_still_needed_and_audits_each_item(
     """SAFE-1 A3: was refused; the run goes on and the audit names every item (keys only, never a setting)."""
     _box(tmp_path, monkeypatch, "PRODUCTION", given={}, key_on_host=False)
     pipeline.refuse_site_needs(_cfg(tmp_path, {}), "2026-11-20", "csv")
-    wanted = [n.key for n in site_needs.NEEDS if "first_real_run" in n.before]
+    wanted = ["data_source", "chart_number", "backup_target", "backup_key", "backup_alarm", "audit_share", "site_name"]
     (event,) = _warnings(tmp_path)
     assert sorted(event["detail"]["needs"]) == sorted(wanted) and set(event["detail"]["needs"].values()) == {"missing"}
     assert "TB_" not in json.dumps(event) and _refusals(tmp_path) == []
@@ -121,17 +121,29 @@ def test_a_poc_box_runs_with_the_stand_ins(tmp_path: Path, monkeypatch: pytest.M
     assert _refusals(tmp_path) == [] and _warnings(tmp_path) == []
 
 
-def test_the_ingest_is_not_refused_for_site_items_and_audits_them_once(
+def test_a_night_with_the_backup_key_still_needed_is_published_and_audits_it_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """SAFE-1 A3: was refused before anything was read; the night now goes on to its source (absent here, so it
-    fails for that, never for the site items), and the items are audited once."""
+    """SAFE-1 A3: was refused before anything was read; a synthetic bulk export is now read and published on a
+    PRODUCTION box whose backup key is still needed, and the item is audited once."""
     _box(tmp_path, monkeypatch, "PRODUCTION", key_on_host=False)
-    (tmp_path / "lake").mkdir()
-    with pytest.raises(Exception) as got:
-        pipeline.run_ingest(_cfg(tmp_path), "csv", str(tmp_path / "no-source"), snapshot="2026-11-20")
-    assert not isinstance(got.value, SiteNeeded)
-    assert len(_warnings(tmp_path)) == 1 and _refusals(tmp_path) == []
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(b"k" * 32)
+    exp = tmp_path / "bulk"
+    exp.mkdir()
+    patients = [{"resourceType": "Patient", "id": f"p{i}", "gender": "female", "birthDate": "1970-01-01"}
+                for i in range(3)]  # fmt: skip
+    (exp / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in patients) + "\n", encoding="utf-8")
+    cfg = AdapterConfig(lake_dir=tmp_path / "lake", secrets_dir=sec, site_id="T", tz="Asia/Taipei",
+                        audit_dir=tmp_path / "audit", site_settings=SETTINGS,
+                        mapping_path=Path(__file__).resolve().parents[2] / "services/adapter/mapping/tw_core/demo_his.yaml")  # fmt: skip
+    rep = pipeline.run_ingest(cfg, "fhir_bulk", str(exp), snapshot="2026-11-20", load_fhir=False, rebuild_lake=False,
+                              validate=False)  # fmt: skip
+    assert rep.passed and not rep.held, rep.errors
+    assert rep.counts.get("Patient") == 3
+    (event,) = _warnings(tmp_path)
+    assert event["detail"]["needs"] == {"backup_key": "missing"} and _refusals(tmp_path) == []
 
 
 def test_the_host_names_the_backup_key_only_when_its_file_is_there(tmp_path: Path) -> None:

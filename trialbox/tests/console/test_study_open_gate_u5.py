@@ -5,6 +5,7 @@ A PoC box opens with the stand-in (U5-01). Synthetic data only."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +94,11 @@ def test_production_does_not_open_a_study_without_the_backup_key(
     status, text = _open(lb, monkeypatch, "PRODUCTION", _mount(tmp_path, [], backup_key=False))
     assert status == 409 and "no backup target or backup key yet" in text and "Information still needed" in text
     assert "TB_BACKUP" not in text
+    lines = [x for f in sorted((lb["dir"] / "audit").glob("*.jsonl")) for x in f.read_text().splitlines() if x]
+    refused = [e for e in map(json.loads, lines) if e.get("event") == "console.refused"]
+    assert refused and refused[-1]["detail"] == {
+        "action": "study_open", "reason": "site_needs", "needs": {"backup_key": "missing"}
+    }  # fmt: skip
 
 
 def test_production_does_not_open_a_study_without_the_backup_target(

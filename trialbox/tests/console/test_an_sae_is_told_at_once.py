@@ -113,13 +113,13 @@ def test_a_study_that_reports_saes_does_not_open_on_a_box_without_the_office_mai
     c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "tw_trial"}, follow_redirects=True)
     c.post("/studies/GZQO/state", data={"csrf": csrf, "state": "paused", "reason": "set-up"}, follow_redirects=False)
     monkeypatch.setattr(study_setup, "environment_name", lambda _env: "PRODUCTION")
+    _backup_given(monkeypatch, tmp_path)  # SAFE-1 A3: the backup first, so the refusal below is the mailbox's
     page = c.get("/studies/GZQO/state").text
     from tests.console.test_role_pages import _csrf
 
     r = c.post("/studies/GZQO/state", data={"csrf": _csrf(page), "state": "open"}, follow_redirects=False)
     assert r.status_code == 409 and 'data-testid="state-error"' in r.text
     monkeypatch.setenv("TB_SAE_OFFICE_MAILBOX", "trial-office@hospa.test")
-    _backup_given(monkeypatch, tmp_path)  # SAFE-1 A3: a study opens on PRODUCTION with its backup given
     r = c.post("/studies/GZQO/state", data={"csrf": _csrf(page), "state": "open"}, follow_redirects=False)
     assert r.status_code == 303
 
