@@ -194,6 +194,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/audit/patients/by-chart` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/data/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |
+| POST | `/api/v1/jobs/{job_id}/approval/save` | Y | Y | Y | Y | Y | - | - | - | - |
 | POST | `/api/v1/site/charts` | - | Y | - | - | n | - | - | - | - |
 | POST | `/api/v1/site/checks/{cid}` | Y | Y | - | - | n | - | - | - | - |
 | POST | `/api/v1/site/codes` | Y | Y | - | - | n | - | - | - | - |
@@ -247,6 +248,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/pilot/case` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/consent` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/approval/label` | Y | Y | Y | Y | Y | - | - | - | - |
+| POST | `/pilot/jobs/{job_id}/approval/save` | Y | Y | Y | Y | Y | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/approval/tick` | - | - | Y | Y | - | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/approve` | - | - | Y | Y | - | - | - | - | - |
 | POST | `/pilot/jobs/{job_id}/release` | Y | Y | - | - | Y | - | - | - | - |
