@@ -219,8 +219,8 @@ def register(app: FastAPI, h: Helpers, _env: Mapping[str, str] | None = None) ->
         done = h.bk.list_jobs(limit=PACKS, state="done", type_="FEAS")
         for job in done:
             # through home's one reader of a stored output (no chart number past console.reveal): None when unread
-            got = (h.load(job, "feasprofile_", ".json", "aggregate") if h.load else None) or {}  # the page says so
-            packs.append({"job": job, "small_cell": got.get("small_cell"), "snapshot": got.get("snapshot")})
+            prof = (h.load(job, "feasprofile_", ".json", "aggregate") if h.load else None) or {}  # the page says so
+            packs.append({"job": job, "small_cell": prof.get("small_cell"), "snapshot": prof.get("snapshot")})
         rows = egress_record.by_day(events(h))
         for r in rows:
             got = "refusal" if r["result"] == "refused" else str(r["result"])
