@@ -77,6 +77,13 @@ def test_the_release_weights_route_in_production_labelled(status: str) -> None:
     assert res.qualification == "unqualified"
 
 
+@pytest.mark.parametrize("status", ["candidate", "qualified", "champion"])
+def test_the_release_weights_that_failed_this_box_canary_route_nothing(status: str) -> None:
+    """B1: the mark --demote-pair leaves after a failed canary; the release's weights do not lift it."""
+    with pytest.raises(RegistryError):
+        _resolve(_reg(_b(status=status, weights={"canary_failed": "rec-1"})))
+
+
 def test_a_thinking_only_release_build_routes_labelled() -> None:
     res = _resolve(_reg(_b(thinking_control="thinking_only")))
     assert res.qualification == "unqualified"
@@ -264,7 +271,16 @@ def test_doctor_does_not_say_a_build_with_no_context_runs(tmp_path: Path) -> Non
     c = doctor.check_registry_pins(
         doctor.DoctorInputs(env={"TB_ENV": "PRODUCTION", "TB_REGISTRY_OVERRIDE": str(out)}, deploy=tmp_path / "d")
     )
-    assert "labelled unqualified" not in c.detail, c.detail
+    assert c.status == "WARN" and "labelled unqualified" not in c.detail, c.detail
+
+
+
+def test_doctor_does_not_say_a_pair_that_failed_the_canary_runs(tmp_path: Path) -> None:
+    out = _site(tmp_path, weights={"canary_failed": "rec-1"})
+    c = doctor.check_registry_pins(
+        doctor.DoctorInputs(env={"TB_ENV": "PRODUCTION", "TB_REGISTRY_OVERRIDE": str(out)}, deploy=tmp_path / "d")
+    )
+    assert c.status == "WARN" and "route nothing" in c.detail, c.detail
 
 
 def test_doctor_says_nothing_of_it_once_a_record_is_promoted(tmp_path: Path) -> None:

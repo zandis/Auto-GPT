@@ -203,6 +203,25 @@ def test_the_cli(box: Box, capsys: pytest.CaptureFixture[str]) -> None:
     assert not box.routes() and box.labelled()
 
 
+
+def test_a_pair_that_failed_this_box_canary_routes_nothing(box: Box) -> None:
+    """B1 (review of SAFE-1 A1): a pair never promoted runs labelled; a pair put back after this box's canary did
+    not pass is marked and routes nothing, the release's weights or not."""
+    assert box.labelled()  # never promoted: the release's pinned pair runs, labelled
+    box.record()
+    assert box.promote()[0]  # promoted, waits for the canary
+    assert pin_model.main(["--demote-pair", "rtxpro6000", "--out", str(box.out)]) == 0  # the canary did not pass
+    pins = box.pins()
+    assert {p["status"] for p in pins.values()} == {"candidate"}
+    assert all(p["weights"]["canary_failed"] == "rtxpro6000-test-ok" for p in pins.values())
+    assert box._resolve() is None  # refused: not labelled, not routed
+
+
+def test_the_install_says_a_pair_that_failed_the_canary_routes_nothing(tmp_path: Path) -> None:
+    r = _install_block(tmp_path, 0, 1)
+    assert len(r.fails) == 1 and "it is back to candidate and routes nothing" in r.fails[0]  # type: ignore[attr-defined]
+
+
 # ------------------------------------------------------------------------------------------------ the record
 def test_the_serving_record_names_the_model_server_image_and_the_template(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
