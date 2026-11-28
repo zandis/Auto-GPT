@@ -297,6 +297,9 @@ class _Rows:
     def to_pylist(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self.rows]
 
+    def to_batches(self, max_chunksize: int | None = None) -> list[_Rows]:  # the lake's Arrow table, one batch
+        return [self]
+
 
 @dataclass
 class _FakeLake:

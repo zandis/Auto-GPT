@@ -29,6 +29,8 @@ NO_RECORD = Reason.NO_RECORD_OF_KIND.value
 QUERY = "WITH scope AS (SELECT unnest(CAST($1 AS VARCHAR[])) AS pid)\n" + "\nUNION ALL\n".join(
     f"SELECT DISTINCT '{table}' AS domain, pid FROM {table} WHERE pid IN (SELECT pid FROM scope)" for table in DOMAINS
 )
+#: rows made Python objects at a time: up to one per patient and domain (700,000 at 100,000 patients), never all at once
+BATCH = 65_536
 
 
 def is_index_criterion(c: CriterionIR) -> bool:
@@ -53,8 +55,9 @@ class Recorded:
         out: dict[str, set[str]] = {p: set() for p in ids}
         if ids:
             # no SQL is put together from data
-            for r in lake.query(QUERY, [ids], snapshot).to_pylist():
-                out.setdefault(str(r["pid"]), set()).add(str(r["domain"]))
+            for batch in lake.query(QUERY, [ids], snapshot).to_batches(BATCH):
+                for r in batch.to_pylist():
+                    out.setdefault(str(r["pid"]), set()).add(str(r["domain"]))
         return cls({p: frozenset(d) for p, d in out.items()}, True)
 
     @classmethod
