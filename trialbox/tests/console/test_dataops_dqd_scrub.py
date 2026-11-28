@@ -8,7 +8,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
 from datacore.dataops import DataOps
 
 from tests.console.test_console_app import box  # noqa: F401 - the fixture is used by name
@@ -66,7 +65,7 @@ def test_a_wrongly_typed_record_is_not_copied(box: dict[str, Any]) -> None:
         try:
             b = ops.batch(bid)
             assert b is not None
-            assert NAME not in repr(b.detail) and "failed" not in b.detail["omop"]["dqd"] or (
+            assert (NAME not in repr(b.detail) and "failed" not in b.detail["omop"]["dqd"]) or (
                 b.detail["omop"]["dqd"]["failed"] and "notes" not in b.detail["omop"]["dqd"]["failed"][0]
             )
         finally:

@@ -35,6 +35,7 @@ from datetime import date, datetime
 from typing import Any, get_args
 from zoneinfo import ZoneInfo
 
+from datacore.dataops import omop_kept
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from tb_common.authz import permit
@@ -300,7 +301,7 @@ def dqd_of(detail: Any) -> dict[str, Any] | None:
     """H3-NLP §3.1: the data quality checks of the night's OMOP load that did not pass (``adapter.dual_write``):
     the counts and each row in DQD's words. None when the night carries none or a record of another shape."""
     omop = detail.get("omop") if isinstance(detail, dict) else None
-    got = omop.get("dqd") if isinstance(omop, dict) else None
+    got = omop_kept(omop).get("dqd")  # a row written before the scrub is scrubbed here too
     if not isinstance(got, dict) or not all(isinstance(got.get(k), int) for k in ("checks", "fail", "known")):
         return None
     rows = got.get("failed")

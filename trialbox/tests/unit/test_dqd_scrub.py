@@ -27,7 +27,10 @@ ROW: dict[str, Any] = {
 
 
 def _omop(*rows: Any, failed: Any = None) -> dict[str, Any]:
-    return {"state": "loaded", "dqd": {"checks": 60, "fail": 1, "known": 0, "failed": list(rows) if failed is None else failed}}
+    return {
+        "state": "loaded",
+        "dqd": {"checks": 60, "fail": 1, "known": 0, "failed": list(rows) if failed is None else failed},
+    }
 
 
 def test_a_name_and_a_chart_number_in_a_check_row_do_not_stay() -> None:
@@ -56,7 +59,7 @@ def test_a_field_that_is_not_text_or_a_count_is_dropped_not_copied(caplog: pytes
     with caplog.at_level(logging.WARNING, logger="datacore.dataops"):
         got = omop_kept(_omop(row, "a text row", 7))["dqd"]["failed"]
     assert got == [{"cdmTableName": "condition_occurrence", "cdmFieldName": "condition_start_date", "status": "fail"}]
-    assert any("5 data quality values were dropped" in r.getMessage() for r in caplog.records)
+    assert any("6 data quality values were dropped" in r.getMessage() for r in caplog.records)
     assert NAME not in repr(got)
 
 

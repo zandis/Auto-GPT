@@ -147,9 +147,13 @@ def _dqd(db: Any, snap: str) -> dict[str, Any] | None:
     except Exception as exc:  # the load is committed; the checks' own failure is said in the log, not the night's
         log.error("omop dual write %s: the data quality checks failed to run (%s)", snap, type(exc).__name__)
         return None
+    from datacore.dataops import omop_kept  # the one projection: typed, and every text scrubbed of identifiers
+
     s = dqd.summary(res)
-    return {"checks": s["checks"], "fail": s["fail"], "known": s["known"],
-            "failed": [{k: r[k] for k in DQD_FIELDS} for r in res if r["status"] != "pass"]}  # fmt: skip
+    failed = [{k: r[k] for k in DQD_FIELDS} for r in res if r["status"] != "pass"]
+    kept: dict[str, Any] = omop_kept({"dqd": {"checks": s["checks"], "fail": s["fail"], "known": s["known"],
+                                              "failed": failed}})["dqd"]  # fmt: skip
+    return kept
 
 
 def _tombstones(ndjson_dir: Path) -> dict[str, list[str]]:

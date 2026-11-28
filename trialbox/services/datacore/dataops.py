@@ -35,12 +35,14 @@ What is not here yet: the record status and consent tables.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from tb_common.db import ENV, Database, DatabaseError
+from tb_common.logging import redact
 
 from datacore import pgfunc
 
@@ -62,24 +64,65 @@ NEXT: dict[str, tuple[str, ...]] = {
 DECISIONS = {"accept": PUBLISHED, "reject": REJECTED}
 EVENT_DECIDE = "dataops.decide"
 EVENT_STEP = "dataops.step"
+log = logging.getLogger("datacore.dataops")
 DQD_ROW = ("checkName", "cdmTableName", "cdmFieldName", "numViolatedRows", "numDenominatorRows", "status", "notes")
+
+
+_DQD_TEXT = ("checkName", "cdmTableName", "cdmFieldName", "status", "notes")
+_DQD_COUNT = ("numViolatedRows", "numDenominatorRows")
+
+
+def _dqd_field(key: str, value: Any) -> tuple[bool, Any]:
+    """One DQD row field as it may be kept: (kept, value). A text goes through the patient-text scrub the logs use
+    (``tb_common.logging.redact``); a count must be an int; ``cdmFieldName`` may be None; anything else is dropped."""
+    if key in _DQD_TEXT:
+        if isinstance(value, str):
+            return True, redact(value)
+        return (True, None) if key == "cdmFieldName" and value is None else (False, None)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return True, value
+    return False, None
 
 
 def omop_kept(omop: Any) -> dict[str, Any]:
     """H3-NLP §3.1: what a batch row keeps of the night's OMOP load: its state and the data quality record, the
-    three counts and per check DQD's seven fields; every other key is dropped."""
+    three counts and per check DQD's seven fields; every other key is dropped. Every text of a check row is scrubbed
+    of patient identifiers; a ``failed`` that is not a list, a row that is not a mapping and a field of the wrong
+    type are dropped, and the log says how many (a count, never the value)."""
     if not isinstance(omop, Mapping):
         return {}
     out: dict[str, Any] = {"state": omop["state"]} if isinstance(omop.get("state"), str) else {}
     dqd = omop.get("dqd")
     if isinstance(dqd, Mapping):
+        dropped = 0
+        kept: dict[str, Any] = {}
+        for k in ("checks", "fail", "known"):
+            v = dqd.get(k)
+            if isinstance(v, int) and not isinstance(v, bool):
+                kept[k] = v
+            elif k in dqd:
+                dropped += 1
         rows = dqd.get("failed")
-        out["dqd"] = {
-            **{k: dqd.get(k) for k in ("checks", "fail", "known")},
-            "failed": [{k: r.get(k) for k in DQD_ROW} for r in rows if isinstance(r, Mapping)]
-            if isinstance(rows, list)
-            else rows,
-        }
+        if isinstance(rows, list):
+            failed: list[dict[str, Any]] = []
+            for r in rows:
+                if not isinstance(r, Mapping):
+                    dropped += 1
+                    continue
+                row: dict[str, Any] = {}
+                for k in DQD_ROW:
+                    ok, v = _dqd_field(k, r.get(k))
+                    if ok:
+                        row[k] = v
+                    elif k in r:
+                        dropped += 1
+                failed.append(row)
+            kept["failed"] = failed
+        elif "failed" in dqd:
+            dropped += 1
+        if dropped:
+            log.warning("dataops: %d data quality values were dropped (wrong type)", dropped)
+        out["dqd"] = kept
     return out
 
 
@@ -391,7 +434,11 @@ class DataOps:
         detail = fields.get("detail") or {}
         kept = {k: detail[k] for k in DETAIL_KEYS if isinstance(detail, Mapping) and detail.get(k) is not None}
         if "omop" in kept:
-            kept["omop"] = omop_kept(kept["omop"])
+            raw_omop = kept["omop"]
+            kept["omop"] = omop_kept(raw_omop)
+            if "dqd" in kept["omop"] and isinstance(raw_omop, Mapping):  # the audit event carries it scrubbed too
+                detail = {**detail, "omop": {**raw_omop, "dqd": kept["omop"]["dqd"]}}
+                fields["detail"] = detail
         with self._db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"dataops.batch:{source}:{snapshot}",))
             opened = tx.fetchdicts("SELECT * FROM batch WHERE id = ? FOR UPDATE", (batch_id,)) if batch_id else []
