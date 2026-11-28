@@ -266,6 +266,12 @@ POST /api/edc/tools/{proposal_id}/confirm admin
 POST /api/v1/admin/still-needed/{item} admin
 POST /api/v1/audit/patients/by-chart privacy
 POST /api/v1/audit/patients/by-chart steward
+POST /api/v1/jobs/{job_id}/approval/save admin
+POST /api/v1/jobs/{job_id}/approval/save crc
+POST /api/v1/jobs/{job_id}/approval/save inv
+POST /api/v1/jobs/{job_id}/approval/save pi
+POST /api/v1/jobs/{job_id}/approval/save smo_in
+POST /api/v1/jobs/{job_id}/approval/save sub
 POST /api/v1/site/charts crc
 POST /api/v1/site/charts smo_in
 POST /api/v1/site/charts smo_out
