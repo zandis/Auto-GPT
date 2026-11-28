@@ -54,10 +54,12 @@ def test_the_ceremony_and_backup_keygen_read_a_box_file_without_tb_env_as_produc
     with pytest.raises(bkc.Stop) as got:
         bkc.run(tmp_path / "stick", "operator", "witness", {"TB_ENV": "TEST"})
     assert PRODUCTION not in got.value.say("en") and "rc1" not in got.value.say("en")  # SAFE-1 A2: past rc1
+    assert got.value.text is bkc.PUB_DIR_UNSAFE  # its next check: this checkout has no deploy/secrets
     priv, pub = tmp_path / "it" / "backup.key", tmp_path / "pub" / "backup.pub"
-    trialbox_main(["backup-keygen", "--private", str(priv), "--public", str(pub)])
-    err = capsys.readouterr().err
-    assert PRODUCTION not in err and "rc1" not in err
+    assert trialbox_main(["backup-keygen", "--private", str(priv), "--public", str(pub)]) == 0
+    out = capsys.readouterr()
+    assert PRODUCTION not in out.err and "rc1" not in out.err + out.out
+    assert priv.is_file() and pub.is_file() and "backup key" in out.out  # the pair is made, whole
 
 
 def test_the_same_box_file_naming_test_is_not_refused(

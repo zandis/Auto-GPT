@@ -34,7 +34,9 @@ def test_a_refused_box_still_mails_the_participants_care(monkeypatch: pytest.Mon
     assert "11111111" not in n1[0].body and "22222222" not in n1[0].body
 
 
-@pytest.mark.parametrize("env", ["VALIDATION", "TEST", "DEV", "PRODUCTION", None])  # PRODUCTION, unset: SAFE-1 A2
+# PRODUCTION and unset: SAFE-1 A2 names console.notify among live_patient_lists' sites and flips that row to allowed
+# everywhere (the owner's decision of 2026-11-28); patient_mail_and_downloads (a job's patient-level files) is another row
+@pytest.mark.parametrize("env", ["VALIDATION", "TEST", "DEV", "PRODUCTION", None])
 def test_an_allowed_box_mails_its_rows(env: str | None, monkeypatch: pytest.MonkeyPatch) -> None:
     if env is None:
         monkeypatch.delenv("TB_ENV", raising=False)  # unset is PRODUCTION (D-127)
