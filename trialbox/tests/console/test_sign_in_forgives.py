@@ -165,10 +165,11 @@ def test_a_form_sent_after_the_idle_end_is_back_after_signing_in_again(tmp_path:
     assert draft == {"action": "/feedback", "fields": {"path": ["/help"], "rating": ["2"],
                                                        "comment": ["half-typed note"]}}  # fmt: skip
     assert _draft(c.get("/help").text) is not None  # kept until a form took it (a page render does not use it up)
-    assert (
-        c.post("/draft/done", data={"csrf": csrf_of(c)}, headers={"referer": "http://testserver/help"}).status_code
-        == 204
-    )
+    c.post(
+        "/feedback",
+        data={"csrf": csrf_of(c), "path": "/help", "comment": "x"},
+        headers={"referer": "http://testserver/help"},
+    )  # its form was sent: used up
     assert _draft(c.get("/help").text) is None  # once
     assert "half-typed note" not in repr(_events(audit_dir))  # typed text is never audited
 

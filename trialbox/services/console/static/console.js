@@ -227,11 +227,6 @@
         });
         if (!put.length) return;
         put.forEach(function (p) { p.x.classList.add("restored"); });
-        // the kept form is used up only now (the server keeps it until a matching form took it, or 15 minutes)
-        var tok = Array.prototype.filter.call(f.elements, function (x) { return x.name === "csrf"; })[0];
-        if (tok && window.fetch) {
-          try { window.fetch("/draft/done", { method: "POST", credentials: "same-origin", body: new URLSearchParams({ csrf: tok.value }) }); } catch (e) { /* kept until it expires */ }
-        }
         var note = document.createElement("p"), span = document.createElement("span"), btn = document.createElement("button");
         note.className = "warn";
         note.setAttribute("role", "status");

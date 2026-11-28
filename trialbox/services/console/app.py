@@ -678,6 +678,11 @@ def create_app(
         finally:
             if token is not None:
                 person_state.end_request(token)
+        if request.method == "POST" and resp.status_code < 400 and request.cookies.get(next_page.DRAFT_COOKIE):
+            # TOL-AUTH (T-A030): the form the kept draft is for was sent from its page: the draft is used up
+            kept_for = us.session(request.cookies.get(COOKIE), touch=False)
+            if kept_for is not None:
+                us.drop_draft(kept_for.token_sha, next_page.page_of(request), request.url.path)
         resp.headers.setdefault("Content-Security-Policy", CSP)  # the sandboxed preview sets its own
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -1281,15 +1286,6 @@ def create_app(
         resp = RedirectResponse(ident.logout_target(sess.user.username), status_code=303)  # D-192: OIDC logout
         resp.delete_cookie(COOKIE)
         return resp
-
-    @app.post("/draft/done")
-    def draft_done(request: Request, csrf: str = Form("")) -> Response:
-        """TOL-AUTH (T-A030): a form of this page took its kept draft; it is not given again."""
-        sess = need(request)
-        if not csrf_ok(sess, csrf):
-            raise _Problem(400, "csrf")
-        us.drop_draft(sess.token_sha, next_page.page_of(request))
-        return Response(status_code=204)
 
     register_identity(  # D-192: the TOTP step, the OIDC sign-in, /ops/identity (unlock, reset authenticator)
         app,

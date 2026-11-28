@@ -1335,8 +1335,8 @@ class UserStore:
         return n > 0
 
     def take_draft(self, token_sha: str, page: str) -> dict[str, Any] | None:
-        """The kept form of this session for ``page`` ({"action", "fields"}); it stays until ``drop_draft`` (a form took
-        it) or its 15 minutes end; None otherwise."""
+        """The kept form of this session for ``page`` ({"action", "fields"}); it stays until ``drop_draft`` (its form
+        was sent) or its 15 minutes end; None otherwise."""
         self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((self.clock() - DRAFT_TTL).isoformat(),))
         row = self.db.fetchone("SELECT action, fields, at FROM session_drafts WHERE token_sha = ? AND page = ?",
                                (token_sha, page))  # fmt: skip
@@ -1346,8 +1346,10 @@ class UserStore:
             return None
         return {"action": str(row[0]), "fields": json.loads(str(row[1]))}
 
-    def drop_draft(self, token_sha: str, page: str) -> None:
-        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ? AND page = ?", (token_sha, page))
+    def drop_draft(self, token_sha: str, page: str, action: str) -> None:
+        """The form of ``action`` was sent from ``page``: its kept draft is used up."""
+        self.db.execute("DELETE FROM session_drafts WHERE token_sha = ? AND page = ? AND action = ?",
+                        (token_sha, page, action))  # fmt: skip
 
     # ------------------------------------------------------------------ first start
     def bootstrap_from_file(self, path: Path, username: str = "admin", mailbox: str | None = None) -> User | None:
