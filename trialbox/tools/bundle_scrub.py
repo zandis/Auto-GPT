@@ -568,7 +568,11 @@ class Scrubber:
         if "@" in text:
             text, n = EMAIL.subn("[email]", text)
             self.found["email"] += n
-        text = self._labelled(self._labelled(text, LABEL_LATIN), LABEL_CJK)
+        return self._labelled(self._labelled(text, LABEL_LATIN), LABEL_CJK)
+
+    def born(self, text: str) -> str:
+        """H-76 round B: a date after a word of birth in prose. It runs after the screening numbers: a date they
+        already mask (day-month-year) keeps that mark, the page's on-purpose over-mask."""
         text, n = BORN_DATE.subn(lambda m: m.group(0)[: m.start("val") - m.start(0)] + "[birth date]", text)
         self.found["identifier (birth date)"] += n
         return text
@@ -658,6 +662,14 @@ class Scrubber:
         if self.mrn is not None:
             text, k = self.mrn.subn("[MRN]", text)
             self.found["chart number"] += k
+        return text
+
+    def edge(self, text: str) -> str:
+        """Every named form of the egress edge (M3), the digests held out as for :meth:`phi`. It runs after the
+        screening numbers, as on master, so a number they mask keeps that mark."""
+        return _held(DIGEST, text, self._edge)
+
+    def _edge(self, text: str) -> str:
         for kind, s, e in reversed(egress_rules()(op="spans", text=text)):
             label = f"[{kind.upper()}]"
             if text[s:e] != label[1:-1] and text[s:e] != label:  # a label already there is not masked again
@@ -668,8 +680,9 @@ class Scrubber:
     # -------------------------------------------------------------------------------- the one function
     def _rules(self, text: str) -> str:
         # pseudonyms before the log scrubber (its phone pattern must not cut one), screening numbers after it (a
-        # Taiwan ID or an insurer number keeps its own, more exact, mark)
-        return self.screening(self.phi(self.identifiers(self.pseudonyms(self.secrets(text)))))
+        # Taiwan ID or an insurer number keeps its own, more exact, mark), the egress edge's forms after them, then a
+        # date after a word of birth
+        return self.born(self.edge(self.screening(self.phi(self.identifiers(self.pseudonyms(self.secrets(text)))))))
 
     def decoded(self, text: str) -> str:
         """Review H1: an encoding puts a hex digit or a letter next to a token (``%2F<pid>``, ``%22<pid>%22``,
