@@ -80,3 +80,5 @@ def test_the_worklists_sort_undocumented_exclusions_between_decided_and_open() -
             for p, c in (("a-open", [open_]), ("b-nd", [nd]), ("c-done", []))]  # fmt: skip
     assert [r["pid"] for r in worklist_sorted(rows, "all")] == ["c-done", "b-nd", "a-open"]  # not the pseudonym order
     assert len(worklist_sorted(rows, "all")) == 3  # nobody leaves the list
+    odd = {**rows[0], "pid": "d-odd", "criteria": [nd], "fit": SimpleNamespace(open=[])}  # never a negative key
+    assert [r["pid"] for r in worklist_sorted([odd, rows[2]], "all")] == ["c-done", "d-odd"]

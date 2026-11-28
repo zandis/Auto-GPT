@@ -709,7 +709,8 @@ def worklist_sorted(rows: Sequence[dict[str, Any]], key: str) -> list[dict[str, 
     to a decision), then the visit (none last), then the pseudonym (D-120)."""
     if key == "clinic":
         return list(rows)
-    return sorted(rows, key=lambda r: (n_open(r) - n_not_documented(r), n_not_documented(r),
+    return sorted(rows, key=lambda r: (n_open(r) - min(n_not_documented(r), n_open(r)),
+                                       min(n_not_documented(r), n_open(r)),
                                        second_opinion_differs(r.get("criteria") or []),
                                        r["visit"] is None, r["visit_text"] or "9", r["pid"]))  # fmt: skip
 
