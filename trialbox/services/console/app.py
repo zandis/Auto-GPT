@@ -1627,6 +1627,7 @@ def create_app(
         identity=ident,  # D-279: the second factor at signing (console.edc_pages)
         recorded=recorded_opinions.from_env(_env_map(env)),  # T-515: DEV demo opinions (TB_DEMO_OPINIONS)
     )
+    us.draft_gone = helpers.gone  # TOL-AUTH: a kept form that names an opted-out patient goes (erasure registry)
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
     assert helpers.api_session is not None

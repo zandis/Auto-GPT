@@ -355,3 +355,37 @@ def test_a_multiple_choice_list_comes_back_whole() -> None:
                                               ["tags", "select-multiple", "", {"multiple": True, "options": ["a", "b", "c"]}]]}  # fmt: skip
     got = _js([form], {"action": "/feedback", "fields": {"tags": ["a", "c"]}})
     assert got["values"] == [["fresh", ["a", "c"]]]
+
+
+def test_after_an_opt_out_no_kept_form_of_that_patient_remains(tmp_path: Path) -> None:
+    clock = Clock()
+    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    c = _signed_in_viewer(app)
+    csrf = _csrf(c.get("/help").text)
+    clock.tick(minutes=11)
+    for page, note in (("/help", "check pid-optedout-0001 creatinine"), ("/account", "other pid-stays-0002")):
+        r = c.post("/feedback", data={"csrf": csrf, "path": page, "comment": note},
+                   headers={"referer": "http://testserver" + page}, follow_redirects=False)  # fmt: skip
+        assert r.headers["location"] == "/login?why=idle"
+    assert _password(c, "viewer", VIEWER_PW).status_code == 303
+    users.draft_gone = lambda: {"PID-OPTEDOUT-0001"}  # the register now names the first patient
+    assert _draft(c.get("/help").text) is None
+    left = users.db.fetchall("SELECT page, fields FROM session_drafts WHERE page <> ''")
+    assert [p for p, _f in left] == ["/account"] and "optedout" not in str(left)  # the other patient's stays
+
+
+def test_a_register_that_cannot_be_read_keeps_no_form(tmp_path: Path) -> None:
+    clock = Clock()
+    app, users, _audit = _app(tmp_path, clock, TB_CONSOLE_WORKSPACE="on")
+    c = _signed_in_viewer(app)
+    csrf = _csrf(c.get("/help").text)
+    clock.tick(minutes=11)
+    _send_after_the_end(c, csrf)
+    assert _password(c, "viewer", VIEWER_PW).status_code == 303
+
+    def down() -> set[str]:
+        raise RuntimeError("the register is not there")
+
+    users.draft_gone = down
+    assert _draft(c.get("/help").text) is None
+    assert users.db.fetchall("SELECT 1 FROM session_drafts WHERE page <> ''") == []

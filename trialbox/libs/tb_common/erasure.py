@@ -329,10 +329,12 @@ TABLES: dict[str, Entry] = {
         ),
         _STAFF,
     ),
-    "auth.session_drafts": _owed(
+    "auth.session_drafts": _keep(
+        "D-777",
         "a form sent after the session ended (TOL-AUTH): what was typed, never a secret; it may name a patient by "
-        "pseudonym; unreadable after 15 minutes, deleted when taken or at the next session end",
-        "the drafts that name the patient (15 minutes at most)",
+        "pseudonym; cleared by time, 15 minutes at most; the console also deletes one that names an opted-out "
+        "patient when a kept form is next read, kept or handed over (UserStore.drop_stale_drafts), and every kept "
+        "form if the register cannot be read",
     ),
     "auth.user_pref": _none(
         "a person's own look and language (10F-1, D-1387): a closed set of values per key, no free text, nothing "

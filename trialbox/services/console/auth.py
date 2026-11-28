@@ -35,7 +35,7 @@ import ipaddress
 import json
 import re
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -481,6 +481,8 @@ class UserStore:
         self.idle = idle
         self.absolute = absolute
         self.oidc_absolute = oidc_absolute
+        # TOL-AUTH: the pseudonyms of the patients who opted out (console.app sets it): a kept form naming one goes
+        self.draft_gone: Callable[[], Collection[str]] | None = None
         self.zone: ZoneInfo | None = None  # the site's zone, set by console.app (D-270)
         self.enrol_ttl = ENROL_TTL  # D-719: TB_CONSOLE_ENROL_CODE_HOURS, set by console.app
         #: STEPS-ROLE (D-877): whether a session may act in an extra role now (the flag on, on a test box: set by
@@ -838,7 +840,7 @@ class UserStore:
         absolute = self._absolute_of(str(row[5]))
         if user is None or now - created > absolute or now - last > self.idle:
             if user is not None:  # TOL-AUTH (T-A030): a time limit; a form sent to it later is kept for this account
-                self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((now - DRAFT_TTL).isoformat(),))
+                self.drop_stale_drafts()
                 self.db.execute(
                     "INSERT INTO session_drafts (token_sha, username, at) VALUES (?, ?, ?) "
                     "ON CONFLICT (token_sha, page) DO NOTHING",
@@ -1321,6 +1323,28 @@ class UserStore:
             "ON CONFLICT (token_sha, page) DO UPDATE SET action = excluded.action, fields = excluded.fields",
             (page, action, json.dumps(fields), _sha(token), (self.clock() - DRAFT_TTL).isoformat()),
         )
+        self.drop_stale_drafts()
+
+    def drop_stale_drafts(self) -> None:
+        """A kept form lives 15 minutes at most, and goes at once when it names a patient who opted out (it may hold
+        the pseudonym and a free-text note): the expired rows go, then every kept form naming a pseudonym of
+        ``draft_gone``. If that register cannot be read, every kept form goes (fail closed)."""
+        self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((self.clock() - DRAFT_TTL).isoformat(),))
+        if self.draft_gone is None:
+            return
+        try:
+            gone = [str(p).lower() for p in self.draft_gone()]
+        except Exception:
+            gone = []
+            self.db.execute("DELETE FROM session_drafts WHERE page <> ''")
+        if not gone:
+            return
+        for sha, page, fields in self.db.fetchall(
+            "SELECT token_sha, page, fields FROM session_drafts WHERE page <> ''"
+        ):
+            text = str(fields).lower()
+            if any(p in text for p in gone):
+                self.db.execute("DELETE FROM session_drafts WHERE token_sha = ? AND page = ?", (sha, page))
 
     def hand_draft(self, old_token: str, username: str, new_token: str) -> bool:
         """At a sign-in on a browser whose last session ended: its kept forms move to the new session when the same
@@ -1328,7 +1352,7 @@ class UserStore:
         if not old_token or len(old_token) > 256:
             return False
         sha = _sha(old_token)
-        self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((self.clock() - DRAFT_TTL).isoformat(),))
+        self.drop_stale_drafts()
         n = self.db.execute("UPDATE session_drafts SET token_sha = ? WHERE token_sha = ? AND username = ? "
                             "AND page <> ''", (_sha(new_token), sha, username))  # fmt: skip
         self.db.execute("DELETE FROM session_drafts WHERE token_sha = ?", (sha,))
@@ -1337,7 +1361,7 @@ class UserStore:
     def take_draft(self, token_sha: str, page: str) -> dict[str, Any] | None:
         """The kept form of this session for ``page`` ({"action", "fields"}); it stays until ``drop_draft`` (its form
         was sent) or its 15 minutes end; None otherwise."""
-        self.db.execute("DELETE FROM session_drafts WHERE at < ?", ((self.clock() - DRAFT_TTL).isoformat(),))
+        self.drop_stale_drafts()
         row = self.db.fetchone("SELECT action, fields, at FROM session_drafts WHERE token_sha = ? AND page = ?",
                                (token_sha, page))  # fmt: skip
         if row is None:
