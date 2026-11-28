@@ -314,7 +314,7 @@ class _Builder:
         if rtype == "Patient":
             p = fl.patient(r)
             out = rec("person", p["pid"])
-            out.extra = {k: _iso(p[k]) for k in ("birth_date", "sex", "deceased_date", "deceased")}
+            out.extra = {k: _iso(p[k]) for k in ("birth_date", "birth_ym", "sex", "deceased_date", "deceased")}
             return [out]
         if rtype == "Practitioner":
             p = fl.practitioner(r)
@@ -522,6 +522,24 @@ class _Builder:
             out.extra["demographic"] = True
             return [out]
         rows = self.fl.observations(r)
+        if rows[0]["value_text"] is not None and not r.get("component"):
+            # a finding written as text: OMOP OBSERVATION (value_as_string, the text as value_source_value, the finding's
+            # code as the source value), never a measurement. A number and a coded answer stay measurements
+            o = rows[0]
+            out = rec("observation", o["pid"])
+            out.row = {
+                "observation_datetime": o["effective"],
+                "observation_type_concept_id": self.type_concept(out.status),
+                "value_as_number": None,
+                "value_as_string": o["value_text"][:60],
+            }
+            codes = (r.get("code") or {}).get("coding") or []
+            display = next((c.get("display") for c in codes if c.get("code") == o["code"]), None)
+            self._code(out, "observation_source_value", o["system"], o["code"], display, "Observation")
+            self._text(out, "value_source_value", o["value_text"], "value_text")
+            if o["category"] is not None:
+                out.extra["category"] = o["category"]
+            return [out]
         comps = r.get("component") or []
         recs = []
         for part, o in enumerate(rows):
@@ -1595,6 +1613,8 @@ def _merge_person(sources: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[s
     different values for is a conflict (the value of the first source, the hospital's, is what OMOP holds)."""
     merged: dict[str, Any] = {}
     clash: dict[str, list[Any]] = {}
+    ym = [s["birth_ym"] for s in sources if s.get("birth_ym")]  # year and month only: no day, never a conflict
+    merged["birth_ym"] = ym[0] if ym else None
     for item in ("birth_date", "sex", "deceased_date"):
         vals = [s.get(item) for s in sources if s.get(item) is not None]
         merged[item] = vals[0] if vals else None
@@ -1634,13 +1654,15 @@ def _derive(tx: Any, persons: set[int], providers: set[int], batch: str, rep: Lo
                 continue
             merged, clash = _merge_person(srcs[pid])
             birth = date.fromisoformat(merged["birth_date"]) if merged["birth_date"] else None
+            # a birth of year and month: the year and the month, no day and no birth datetime (nothing is invented)
+            ym = tuple(int(x) for x in merged["birth_ym"].split("-")) if birth is None and merged["birth_ym"] else None
             sex = merged["sex"]
             prow.append(
                 (
                     pid,
                     vocab.GENDER.get(sex or "", 0),
-                    birth.year if birth else 0,
-                    birth.month if birth else None,
+                    birth.year if birth else (ym[0] if ym else 0),
+                    birth.month if birth else (ym[1] if ym else None),
                     birth.day if birth else None,
                     _as_dt(birth),
                     0,

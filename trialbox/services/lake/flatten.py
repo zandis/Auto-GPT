@@ -50,6 +50,9 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("sex", "VARCHAR"),
         ("deceased_date", "DATE"),
         ("deceased", "BOOLEAN"),
+        # a birth the source gave as year and month only (``1948-05``): ``birth_date`` stays NULL (no day is invented,
+        # and an age is unknown, never decided on a made-up day) and the month is kept here
+        ("birth_ym", "VARCHAR"),
     ],
     "practitioner": [("practitioner_id", "VARCHAR"), ("staff_id", "VARCHAR"), ("name", "VARCHAR")],
     "encounter": [
@@ -94,6 +97,8 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("local_code", "VARCHAR"),
         # D-142: a censored result ("<0.3", Quantity.comparator): value_num is the bound, value_cmp says which side
         ("value_cmp", "VARCHAR"),
+        # a finding written as text (an imaging or examination finding): patient text, kept as written, never a number
+        ("value_text", "VARCHAR"),
     ],
     "medication": [
         ("mid", "VARCHAR"),
@@ -237,6 +242,22 @@ def basis_of(r: Resource) -> str | None:
         if t.get("system") == BASIS:
             return str(t.get("code") or "") or None
     return None
+
+
+_YEAR_MONTH = re.compile(r"\d{4}-(?:0[1-9]|1[0-2])")
+
+
+def _finding_text(r: Resource, value: dict[str, Any], vcode: str | None) -> str | None:
+    """The text of an observation that is a finding: a ``valueString`` that is no number and no coded answer, and a
+    result with a usable value (D-275). A number written as text ("75 H") is a number (``value_num``), not text."""
+    text = r.get("valueString")
+    if not isinstance(text, str) or not text.strip() or value["value_num"] is not None or vcode is not None:
+        return None
+    if uncertain("Observation", r) or any(
+        c.get("system") == DEMOGRAPHIC for c in (r.get("code") or {}).get("coding") or []
+    ):
+        return None  # a demographic fact has its own route (site_fact)
+    return text
 
 
 def _value(q: dict[str, Any], text: Any) -> dict[str, Any]:
@@ -479,9 +500,12 @@ class Flattener:
     def patient(self, r: Resource) -> Row:
         dec = r.get("deceasedDateTime")
         dead = bool(dec) or r.get("deceasedBoolean") is True  # STD-013: a death flag without a date is a death
+        birth = r.get("birthDate")
+        year_month = isinstance(birth, str) and _YEAR_MONTH.fullmatch(birth.strip()) is not None
         return {
             "pid": r["id"],
-            "birth_date": self.d(r.get("birthDate")),
+            "birth_date": None if year_month else self.d(birth),
+            "birth_ym": birth.strip() if year_month and isinstance(birth, str) else None,
             "sex": sex_of(r.get("gender")),
             "deceased_date": self.d(dec) if dec else None,
             "deceased": True if dead else None,
@@ -587,6 +611,7 @@ class Flattener:
             "value_code": vcode,
             "category": cat,
             "local_code": local,
+            "value_text": _finding_text(r, value, vcode),
         }
 
     def effective(self, r: Resource) -> datetime | None:
@@ -844,6 +869,7 @@ class Flattener:
                     "unit": q.get("code") or q.get("unit"),
                     "value_code": vcode,
                     "local_code": None,
+                    "value_text": None,
                 }
             )
         return rows

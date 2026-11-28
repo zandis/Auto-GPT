@@ -170,12 +170,11 @@ def test_a_date_cell_with_a_month_format_is_read_as_year_and_month(tmp_path: Pat
 
 
 def test_scores_and_findings_reach_omop(tmp_path: Path, db_url: str) -> None:
-    from lake.source import lake_rows
     from omop import schema
     from omop.load import load_batch
 
     cfg, _ = _night(tmp_path, TEMPLATE)
-    feed = lake_rows(read_all(snapshot_dir(cfg.lake_dir, SNAP)), {}, tz="Asia/Tokyo", snapshot=SNAP, source="legacy")
+    feed = read_all(snapshot_dir(cfg.lake_dir, SNAP))
     db = schema.connect(db_url)
     try:
         load_batch(db, "feed", SNAP, feed, tz="Asia/Tokyo")

@@ -103,7 +103,7 @@ def test_omop_holds_year_and_month_and_routes_a_finding_to_observation(db_url: s
 
     db = schema.connect(db_url)
     try:
-        load_batch(db, "feed", SNAP, _rows(), tz="Asia/Tokyo")
+        load_batch(db, "feed", SNAP, FEED, tz="Asia/Tokyo")
         assert db.fetchall("SELECT year_of_birth, month_of_birth, day_of_birth, birth_datetime FROM person") == [
             (1948, 5, None, None)
         ]
@@ -122,7 +122,7 @@ def test_omop_export_returns_the_birth_month_and_the_finding_text(db_url: str) -
 
     db = schema.connect(db_url)
     try:
-        load_batch(db, "feed", SNAP, _rows(), tz="Asia/Tokyo")
+        load_batch(db, "feed", SNAP, FEED, tz="Asia/Tokyo")
         from omop.export import export_rows
 
         got = export_rows(db)

@@ -1,0 +1,41 @@
+{
+ "card": "HPOC1",
+ "title": "the proof-of-concept workbook door",
+ "date": "2026-11-28",
+ "source": "docs/handover/poc-workbook-door-hpoc1-2026-11-28.md",
+ "note": "basis 'shown' means shown by a test or by reading the code named on the page; nothing here was run on a box.",
+ "findings": [
+  {
+   "id": "HPOC1-01",
+   "severity": "Medium",
+   "claim": "no code-level stop keeps test data out of a box that holds real patients: the only marks are the synthetic- profile id rule (tb_common/site_profile.py) and the SYN- case numbers of the fixtures, and nothing reads them when a workbook is loaded; the template's example rows are marked SYN- and the runbook line says not to load them into a real box",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HPOC1-02",
+   "severity": "Medium",
+   "claim": "a patient whose birth is year and month has a NULL lake birth_date, so every age criterion reads her or him as unknown; the finer rule (decide the criterion when the age boundary is not in the birth month, unknown only when it is) is not built, because it changes the compiled age SQL of every ruleset",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HPOC1-03",
+   "severity": "Low",
+   "claim": "settings.yaml data_source.type does not accept xlsx: the settings schema and the generated models list csv, cgrd_sql, fhir_bulk and ssmix2 only; the workbook door runs from the command line (adapter run --source xlsx)",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "HPOC1-04",
+   "severity": "Low",
+   "claim": "a year-month birth from one source and a whole birth date from another for the same patient are not compared as a conflict (the OMOP conflict items name birth_date only); the whole date wins in the lake and the month is kept beside it",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
