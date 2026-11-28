@@ -1506,7 +1506,8 @@ def test_a_forget_never_removes_a_key_it_did_not_look_at(
 def _shell_install(tmp_path: Path, ceremony: str) -> tuple[Path, Callable[..., subprocess.CompletedProcess[str]]]:
     """The installer's reader (--kek-passphrase-file) and its backup key step, run by bash with no terminal, a
     declaration in place and ``ceremony`` as the python3 the step runs. Returns the passphrase file and the runner
-    (``tail``: the script after the reader; ``keep``: --keep-kek-passphrase-file; ``env``: added to PATH)."""
+    (``tail``: the script after the reader; ``keep``: --keep-kek-passphrase-file; ``env``: added to PATH; ``pre``:
+    the script before the variables the installer sets)."""
     reader = _between("KP_WHO=install\n", "# ---- end of KEK-INPUT\n")
     bin_, secrets = tmp_path / "bin", tmp_path / "deploy" / "secrets"
     for d in (bin_, secrets):
@@ -1518,8 +1519,10 @@ def _shell_install(tmp_path: Path, ceremony: str) -> tuple[Path, Callable[..., s
     keys.mkdir(mode=0o700)
     pp = keys / "trialbox-kek.pass"
 
-    def run(tail: str, keep: bool = False, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-        script = ('die() { echo "die: $*"; exit 1; }\nsay() { :; }\nFAILS=()\n'
+    def run(
+        tail: str, keep: bool = False, env: dict[str, str] | None = None, pre: str = ""
+    ) -> subprocess.CompletedProcess[str]:
+        script = (f'{pre}die() {{ echo "die: $*"; exit 1; }}\nsay() {{ :; }}\nFAILS=()\n'
                   f"PP_FILE={pp}\nPP_STDIN=0\nPP_FD=\nPP_REMOVE=\nPP_KEEP={int(keep)}\nROOT={tmp_path}\n{reader}"
                   f"{tail}")  # fmt: skip
         return subprocess.run(["setsid", "bash", "-c", script], cwd=tmp_path, capture_output=True, text=True,
@@ -1557,19 +1560,57 @@ def test_a_kill_after_backup_pub_leaves_no_passphrase_file_and_the_next_start_re
     assert not pp.exists() and f"the passphrase file {pp} is removed" in r.stdout and PASS not in r.stdout + r.stderr
 
 
-def test_the_install_passphrase_is_in_no_child_environment(tmp_path: Path) -> None:
+@pytest.mark.parametrize("allexport", [False, True])
+def test_the_install_passphrase_is_in_no_child_environment(tmp_path: Path, allexport: bool) -> None:
     """H-09: a caller's exported KP_VALUE (empty, as a launcher might export it) loses its export where the reader
-    starts: no child of the installer has the passphrase, or KP_VALUE, in its environment; the ceremony gets it on
-    stdin alone."""
+    starts, and so does bash's allexport (bash -a: every assignment after it exported): no child of the installer
+    has the passphrase, or KP_VALUE, in its environment; the ceremony gets it on stdin alone."""
     rec = tmp_path / "rec"
     rec.mkdir()
     pp, run = _shell_install(tmp_path, f"cat > {rec}/stdin\ncat /proc/$$/environ > {rec}/ceremony.environ\n")
     key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
     _write_pass(pp)
     r = run(f"cat /proc/self/environ > {rec}/child.environ\nTB_ENV_SITE=PRODUCTION\n{key_step}",
-            env={"KP_VALUE": "", "kp_again": ""})  # fmt: skip
+            env={"KP_VALUE": "", "kp_again": ""}, pre="set -a\n" if allexport else "")  # fmt: skip
     assert r.returncode == 0, r.stderr
     assert (rec / "stdin").read_text(encoding="utf-8") == PASS + "\n"
     for name in ("child.environ", "ceremony.environ"):
         seen = (rec / name).read_bytes()
         assert seen and PASS.encode() not in seen and b"KP_VALUE=" not in seen and b"kp_again=" not in seen, name
+
+
+def test_a_deeply_nested_declaration_is_refused_journaled_and_replaced(
+    box: Box, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-16 (seventh review): a declaration nested deeper than the decoder recurses is not a declaration: the run
+    refuses with backup.target_undeclared, and --replace (its repair) declares the target again."""
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    _mounted(tmp_path, monkeypatch, (nas, *NFS, ()))
+    rec_file = box.pub_dir / bkc.TARGET_RECORD
+    rec_file.write_bytes(b"[" * (bkc.MAX_FILE - 1))
+    e = _refused_at_the_run(box, nas)
+    assert e.text is bkc.NO_TARGET_DECLARED
+    assert _events(box, "backup.target_undeclared") == [{"record": str(rec_file), "found": "not a declaration"}]
+    bkc.declare_target(str(nas), "IT Operator", True, {})
+    assert json.loads(rec_file.read_text(encoding="utf-8"))["path"] == str(nas)
+
+
+@pytest.mark.parametrize(
+    ("line", "want"),
+    [
+        ("TB_BACKUP_OFFBOX=/mnt/IT's-backup", "/mnt/IT's-backup"),
+        ('TB_BACKUP_OFFBOX="/mnt/IT\'s-backup"', "/mnt/IT's-backup"),
+        ("TB_BACKUP_OFFBOX='/mnt/backup'", "/mnt/backup"),
+    ],
+)
+def test_the_installer_declares_the_configured_path_as_written(tmp_path: Path, line: str, want: str) -> None:
+    """M-17 (seventh review): only a matching pair of outer quotes is taken off TB_BACKUP_OFFBOX; a quote inside the
+    path stays, so the installer declares the folder deploy/.env names, not another one."""
+    (tmp_path / "deploy" / "secrets").mkdir(parents=True)
+    (tmp_path / "deploy" / ".env").write_text(f"OTHER=1\n{line}\n", encoding="utf-8")
+    step = _between('      KP_OFFBOX=""\n', "      if [ ! -f deploy/secrets/backup-target.json ]")
+    script = 'envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }\n' + step + 'printf "%s" "$KP_OFFBOX" > got\n'
+    r = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "got").read_text(encoding="utf-8") == want
