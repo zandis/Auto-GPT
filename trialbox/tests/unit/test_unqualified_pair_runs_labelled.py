@@ -228,3 +228,35 @@ def test_the_installer_says_it_at_the_start(tmp_path: Path) -> None:
         script = f'say() {{ echo "==> $*"; }}\nROOT={tmp_path}; MODE=gpu; GPU={gpu}\n{block}'
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True)
         assert ("will run labelled unqualified" in r.stdout) is said, (gpu, r.stdout)
+
+
+# ------------------------------------------------------------------------------------------------ the SCREEN paths
+def test_the_screen_and_evaluate_paths_carry_the_label_to_the_list_row() -> None:
+    """The cascade SCREEN path (``OrchestratorJudge`` over ``NoteJudge``) and EVALUATE (``note_verdict``): one model
+    of the pair unqualified labels the answer (the 2,000-patient box run found the label stopped at ``NoteResult``)."""
+    from dataclasses import replace
+    from datetime import date
+
+    from orchestrator.scenarios.evaluate import NoteJudge, note_verdict
+    from orchestrator.scenarios.screen_cascade import OrchestratorJudge
+
+    from tests.unit.test_d985_every_path import IDX, PairModel, _excerpts, _exclusion, verify_span
+    from tests.unit.test_safety_properties import _run_for_map
+
+    class Unqualified(PairModel):
+        def chat_json(self, *a: Any, **kw: Any) -> Any:
+            return replace(super().chat_json(*a, **kw), qualification="unqualified")
+
+    quote = "Known HIV infection, on ART."
+    c = _exclusion("Known HIV infection")
+    oj = OrchestratorJudge(None, PairModel(quote), verifier=Unqualified(quote))  # type: ignore[arg-type]
+    reply = oj.judge(role="judge", criterion_text=c.text, note_question=c.note_question or c.text, index_date=IDX,
+                     excerpts=_excerpts(quote), study_id="N", data_class="D0", step_id="s", purpose="screen")  # fmt: skip
+    assert reply.qualification == "unqualified"
+    span = verify_span(reply, _excerpts(quote), date(2025, 1, 1), IDX)
+    row = verdict_of(_run_for_map(True)._map(c, reply, span, "S3"), pair=True)
+    assert row.evidence is not None and row.evidence.qualification == "unqualified"
+    nj = NoteJudge(lake=None, llm=Unqualified(quote), verifier=PairModel(quote))  # type: ignore[arg-type]
+    r = nj.judge_excerpts(c.text, c.note_question or c.text, IDX, _excerpts(quote))
+    v = note_verdict(c, r, pair=True)
+    assert v.evidence is not None and v.evidence.qualification == "unqualified"
