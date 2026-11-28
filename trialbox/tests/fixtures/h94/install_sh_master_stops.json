@@ -461,6 +461,22 @@
   {
    "message": "--ctgov must be live or offline",
    "rc": 2
+  },
+  {
+   "message": "no systemd units here: nothing restores the egress rules after a reboot, and the services start again without them. After every boot run: sudo $ROOT/deploy/network.sh restore && sudo $ROOT/deploy/network.sh apply (the host check FAILs the missing table)",
+   "rc": 1
+  },
+  {
+   "message": "no cron daemon runs on this host: nothing runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) until one does; start the host's cron daemon, then re-run",
+   "rc": 1
+  },
+  {
+   "message": "no cron daemon here, and trialbox-retention.timer could not be installed: the log retention and the signed audit head do not run. See systemctl status trialbox-retention.timer, then re-run",
+   "rc": 1
+  },
+  {
+   "message": "this host has no pgrep, so whether a cron daemon runs $CRON_DIR/trialbox-retention (the log retention and the signed audit head) cannot be told; install procps (pgrep) or check the host's cron daemon, then re-run",
+   "rc": 1
   }
  ]
 }

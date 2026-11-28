@@ -118,6 +118,2002 @@ medication,hbv antiviral prophylaxis,atc,J05AF07,exact
 medication,ra biologic,atc,L04AB,prefix
 medication,ra biologic,atc,L04AC07,exact
 medication,egfr tyrosine kinase inhibitor,atc,L01EB,prefix
+medication,urate-lowering therapy,atc,E,family
+medication,urate-lowering therapy,atc,F,family
+medication,urate-lowering therapy,atc,I,family
+medication,urate-lowering therapy,atc,K,family
+medication,urate-lowering therapy,atc,M00,family
+medication,urate-lowering therapy,atc,M04AC00,family
+medication,urate-lowering therapy,atc,M04AC02,family
+medication,urate-lowering therapy,atc,M04AC03,family
+medication,urate-lowering therapy,atc,M04AC04,family
+medication,urate-lowering therapy,atc,M04AC05,family
+medication,urate-lowering therapy,atc,M04AC06,family
+medication,urate-lowering therapy,atc,M04AC07,family
+medication,urate-lowering therapy,atc,M04AC08,family
+medication,urate-lowering therapy,atc,M04AC09,family
+medication,urate-lowering therapy,atc,M04AC1,family
+medication,urate-lowering therapy,atc,M04AC2,family
+medication,urate-lowering therapy,atc,M04AC3,family
+medication,urate-lowering therapy,atc,M04AC4,family
+medication,urate-lowering therapy,atc,M04AC5,family
+medication,urate-lowering therapy,atc,M04AC6,family
+medication,urate-lowering therapy,atc,M04AC7,family
+medication,urate-lowering therapy,atc,M04AC8,family
+medication,urate-lowering therapy,atc,M04AC9,family
+medication,urate-lowering therapy,atc,M04AD,family
+medication,urate-lowering therapy,atc,M04AE,family
+medication,urate-lowering therapy,atc,M04AF,family
+medication,urate-lowering therapy,atc,M04AG,family
+medication,urate-lowering therapy,atc,M04AH,family
+medication,urate-lowering therapy,atc,M04AI,family
+medication,urate-lowering therapy,atc,M04AJ,family
+medication,urate-lowering therapy,atc,M04AK,family
+medication,urate-lowering therapy,atc,M04AL,family
+medication,urate-lowering therapy,atc,M04AM,family
+medication,urate-lowering therapy,atc,M04AN,family
+medication,urate-lowering therapy,atc,M04AO,family
+medication,urate-lowering therapy,atc,M04AP,family
+medication,urate-lowering therapy,atc,M04AQ,family
+medication,urate-lowering therapy,atc,M04AR,family
+medication,urate-lowering therapy,atc,M04AS,family
+medication,urate-lowering therapy,atc,M04AT,family
+medication,urate-lowering therapy,atc,M04AU,family
+medication,urate-lowering therapy,atc,M04AV,family
+medication,urate-lowering therapy,atc,M04AW,family
+medication,urate-lowering therapy,atc,M04AX,family
+medication,urate-lowering therapy,atc,M04AY,family
+medication,urate-lowering therapy,atc,M04AZ,family
+medication,urate-lowering therapy,atc,M04B,family
+medication,urate-lowering therapy,atc,M04C,family
+medication,urate-lowering therapy,atc,M04D,family
+medication,urate-lowering therapy,atc,M04E,family
+medication,urate-lowering therapy,atc,M04F,family
+medication,urate-lowering therapy,atc,M04G,family
+medication,urate-lowering therapy,atc,M04H,family
+medication,urate-lowering therapy,atc,M04I,family
+medication,urate-lowering therapy,atc,M04J,family
+medication,urate-lowering therapy,atc,M04K,family
+medication,urate-lowering therapy,atc,M04L,family
+medication,urate-lowering therapy,atc,M04M,family
+medication,urate-lowering therapy,atc,M04N,family
+medication,urate-lowering therapy,atc,M04O,family
+medication,urate-lowering therapy,atc,M04P,family
+medication,urate-lowering therapy,atc,M04Q,family
+medication,urate-lowering therapy,atc,M04R,family
+medication,urate-lowering therapy,atc,M04S,family
+medication,urate-lowering therapy,atc,M04T,family
+medication,urate-lowering therapy,atc,M04U,family
+medication,urate-lowering therapy,atc,M04V,family
+medication,urate-lowering therapy,atc,M04W,family
+medication,urate-lowering therapy,atc,M04X,family
+medication,urate-lowering therapy,atc,M04Y,family
+medication,urate-lowering therapy,atc,M04Z,family
+medication,urate-lowering therapy,atc,M06,family
+medication,urate-lowering therapy,atc,M07,family
+medication,urate-lowering therapy,atc,M08,family
+medication,urate-lowering therapy,atc,M1,family
+medication,urate-lowering therapy,atc,M2,family
+medication,urate-lowering therapy,atc,M3,family
+medication,urate-lowering therapy,atc,M4,family
+medication,urate-lowering therapy,atc,M5,family
+medication,urate-lowering therapy,atc,M6,family
+medication,urate-lowering therapy,atc,M7,family
+medication,urate-lowering therapy,atc,M8,family
+medication,urate-lowering therapy,atc,M9,family
+medication,urate-lowering therapy,atc,O,family
+medication,urate-lowering therapy,atc,Q,family
+medication,urate-lowering therapy,atc,T,family
+medication,urate-lowering therapy,atc,U,family
+medication,urate-lowering therapy,atc,V00,family
+medication,urate-lowering therapy,atc,V02,family
+medication,urate-lowering therapy,atc,V03,family
+medication,urate-lowering therapy,atc,V05,family
+medication,urate-lowering therapy,atc,V11,family
+medication,urate-lowering therapy,atc,V12,family
+medication,urate-lowering therapy,atc,V13,family
+medication,urate-lowering therapy,atc,V14,family
+medication,urate-lowering therapy,atc,V15,family
+medication,urate-lowering therapy,atc,V16,family
+medication,urate-lowering therapy,atc,V17,family
+medication,urate-lowering therapy,atc,V18,family
+medication,urate-lowering therapy,atc,V19,family
+medication,urate-lowering therapy,atc,V21,family
+medication,urate-lowering therapy,atc,V22,family
+medication,urate-lowering therapy,atc,V23,family
+medication,urate-lowering therapy,atc,V24,family
+medication,urate-lowering therapy,atc,V25,family
+medication,urate-lowering therapy,atc,V26,family
+medication,urate-lowering therapy,atc,V27,family
+medication,urate-lowering therapy,atc,V28,family
+medication,urate-lowering therapy,atc,V29,family
+medication,urate-lowering therapy,atc,V3,family
+medication,urate-lowering therapy,atc,V4,family
+medication,urate-lowering therapy,atc,V5,family
+medication,urate-lowering therapy,atc,V6,family
+medication,urate-lowering therapy,atc,V7,family
+medication,urate-lowering therapy,atc,V8,family
+medication,urate-lowering therapy,atc,V9,family
+medication,urate-lowering therapy,atc,W,family
+medication,urate-lowering therapy,atc,X0,family
+medication,urate-lowering therapy,atc,X1,family
+medication,urate-lowering therapy,atc,X2,family
+medication,urate-lowering therapy,atc,X3,family
+medication,urate-lowering therapy,atc,X4,family
+medication,urate-lowering therapy,atc,X5,family
+medication,urate-lowering therapy,atc,X6,family
+medication,urate-lowering therapy,atc,X7,family
+medication,urate-lowering therapy,atc,X8,family
+medication,urate-lowering therapy,atc,X9,family
+medication,urate-lowering therapy,atc,Y,family
+medication,urate-lowering therapy,atc,Z,family
+medication,glp-1 receptor agonist,atc,A00,family
+medication,glp-1 receptor agonist,atc,A08,family
+medication,glp-1 receptor agonist,atc,A10AA,family
+medication,glp-1 receptor agonist,atc,A10AB1,family
+medication,glp-1 receptor agonist,atc,A10AB2,family
+medication,glp-1 receptor agonist,atc,A10AB3,family
+medication,glp-1 receptor agonist,atc,A10AB4,family
+medication,glp-1 receptor agonist,atc,A10AB5,family
+medication,glp-1 receptor agonist,atc,A10AB6,family
+medication,glp-1 receptor agonist,atc,A10AB7,family
+medication,glp-1 receptor agonist,atc,A10AB8,family
+medication,glp-1 receptor agonist,atc,A10AB9,family
+medication,glp-1 receptor agonist,atc,A10AC1,family
+medication,glp-1 receptor agonist,atc,A10AC2,family
+medication,glp-1 receptor agonist,atc,A10AC3,family
+medication,glp-1 receptor agonist,atc,A10AC4,family
+medication,glp-1 receptor agonist,atc,A10AC5,family
+medication,glp-1 receptor agonist,atc,A10AC6,family
+medication,glp-1 receptor agonist,atc,A10AC7,family
+medication,glp-1 receptor agonist,atc,A10AC8,family
+medication,glp-1 receptor agonist,atc,A10AC9,family
+medication,glp-1 receptor agonist,atc,A10AD,family
+medication,glp-1 receptor agonist,atc,A10AE1,family
+medication,glp-1 receptor agonist,atc,A10AE2,family
+medication,glp-1 receptor agonist,atc,A10AE3,family
+medication,glp-1 receptor agonist,atc,A10AE4,family
+medication,glp-1 receptor agonist,atc,A10AE5,family
+medication,glp-1 receptor agonist,atc,A10AE6,family
+medication,glp-1 receptor agonist,atc,A10AE7,family
+medication,glp-1 receptor agonist,atc,A10AE8,family
+medication,glp-1 receptor agonist,atc,A10AE9,family
+medication,glp-1 receptor agonist,atc,A10AF,family
+medication,glp-1 receptor agonist,atc,A10AG,family
+medication,glp-1 receptor agonist,atc,A10AH,family
+medication,glp-1 receptor agonist,atc,A10AI,family
+medication,glp-1 receptor agonist,atc,A10AJ,family
+medication,glp-1 receptor agonist,atc,A10AK,family
+medication,glp-1 receptor agonist,atc,A10AL,family
+medication,glp-1 receptor agonist,atc,A10AM,family
+medication,glp-1 receptor agonist,atc,A10AN,family
+medication,glp-1 receptor agonist,atc,A10AO,family
+medication,glp-1 receptor agonist,atc,A10AP,family
+medication,glp-1 receptor agonist,atc,A10AQ,family
+medication,glp-1 receptor agonist,atc,A10AR,family
+medication,glp-1 receptor agonist,atc,A10AS,family
+medication,glp-1 receptor agonist,atc,A10AT,family
+medication,glp-1 receptor agonist,atc,A10AU,family
+medication,glp-1 receptor agonist,atc,A10AV,family
+medication,glp-1 receptor agonist,atc,A10AW,family
+medication,glp-1 receptor agonist,atc,A10AX,family
+medication,glp-1 receptor agonist,atc,A10AY,family
+medication,glp-1 receptor agonist,atc,A10AZ,family
+medication,glp-1 receptor agonist,atc,A10BA1,family
+medication,glp-1 receptor agonist,atc,A10BA2,family
+medication,glp-1 receptor agonist,atc,A10BA3,family
+medication,glp-1 receptor agonist,atc,A10BA4,family
+medication,glp-1 receptor agonist,atc,A10BA5,family
+medication,glp-1 receptor agonist,atc,A10BA6,family
+medication,glp-1 receptor agonist,atc,A10BA7,family
+medication,glp-1 receptor agonist,atc,A10BA8,family
+medication,glp-1 receptor agonist,atc,A10BA9,family
+medication,glp-1 receptor agonist,atc,A10BB1,family
+medication,glp-1 receptor agonist,atc,A10BB2,family
+medication,glp-1 receptor agonist,atc,A10BB3,family
+medication,glp-1 receptor agonist,atc,A10BB4,family
+medication,glp-1 receptor agonist,atc,A10BB5,family
+medication,glp-1 receptor agonist,atc,A10BB6,family
+medication,glp-1 receptor agonist,atc,A10BB7,family
+medication,glp-1 receptor agonist,atc,A10BB8,family
+medication,glp-1 receptor agonist,atc,A10BB9,family
+medication,glp-1 receptor agonist,atc,A10BC1,family
+medication,glp-1 receptor agonist,atc,A10BC2,family
+medication,glp-1 receptor agonist,atc,A10BC3,family
+medication,glp-1 receptor agonist,atc,A10BC4,family
+medication,glp-1 receptor agonist,atc,A10BC5,family
+medication,glp-1 receptor agonist,atc,A10BC6,family
+medication,glp-1 receptor agonist,atc,A10BC7,family
+medication,glp-1 receptor agonist,atc,A10BC8,family
+medication,glp-1 receptor agonist,atc,A10BC9,family
+medication,glp-1 receptor agonist,atc,A10BD,family
+medication,glp-1 receptor agonist,atc,A10BE,family
+medication,glp-1 receptor agonist,atc,A10BF1,family
+medication,glp-1 receptor agonist,atc,A10BF2,family
+medication,glp-1 receptor agonist,atc,A10BF3,family
+medication,glp-1 receptor agonist,atc,A10BF4,family
+medication,glp-1 receptor agonist,atc,A10BF5,family
+medication,glp-1 receptor agonist,atc,A10BF6,family
+medication,glp-1 receptor agonist,atc,A10BF7,family
+medication,glp-1 receptor agonist,atc,A10BF8,family
+medication,glp-1 receptor agonist,atc,A10BF9,family
+medication,glp-1 receptor agonist,atc,A10BG1,family
+medication,glp-1 receptor agonist,atc,A10BG2,family
+medication,glp-1 receptor agonist,atc,A10BG3,family
+medication,glp-1 receptor agonist,atc,A10BG4,family
+medication,glp-1 receptor agonist,atc,A10BG5,family
+medication,glp-1 receptor agonist,atc,A10BG6,family
+medication,glp-1 receptor agonist,atc,A10BG7,family
+medication,glp-1 receptor agonist,atc,A10BG8,family
+medication,glp-1 receptor agonist,atc,A10BG9,family
+medication,glp-1 receptor agonist,atc,A10BH1,family
+medication,glp-1 receptor agonist,atc,A10BH2,family
+medication,glp-1 receptor agonist,atc,A10BH3,family
+medication,glp-1 receptor agonist,atc,A10BH4,family
+medication,glp-1 receptor agonist,atc,A10BH5,family
+medication,glp-1 receptor agonist,atc,A10BH6,family
+medication,glp-1 receptor agonist,atc,A10BH7,family
+medication,glp-1 receptor agonist,atc,A10BH8,family
+medication,glp-1 receptor agonist,atc,A10BH9,family
+medication,glp-1 receptor agonist,atc,A10BI,family
+medication,glp-1 receptor agonist,atc,A10BK1,family
+medication,glp-1 receptor agonist,atc,A10BK2,family
+medication,glp-1 receptor agonist,atc,A10BK3,family
+medication,glp-1 receptor agonist,atc,A10BK4,family
+medication,glp-1 receptor agonist,atc,A10BK5,family
+medication,glp-1 receptor agonist,atc,A10BK6,family
+medication,glp-1 receptor agonist,atc,A10BK7,family
+medication,glp-1 receptor agonist,atc,A10BK8,family
+medication,glp-1 receptor agonist,atc,A10BK9,family
+medication,glp-1 receptor agonist,atc,A10BL,family
+medication,glp-1 receptor agonist,atc,A10BM,family
+medication,glp-1 receptor agonist,atc,A10BN,family
+medication,glp-1 receptor agonist,atc,A10BO,family
+medication,glp-1 receptor agonist,atc,A10BP,family
+medication,glp-1 receptor agonist,atc,A10BQ,family
+medication,glp-1 receptor agonist,atc,A10BR,family
+medication,glp-1 receptor agonist,atc,A10BS,family
+medication,glp-1 receptor agonist,atc,A10BT,family
+medication,glp-1 receptor agonist,atc,A10BU,family
+medication,glp-1 receptor agonist,atc,A10BV,family
+medication,glp-1 receptor agonist,atc,A10BW,family
+medication,glp-1 receptor agonist,atc,A10BX,family
+medication,glp-1 receptor agonist,atc,A10BY,family
+medication,glp-1 receptor agonist,atc,A10BZ,family
+medication,glp-1 receptor agonist,atc,A10C,family
+medication,glp-1 receptor agonist,atc,A10D,family
+medication,glp-1 receptor agonist,atc,A10E,family
+medication,glp-1 receptor agonist,atc,A10F,family
+medication,glp-1 receptor agonist,atc,A10G,family
+medication,glp-1 receptor agonist,atc,A10H,family
+medication,glp-1 receptor agonist,atc,A10I,family
+medication,glp-1 receptor agonist,atc,A10J,family
+medication,glp-1 receptor agonist,atc,A10K,family
+medication,glp-1 receptor agonist,atc,A10L,family
+medication,glp-1 receptor agonist,atc,A10M,family
+medication,glp-1 receptor agonist,atc,A10N,family
+medication,glp-1 receptor agonist,atc,A10O,family
+medication,glp-1 receptor agonist,atc,A10P,family
+medication,glp-1 receptor agonist,atc,A10Q,family
+medication,glp-1 receptor agonist,atc,A10R,family
+medication,glp-1 receptor agonist,atc,A10S,family
+medication,glp-1 receptor agonist,atc,A10T,family
+medication,glp-1 receptor agonist,atc,A10U,family
+medication,glp-1 receptor agonist,atc,A10V,family
+medication,glp-1 receptor agonist,atc,A10W,family
+medication,glp-1 receptor agonist,atc,A10X,family
+medication,glp-1 receptor agonist,atc,A10Y,family
+medication,glp-1 receptor agonist,atc,A10Z,family
+medication,glp-1 receptor agonist,atc,A16,family
+medication,glp-1 receptor agonist,atc,A17,family
+medication,glp-1 receptor agonist,atc,A18,family
+medication,glp-1 receptor agonist,atc,A19,family
+medication,glp-1 receptor agonist,atc,A2,family
+medication,glp-1 receptor agonist,atc,A3,family
+medication,glp-1 receptor agonist,atc,A4,family
+medication,glp-1 receptor agonist,atc,A5,family
+medication,glp-1 receptor agonist,atc,A6,family
+medication,glp-1 receptor agonist,atc,A7,family
+medication,glp-1 receptor agonist,atc,A8,family
+medication,glp-1 receptor agonist,atc,A9,family
+medication,glp-1 receptor agonist,atc,E,family
+medication,glp-1 receptor agonist,atc,F,family
+medication,glp-1 receptor agonist,atc,I,family
+medication,glp-1 receptor agonist,atc,K,family
+medication,glp-1 receptor agonist,atc,O,family
+medication,glp-1 receptor agonist,atc,Q,family
+medication,glp-1 receptor agonist,atc,T,family
+medication,glp-1 receptor agonist,atc,U,family
+medication,glp-1 receptor agonist,atc,W,family
+medication,glp-1 receptor agonist,atc,X0,family
+medication,glp-1 receptor agonist,atc,X1,family
+medication,glp-1 receptor agonist,atc,X2,family
+medication,glp-1 receptor agonist,atc,X3,family
+medication,glp-1 receptor agonist,atc,X4,family
+medication,glp-1 receptor agonist,atc,X5,family
+medication,glp-1 receptor agonist,atc,X6,family
+medication,glp-1 receptor agonist,atc,X7,family
+medication,glp-1 receptor agonist,atc,X8,family
+medication,glp-1 receptor agonist,atc,X9,family
+medication,glp-1 receptor agonist,atc,Y,family
+medication,glp-1 receptor agonist,atc,Z,family
+medication,colchicine,atc,E,family
+medication,colchicine,atc,F,family
+medication,colchicine,atc,I,family
+medication,colchicine,atc,K,family
+medication,colchicine,atc,M00,family
+medication,colchicine,atc,M04AA1,family
+medication,colchicine,atc,M04AA2,family
+medication,colchicine,atc,M04AA3,family
+medication,colchicine,atc,M04AA4,family
+medication,colchicine,atc,M04AA5,family
+medication,colchicine,atc,M04AA6,family
+medication,colchicine,atc,M04AA7,family
+medication,colchicine,atc,M04AA8,family
+medication,colchicine,atc,M04AA9,family
+medication,colchicine,atc,M04AB1,family
+medication,colchicine,atc,M04AB2,family
+medication,colchicine,atc,M04AB3,family
+medication,colchicine,atc,M04AB4,family
+medication,colchicine,atc,M04AB5,family
+medication,colchicine,atc,M04AB6,family
+medication,colchicine,atc,M04AB7,family
+medication,colchicine,atc,M04AB8,family
+medication,colchicine,atc,M04AB9,family
+medication,colchicine,atc,M04AC,family
+medication,colchicine,atc,M04AD,family
+medication,colchicine,atc,M04AE,family
+medication,colchicine,atc,M04AF,family
+medication,colchicine,atc,M04AG,family
+medication,colchicine,atc,M04AH,family
+medication,colchicine,atc,M04AI,family
+medication,colchicine,atc,M04AJ,family
+medication,colchicine,atc,M04AK,family
+medication,colchicine,atc,M04AL,family
+medication,colchicine,atc,M04AM,family
+medication,colchicine,atc,M04AN,family
+medication,colchicine,atc,M04AO,family
+medication,colchicine,atc,M04AP,family
+medication,colchicine,atc,M04AQ,family
+medication,colchicine,atc,M04AR,family
+medication,colchicine,atc,M04AS,family
+medication,colchicine,atc,M04AT,family
+medication,colchicine,atc,M04AU,family
+medication,colchicine,atc,M04AV,family
+medication,colchicine,atc,M04AW,family
+medication,colchicine,atc,M04AX,family
+medication,colchicine,atc,M04AY,family
+medication,colchicine,atc,M04AZ,family
+medication,colchicine,atc,M04B,family
+medication,colchicine,atc,M04C,family
+medication,colchicine,atc,M04D,family
+medication,colchicine,atc,M04E,family
+medication,colchicine,atc,M04F,family
+medication,colchicine,atc,M04G,family
+medication,colchicine,atc,M04H,family
+medication,colchicine,atc,M04I,family
+medication,colchicine,atc,M04J,family
+medication,colchicine,atc,M04K,family
+medication,colchicine,atc,M04L,family
+medication,colchicine,atc,M04M,family
+medication,colchicine,atc,M04N,family
+medication,colchicine,atc,M04O,family
+medication,colchicine,atc,M04P,family
+medication,colchicine,atc,M04Q,family
+medication,colchicine,atc,M04R,family
+medication,colchicine,atc,M04S,family
+medication,colchicine,atc,M04T,family
+medication,colchicine,atc,M04U,family
+medication,colchicine,atc,M04V,family
+medication,colchicine,atc,M04W,family
+medication,colchicine,atc,M04X,family
+medication,colchicine,atc,M04Y,family
+medication,colchicine,atc,M04Z,family
+medication,colchicine,atc,M06,family
+medication,colchicine,atc,M07,family
+medication,colchicine,atc,M08,family
+medication,colchicine,atc,M1,family
+medication,colchicine,atc,M2,family
+medication,colchicine,atc,M3,family
+medication,colchicine,atc,M4,family
+medication,colchicine,atc,M5,family
+medication,colchicine,atc,M6,family
+medication,colchicine,atc,M7,family
+medication,colchicine,atc,M8,family
+medication,colchicine,atc,M9,family
+medication,colchicine,atc,O,family
+medication,colchicine,atc,Q,family
+medication,colchicine,atc,T,family
+medication,colchicine,atc,U,family
+medication,colchicine,atc,W,family
+medication,colchicine,atc,X0,family
+medication,colchicine,atc,X1,family
+medication,colchicine,atc,X2,family
+medication,colchicine,atc,X3,family
+medication,colchicine,atc,X4,family
+medication,colchicine,atc,X5,family
+medication,colchicine,atc,X6,family
+medication,colchicine,atc,X7,family
+medication,colchicine,atc,X8,family
+medication,colchicine,atc,X9,family
+medication,colchicine,atc,Y,family
+medication,colchicine,atc,Z,family
+medication,methotrexate,atc,E,family
+medication,methotrexate,atc,F,family
+medication,methotrexate,atc,I,family
+medication,methotrexate,atc,K,family
+medication,methotrexate,atc,L00,family
+medication,methotrexate,atc,L01BA00,family
+medication,methotrexate,atc,L01BA01,family
+medication,methotrexate,atc,L01BA02,family
+medication,methotrexate,atc,L01BA06,family
+medication,methotrexate,atc,L01BA07,family
+medication,methotrexate,atc,L01BA08,family
+medication,methotrexate,atc,L01BA09,family
+medication,methotrexate,atc,L01BA1,family
+medication,methotrexate,atc,L01BA2,family
+medication,methotrexate,atc,L01BA3,family
+medication,methotrexate,atc,L01BA4,family
+medication,methotrexate,atc,L01BA5,family
+medication,methotrexate,atc,L01BA6,family
+medication,methotrexate,atc,L01BA7,family
+medication,methotrexate,atc,L01BA8,family
+medication,methotrexate,atc,L01BA9,family
+medication,methotrexate,atc,L01BB,family
+medication,methotrexate,atc,L01BC,family
+medication,methotrexate,atc,L01BD,family
+medication,methotrexate,atc,L01BE,family
+medication,methotrexate,atc,L01BF,family
+medication,methotrexate,atc,L01BG,family
+medication,methotrexate,atc,L01BH,family
+medication,methotrexate,atc,L01BI,family
+medication,methotrexate,atc,L01BJ,family
+medication,methotrexate,atc,L01BK,family
+medication,methotrexate,atc,L01BL,family
+medication,methotrexate,atc,L01BM,family
+medication,methotrexate,atc,L01BN,family
+medication,methotrexate,atc,L01BO,family
+medication,methotrexate,atc,L01BP,family
+medication,methotrexate,atc,L01BQ,family
+medication,methotrexate,atc,L01BR,family
+medication,methotrexate,atc,L01BS,family
+medication,methotrexate,atc,L01BT,family
+medication,methotrexate,atc,L01BU,family
+medication,methotrexate,atc,L01BV,family
+medication,methotrexate,atc,L01BW,family
+medication,methotrexate,atc,L01BX,family
+medication,methotrexate,atc,L01BY,family
+medication,methotrexate,atc,L01BZ,family
+medication,methotrexate,atc,L01G,family
+medication,methotrexate,atc,L01H,family
+medication,methotrexate,atc,L01I,family
+medication,methotrexate,atc,L01J,family
+medication,methotrexate,atc,L01K,family
+medication,methotrexate,atc,L01L,family
+medication,methotrexate,atc,L01M,family
+medication,methotrexate,atc,L01N,family
+medication,methotrexate,atc,L01O,family
+medication,methotrexate,atc,L01P,family
+medication,methotrexate,atc,L01Q,family
+medication,methotrexate,atc,L01R,family
+medication,methotrexate,atc,L01S,family
+medication,methotrexate,atc,L01T,family
+medication,methotrexate,atc,L01U,family
+medication,methotrexate,atc,L01V,family
+medication,methotrexate,atc,L01W,family
+medication,methotrexate,atc,L01X,family
+medication,methotrexate,atc,L01Y,family
+medication,methotrexate,atc,L01Z,family
+medication,methotrexate,atc,L04AI,family
+medication,methotrexate,atc,L04AM,family
+medication,methotrexate,atc,L04AN,family
+medication,methotrexate,atc,L04AO,family
+medication,methotrexate,atc,L04AP,family
+medication,methotrexate,atc,L04AQ,family
+medication,methotrexate,atc,L04AR,family
+medication,methotrexate,atc,L04AS,family
+medication,methotrexate,atc,L04AT,family
+medication,methotrexate,atc,L04AU,family
+medication,methotrexate,atc,L04AV,family
+medication,methotrexate,atc,L04AW,family
+medication,methotrexate,atc,L04AX00,family
+medication,methotrexate,atc,L04AX03,family
+medication,methotrexate,atc,L04AX12,family
+medication,methotrexate,atc,L04AX13,family
+medication,methotrexate,atc,L04AX14,family
+medication,methotrexate,atc,L04AX15,family
+medication,methotrexate,atc,L04AX16,family
+medication,methotrexate,atc,L04AX17,family
+medication,methotrexate,atc,L04AX18,family
+medication,methotrexate,atc,L04AX19,family
+medication,methotrexate,atc,L04AX2,family
+medication,methotrexate,atc,L04AX3,family
+medication,methotrexate,atc,L04AX4,family
+medication,methotrexate,atc,L04AX5,family
+medication,methotrexate,atc,L04AX6,family
+medication,methotrexate,atc,L04AX7,family
+medication,methotrexate,atc,L04AX8,family
+medication,methotrexate,atc,L04AX9,family
+medication,methotrexate,atc,L04AY,family
+medication,methotrexate,atc,L04AZ,family
+medication,methotrexate,atc,L04B,family
+medication,methotrexate,atc,L04C,family
+medication,methotrexate,atc,L04D,family
+medication,methotrexate,atc,L04E,family
+medication,methotrexate,atc,L04F,family
+medication,methotrexate,atc,L04G,family
+medication,methotrexate,atc,L04H,family
+medication,methotrexate,atc,L04I,family
+medication,methotrexate,atc,L04J,family
+medication,methotrexate,atc,L04K,family
+medication,methotrexate,atc,L04L,family
+medication,methotrexate,atc,L04M,family
+medication,methotrexate,atc,L04N,family
+medication,methotrexate,atc,L04O,family
+medication,methotrexate,atc,L04P,family
+medication,methotrexate,atc,L04Q,family
+medication,methotrexate,atc,L04R,family
+medication,methotrexate,atc,L04S,family
+medication,methotrexate,atc,L04T,family
+medication,methotrexate,atc,L04U,family
+medication,methotrexate,atc,L04V,family
+medication,methotrexate,atc,L04W,family
+medication,methotrexate,atc,L04X,family
+medication,methotrexate,atc,L04Y,family
+medication,methotrexate,atc,L04Z,family
+medication,methotrexate,atc,L05,family
+medication,methotrexate,atc,L06,family
+medication,methotrexate,atc,L07,family
+medication,methotrexate,atc,L08,family
+medication,methotrexate,atc,L09,family
+medication,methotrexate,atc,L1,family
+medication,methotrexate,atc,L2,family
+medication,methotrexate,atc,L3,family
+medication,methotrexate,atc,L4,family
+medication,methotrexate,atc,L5,family
+medication,methotrexate,atc,L6,family
+medication,methotrexate,atc,L7,family
+medication,methotrexate,atc,L8,family
+medication,methotrexate,atc,L9,family
+medication,methotrexate,atc,M00,family
+medication,methotrexate,atc,M01C,family
+medication,methotrexate,atc,M01D,family
+medication,methotrexate,atc,M01E,family
+medication,methotrexate,atc,M01F,family
+medication,methotrexate,atc,M01G,family
+medication,methotrexate,atc,M01H,family
+medication,methotrexate,atc,M01I,family
+medication,methotrexate,atc,M01J,family
+medication,methotrexate,atc,M01K,family
+medication,methotrexate,atc,M01L,family
+medication,methotrexate,atc,M01M,family
+medication,methotrexate,atc,M01N,family
+medication,methotrexate,atc,M01O,family
+medication,methotrexate,atc,M01P,family
+medication,methotrexate,atc,M01Q,family
+medication,methotrexate,atc,M01R,family
+medication,methotrexate,atc,M01S,family
+medication,methotrexate,atc,M01T,family
+medication,methotrexate,atc,M01U,family
+medication,methotrexate,atc,M01V,family
+medication,methotrexate,atc,M01W,family
+medication,methotrexate,atc,M01X,family
+medication,methotrexate,atc,M01Y,family
+medication,methotrexate,atc,M01Z,family
+medication,methotrexate,atc,M06,family
+medication,methotrexate,atc,M07,family
+medication,methotrexate,atc,M08,family
+medication,methotrexate,atc,M1,family
+medication,methotrexate,atc,M2,family
+medication,methotrexate,atc,M3,family
+medication,methotrexate,atc,M4,family
+medication,methotrexate,atc,M5,family
+medication,methotrexate,atc,M6,family
+medication,methotrexate,atc,M7,family
+medication,methotrexate,atc,M8,family
+medication,methotrexate,atc,M9,family
+medication,methotrexate,atc,O,family
+medication,methotrexate,atc,Q,family
+medication,methotrexate,atc,T,family
+medication,methotrexate,atc,U,family
+medication,methotrexate,atc,W,family
+medication,methotrexate,atc,X0,family
+medication,methotrexate,atc,X1,family
+medication,methotrexate,atc,X2,family
+medication,methotrexate,atc,X3,family
+medication,methotrexate,atc,X4,family
+medication,methotrexate,atc,X5,family
+medication,methotrexate,atc,X6,family
+medication,methotrexate,atc,X7,family
+medication,methotrexate,atc,X8,family
+medication,methotrexate,atc,X9,family
+medication,methotrexate,atc,Y,family
+medication,methotrexate,atc,Z,family
+medication,conventional synthetic dmard other than methotrexate,atc,A00,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EB,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC00,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC01,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC03,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC04,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC05,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC06,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC07,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC08,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC09,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC1,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC2,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC3,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC4,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC5,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC6,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC7,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC8,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC9,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07ED,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EE,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EF,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EG,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EH,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EI,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EJ,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EK,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EL,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EM,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EN,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EO,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EP,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EQ,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07ER,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07ES,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07ET,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EU,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EV,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EW,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EX,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EY,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07EZ,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07G,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07H,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07I,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07J,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07K,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07L,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07M,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07N,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07O,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07P,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07Q,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07R,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07S,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07T,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07U,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07V,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07W,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07Y,family
+medication,conventional synthetic dmard other than methotrexate,atc,A07Z,family
+medication,conventional synthetic dmard other than methotrexate,atc,A17,family
+medication,conventional synthetic dmard other than methotrexate,atc,A18,family
+medication,conventional synthetic dmard other than methotrexate,atc,A19,family
+medication,conventional synthetic dmard other than methotrexate,atc,A2,family
+medication,conventional synthetic dmard other than methotrexate,atc,A3,family
+medication,conventional synthetic dmard other than methotrexate,atc,A4,family
+medication,conventional synthetic dmard other than methotrexate,atc,A5,family
+medication,conventional synthetic dmard other than methotrexate,atc,A6,family
+medication,conventional synthetic dmard other than methotrexate,atc,A7,family
+medication,conventional synthetic dmard other than methotrexate,atc,A8,family
+medication,conventional synthetic dmard other than methotrexate,atc,A9,family
+medication,conventional synthetic dmard other than methotrexate,atc,D00,family
+medication,conventional synthetic dmard other than methotrexate,atc,D05,family
+medication,conventional synthetic dmard other than methotrexate,atc,D12,family
+medication,conventional synthetic dmard other than methotrexate,atc,D13,family
+medication,conventional synthetic dmard other than methotrexate,atc,D14,family
+medication,conventional synthetic dmard other than methotrexate,atc,D15,family
+medication,conventional synthetic dmard other than methotrexate,atc,D16,family
+medication,conventional synthetic dmard other than methotrexate,atc,D17,family
+medication,conventional synthetic dmard other than methotrexate,atc,D18,family
+medication,conventional synthetic dmard other than methotrexate,atc,D19,family
+medication,conventional synthetic dmard other than methotrexate,atc,D2,family
+medication,conventional synthetic dmard other than methotrexate,atc,D3,family
+medication,conventional synthetic dmard other than methotrexate,atc,D4,family
+medication,conventional synthetic dmard other than methotrexate,atc,D5,family
+medication,conventional synthetic dmard other than methotrexate,atc,D6,family
+medication,conventional synthetic dmard other than methotrexate,atc,D7,family
+medication,conventional synthetic dmard other than methotrexate,atc,D8,family
+medication,conventional synthetic dmard other than methotrexate,atc,D9,family
+medication,conventional synthetic dmard other than methotrexate,atc,E,family
+medication,conventional synthetic dmard other than methotrexate,atc,F,family
+medication,conventional synthetic dmard other than methotrexate,atc,I,family
+medication,conventional synthetic dmard other than methotrexate,atc,J00,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01A,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01H,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01I,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01J,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01K,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01L,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01N,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01O,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01P,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01Q,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01S,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01T,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01U,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01V,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01W,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01Y,family
+medication,conventional synthetic dmard other than methotrexate,atc,J01Z,family
+medication,conventional synthetic dmard other than methotrexate,atc,J03,family
+medication,conventional synthetic dmard other than methotrexate,atc,J08,family
+medication,conventional synthetic dmard other than methotrexate,atc,J09,family
+medication,conventional synthetic dmard other than methotrexate,atc,J1,family
+medication,conventional synthetic dmard other than methotrexate,atc,J2,family
+medication,conventional synthetic dmard other than methotrexate,atc,J3,family
+medication,conventional synthetic dmard other than methotrexate,atc,J4,family
+medication,conventional synthetic dmard other than methotrexate,atc,J5,family
+medication,conventional synthetic dmard other than methotrexate,atc,J6,family
+medication,conventional synthetic dmard other than methotrexate,atc,J7,family
+medication,conventional synthetic dmard other than methotrexate,atc,J8,family
+medication,conventional synthetic dmard other than methotrexate,atc,J9,family
+medication,conventional synthetic dmard other than methotrexate,atc,K,family
+medication,conventional synthetic dmard other than methotrexate,atc,L00,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01A,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA00,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA02,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA03,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA04,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA05,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA06,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA07,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA08,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA09,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA1,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA2,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA3,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA4,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA5,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA6,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA7,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA8,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BA9,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BB,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BC,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BD,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BE,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BF,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BG,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BH,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BI,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BJ,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BK,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BL,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BM,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BN,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BO,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BP,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BQ,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BR,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BS,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BT,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BU,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BV,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BW,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BX,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BY,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01BZ,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01C,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01D,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01G,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01H,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01I,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01J,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01K,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01L,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01M,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01N,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01O,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01P,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01Q,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01R,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01S,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01T,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01U,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01V,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01W,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01X,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01Y,family
+medication,conventional synthetic dmard other than methotrexate,atc,L01Z,family
+medication,conventional synthetic dmard other than methotrexate,atc,L03,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AA,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AD,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AE,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AH,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AI,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AK,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AM,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AN,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AO,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AP,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AQ,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AR,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AS,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AT,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AU,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AV,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AW,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX00,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX01,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX02,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX04,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX05,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX06,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX07,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX08,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX09,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX1,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX2,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX3,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX4,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX5,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX6,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX7,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX8,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AX9,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AY,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04AZ,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04B,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04C,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04D,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04E,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04F,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04G,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04H,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04I,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04J,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04K,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04L,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04M,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04N,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04O,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04P,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04Q,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04R,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04S,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04T,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04U,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04V,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04W,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04X,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04Y,family
+medication,conventional synthetic dmard other than methotrexate,atc,L04Z,family
+medication,conventional synthetic dmard other than methotrexate,atc,L05,family
+medication,conventional synthetic dmard other than methotrexate,atc,L06,family
+medication,conventional synthetic dmard other than methotrexate,atc,L07,family
+medication,conventional synthetic dmard other than methotrexate,atc,L08,family
+medication,conventional synthetic dmard other than methotrexate,atc,L09,family
+medication,conventional synthetic dmard other than methotrexate,atc,L1,family
+medication,conventional synthetic dmard other than methotrexate,atc,L2,family
+medication,conventional synthetic dmard other than methotrexate,atc,L3,family
+medication,conventional synthetic dmard other than methotrexate,atc,L4,family
+medication,conventional synthetic dmard other than methotrexate,atc,L5,family
+medication,conventional synthetic dmard other than methotrexate,atc,L6,family
+medication,conventional synthetic dmard other than methotrexate,atc,L7,family
+medication,conventional synthetic dmard other than methotrexate,atc,L8,family
+medication,conventional synthetic dmard other than methotrexate,atc,L9,family
+medication,conventional synthetic dmard other than methotrexate,atc,M00,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01C,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01D,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01E,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01F,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01G,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01H,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01I,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01J,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01K,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01L,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01M,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01N,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01O,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01P,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01Q,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01R,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01S,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01T,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01U,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01V,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01W,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01X,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01Y,family
+medication,conventional synthetic dmard other than methotrexate,atc,M01Z,family
+medication,conventional synthetic dmard other than methotrexate,atc,M06,family
+medication,conventional synthetic dmard other than methotrexate,atc,M07,family
+medication,conventional synthetic dmard other than methotrexate,atc,M08,family
+medication,conventional synthetic dmard other than methotrexate,atc,M1,family
+medication,conventional synthetic dmard other than methotrexate,atc,M2,family
+medication,conventional synthetic dmard other than methotrexate,atc,M3,family
+medication,conventional synthetic dmard other than methotrexate,atc,M4,family
+medication,conventional synthetic dmard other than methotrexate,atc,M5,family
+medication,conventional synthetic dmard other than methotrexate,atc,M6,family
+medication,conventional synthetic dmard other than methotrexate,atc,M7,family
+medication,conventional synthetic dmard other than methotrexate,atc,M8,family
+medication,conventional synthetic dmard other than methotrexate,atc,M9,family
+medication,conventional synthetic dmard other than methotrexate,atc,O,family
+medication,conventional synthetic dmard other than methotrexate,atc,P00,family
+medication,conventional synthetic dmard other than methotrexate,atc,P01,family
+medication,conventional synthetic dmard other than methotrexate,atc,P04,family
+medication,conventional synthetic dmard other than methotrexate,atc,P05,family
+medication,conventional synthetic dmard other than methotrexate,atc,P06,family
+medication,conventional synthetic dmard other than methotrexate,atc,P07,family
+medication,conventional synthetic dmard other than methotrexate,atc,P08,family
+medication,conventional synthetic dmard other than methotrexate,atc,P09,family
+medication,conventional synthetic dmard other than methotrexate,atc,P1,family
+medication,conventional synthetic dmard other than methotrexate,atc,P2,family
+medication,conventional synthetic dmard other than methotrexate,atc,P3,family
+medication,conventional synthetic dmard other than methotrexate,atc,P4,family
+medication,conventional synthetic dmard other than methotrexate,atc,P5,family
+medication,conventional synthetic dmard other than methotrexate,atc,P6,family
+medication,conventional synthetic dmard other than methotrexate,atc,P7,family
+medication,conventional synthetic dmard other than methotrexate,atc,P8,family
+medication,conventional synthetic dmard other than methotrexate,atc,P9,family
+medication,conventional synthetic dmard other than methotrexate,atc,Q,family
+medication,conventional synthetic dmard other than methotrexate,atc,T,family
+medication,conventional synthetic dmard other than methotrexate,atc,U,family
+medication,conventional synthetic dmard other than methotrexate,atc,W,family
+medication,conventional synthetic dmard other than methotrexate,atc,X0,family
+medication,conventional synthetic dmard other than methotrexate,atc,X1,family
+medication,conventional synthetic dmard other than methotrexate,atc,X2,family
+medication,conventional synthetic dmard other than methotrexate,atc,X3,family
+medication,conventional synthetic dmard other than methotrexate,atc,X4,family
+medication,conventional synthetic dmard other than methotrexate,atc,X5,family
+medication,conventional synthetic dmard other than methotrexate,atc,X6,family
+medication,conventional synthetic dmard other than methotrexate,atc,X7,family
+medication,conventional synthetic dmard other than methotrexate,atc,X8,family
+medication,conventional synthetic dmard other than methotrexate,atc,X9,family
+medication,conventional synthetic dmard other than methotrexate,atc,Y,family
+medication,conventional synthetic dmard other than methotrexate,atc,Z,family
+medication,tb preventive therapy,atc,E,family
+medication,tb preventive therapy,atc,F,family
+medication,tb preventive therapy,atc,I,family
+medication,tb preventive therapy,atc,J00,family
+medication,tb preventive therapy,atc,J01H,family
+medication,tb preventive therapy,atc,J01I,family
+medication,tb preventive therapy,atc,J01J,family
+medication,tb preventive therapy,atc,J01K,family
+medication,tb preventive therapy,atc,J01L,family
+medication,tb preventive therapy,atc,J01M,family
+medication,tb preventive therapy,atc,J01N,family
+medication,tb preventive therapy,atc,J01O,family
+medication,tb preventive therapy,atc,J01P,family
+medication,tb preventive therapy,atc,J01Q,family
+medication,tb preventive therapy,atc,J01S,family
+medication,tb preventive therapy,atc,J01T,family
+medication,tb preventive therapy,atc,J01U,family
+medication,tb preventive therapy,atc,J01V,family
+medication,tb preventive therapy,atc,J01W,family
+medication,tb preventive therapy,atc,J01Y,family
+medication,tb preventive therapy,atc,J01Z,family
+medication,tb preventive therapy,atc,J03,family
+medication,tb preventive therapy,atc,J04,family
+medication,tb preventive therapy,atc,J08,family
+medication,tb preventive therapy,atc,J09,family
+medication,tb preventive therapy,atc,J1,family
+medication,tb preventive therapy,atc,J2,family
+medication,tb preventive therapy,atc,J3,family
+medication,tb preventive therapy,atc,J4,family
+medication,tb preventive therapy,atc,J5,family
+medication,tb preventive therapy,atc,J6,family
+medication,tb preventive therapy,atc,J7,family
+medication,tb preventive therapy,atc,J8,family
+medication,tb preventive therapy,atc,J9,family
+medication,tb preventive therapy,atc,K,family
+medication,tb preventive therapy,atc,O,family
+medication,tb preventive therapy,atc,Q,family
+medication,tb preventive therapy,atc,T,family
+medication,tb preventive therapy,atc,U,family
+medication,tb preventive therapy,atc,W,family
+medication,tb preventive therapy,atc,X0,family
+medication,tb preventive therapy,atc,X1,family
+medication,tb preventive therapy,atc,X2,family
+medication,tb preventive therapy,atc,X3,family
+medication,tb preventive therapy,atc,X4,family
+medication,tb preventive therapy,atc,X5,family
+medication,tb preventive therapy,atc,X6,family
+medication,tb preventive therapy,atc,X7,family
+medication,tb preventive therapy,atc,X8,family
+medication,tb preventive therapy,atc,X9,family
+medication,tb preventive therapy,atc,Y,family
+medication,tb preventive therapy,atc,Z,family
+medication,hbv antiviral prophylaxis,atc,E,family
+medication,hbv antiviral prophylaxis,atc,F,family
+medication,hbv antiviral prophylaxis,atc,I,family
+medication,hbv antiviral prophylaxis,atc,J00,family
+medication,hbv antiviral prophylaxis,atc,J03,family
+medication,hbv antiviral prophylaxis,atc,J05AF,family
+medication,hbv antiviral prophylaxis,atc,J05AI,family
+medication,hbv antiviral prophylaxis,atc,J05AK,family
+medication,hbv antiviral prophylaxis,atc,J05AL,family
+medication,hbv antiviral prophylaxis,atc,J05AM,family
+medication,hbv antiviral prophylaxis,atc,J05AN,family
+medication,hbv antiviral prophylaxis,atc,J05AO,family
+medication,hbv antiviral prophylaxis,atc,J05AP,family
+medication,hbv antiviral prophylaxis,atc,J05AQ,family
+medication,hbv antiviral prophylaxis,atc,J05AR,family
+medication,hbv antiviral prophylaxis,atc,J05AS,family
+medication,hbv antiviral prophylaxis,atc,J05AT,family
+medication,hbv antiviral prophylaxis,atc,J05AU,family
+medication,hbv antiviral prophylaxis,atc,J05AV,family
+medication,hbv antiviral prophylaxis,atc,J05AW,family
+medication,hbv antiviral prophylaxis,atc,J05AX,family
+medication,hbv antiviral prophylaxis,atc,J05AY,family
+medication,hbv antiviral prophylaxis,atc,J05AZ,family
+medication,hbv antiviral prophylaxis,atc,J05B,family
+medication,hbv antiviral prophylaxis,atc,J05C,family
+medication,hbv antiviral prophylaxis,atc,J05D,family
+medication,hbv antiviral prophylaxis,atc,J05E,family
+medication,hbv antiviral prophylaxis,atc,J05F,family
+medication,hbv antiviral prophylaxis,atc,J05G,family
+medication,hbv antiviral prophylaxis,atc,J05H,family
+medication,hbv antiviral prophylaxis,atc,J05I,family
+medication,hbv antiviral prophylaxis,atc,J05J,family
+medication,hbv antiviral prophylaxis,atc,J05K,family
+medication,hbv antiviral prophylaxis,atc,J05L,family
+medication,hbv antiviral prophylaxis,atc,J05M,family
+medication,hbv antiviral prophylaxis,atc,J05N,family
+medication,hbv antiviral prophylaxis,atc,J05O,family
+medication,hbv antiviral prophylaxis,atc,J05P,family
+medication,hbv antiviral prophylaxis,atc,J05Q,family
+medication,hbv antiviral prophylaxis,atc,J05R,family
+medication,hbv antiviral prophylaxis,atc,J05S,family
+medication,hbv antiviral prophylaxis,atc,J05T,family
+medication,hbv antiviral prophylaxis,atc,J05U,family
+medication,hbv antiviral prophylaxis,atc,J05V,family
+medication,hbv antiviral prophylaxis,atc,J05W,family
+medication,hbv antiviral prophylaxis,atc,J05X,family
+medication,hbv antiviral prophylaxis,atc,J05Y,family
+medication,hbv antiviral prophylaxis,atc,J05Z,family
+medication,hbv antiviral prophylaxis,atc,J06,family
+medication,hbv antiviral prophylaxis,atc,J08,family
+medication,hbv antiviral prophylaxis,atc,J09,family
+medication,hbv antiviral prophylaxis,atc,J1,family
+medication,hbv antiviral prophylaxis,atc,J2,family
+medication,hbv antiviral prophylaxis,atc,J3,family
+medication,hbv antiviral prophylaxis,atc,J4,family
+medication,hbv antiviral prophylaxis,atc,J5,family
+medication,hbv antiviral prophylaxis,atc,J6,family
+medication,hbv antiviral prophylaxis,atc,J7,family
+medication,hbv antiviral prophylaxis,atc,J8,family
+medication,hbv antiviral prophylaxis,atc,J9,family
+medication,hbv antiviral prophylaxis,atc,K,family
+medication,hbv antiviral prophylaxis,atc,L00,family
+medication,hbv antiviral prophylaxis,atc,L03,family
+medication,hbv antiviral prophylaxis,atc,L05,family
+medication,hbv antiviral prophylaxis,atc,L06,family
+medication,hbv antiviral prophylaxis,atc,L07,family
+medication,hbv antiviral prophylaxis,atc,L08,family
+medication,hbv antiviral prophylaxis,atc,L09,family
+medication,hbv antiviral prophylaxis,atc,L1,family
+medication,hbv antiviral prophylaxis,atc,L2,family
+medication,hbv antiviral prophylaxis,atc,L3,family
+medication,hbv antiviral prophylaxis,atc,L4,family
+medication,hbv antiviral prophylaxis,atc,L5,family
+medication,hbv antiviral prophylaxis,atc,L6,family
+medication,hbv antiviral prophylaxis,atc,L7,family
+medication,hbv antiviral prophylaxis,atc,L8,family
+medication,hbv antiviral prophylaxis,atc,L9,family
+medication,hbv antiviral prophylaxis,atc,O,family
+medication,hbv antiviral prophylaxis,atc,Q,family
+medication,hbv antiviral prophylaxis,atc,T,family
+medication,hbv antiviral prophylaxis,atc,U,family
+medication,hbv antiviral prophylaxis,atc,W,family
+medication,hbv antiviral prophylaxis,atc,X0,family
+medication,hbv antiviral prophylaxis,atc,X1,family
+medication,hbv antiviral prophylaxis,atc,X2,family
+medication,hbv antiviral prophylaxis,atc,X3,family
+medication,hbv antiviral prophylaxis,atc,X4,family
+medication,hbv antiviral prophylaxis,atc,X5,family
+medication,hbv antiviral prophylaxis,atc,X6,family
+medication,hbv antiviral prophylaxis,atc,X7,family
+medication,hbv antiviral prophylaxis,atc,X8,family
+medication,hbv antiviral prophylaxis,atc,X9,family
+medication,hbv antiviral prophylaxis,atc,Y,family
+medication,hbv antiviral prophylaxis,atc,Z,family
+medication,ra biologic,atc,C00,family
+medication,ra biologic,atc,C06,family
+medication,ra biologic,atc,C10AE,family
+medication,ra biologic,atc,C10AF,family
+medication,ra biologic,atc,C10AG,family
+medication,ra biologic,atc,C10AH,family
+medication,ra biologic,atc,C10AI,family
+medication,ra biologic,atc,C10AJ,family
+medication,ra biologic,atc,C10AK,family
+medication,ra biologic,atc,C10AL,family
+medication,ra biologic,atc,C10AM,family
+medication,ra biologic,atc,C10AN,family
+medication,ra biologic,atc,C10AO,family
+medication,ra biologic,atc,C10AP,family
+medication,ra biologic,atc,C10AQ,family
+medication,ra biologic,atc,C10AR,family
+medication,ra biologic,atc,C10AS,family
+medication,ra biologic,atc,C10AT,family
+medication,ra biologic,atc,C10AU,family
+medication,ra biologic,atc,C10AV,family
+medication,ra biologic,atc,C10AW,family
+medication,ra biologic,atc,C10AX,family
+medication,ra biologic,atc,C10AY,family
+medication,ra biologic,atc,C10AZ,family
+medication,ra biologic,atc,C10C,family
+medication,ra biologic,atc,C10D,family
+medication,ra biologic,atc,C10E,family
+medication,ra biologic,atc,C10F,family
+medication,ra biologic,atc,C10G,family
+medication,ra biologic,atc,C10H,family
+medication,ra biologic,atc,C10I,family
+medication,ra biologic,atc,C10J,family
+medication,ra biologic,atc,C10K,family
+medication,ra biologic,atc,C10L,family
+medication,ra biologic,atc,C10M,family
+medication,ra biologic,atc,C10N,family
+medication,ra biologic,atc,C10O,family
+medication,ra biologic,atc,C10P,family
+medication,ra biologic,atc,C10Q,family
+medication,ra biologic,atc,C10R,family
+medication,ra biologic,atc,C10S,family
+medication,ra biologic,atc,C10T,family
+medication,ra biologic,atc,C10U,family
+medication,ra biologic,atc,C10V,family
+medication,ra biologic,atc,C10W,family
+medication,ra biologic,atc,C10X,family
+medication,ra biologic,atc,C10Y,family
+medication,ra biologic,atc,C10Z,family
+medication,ra biologic,atc,C11,family
+medication,ra biologic,atc,C12,family
+medication,ra biologic,atc,C13,family
+medication,ra biologic,atc,C14,family
+medication,ra biologic,atc,C15,family
+medication,ra biologic,atc,C16,family
+medication,ra biologic,atc,C17,family
+medication,ra biologic,atc,C18,family
+medication,ra biologic,atc,C19,family
+medication,ra biologic,atc,C2,family
+medication,ra biologic,atc,C3,family
+medication,ra biologic,atc,C4,family
+medication,ra biologic,atc,C5,family
+medication,ra biologic,atc,C6,family
+medication,ra biologic,atc,C7,family
+medication,ra biologic,atc,C8,family
+medication,ra biologic,atc,C9,family
+medication,ra biologic,atc,D00,family
+medication,ra biologic,atc,D11,family
+medication,ra biologic,atc,D12,family
+medication,ra biologic,atc,D13,family
+medication,ra biologic,atc,D14,family
+medication,ra biologic,atc,D15,family
+medication,ra biologic,atc,D16,family
+medication,ra biologic,atc,D17,family
+medication,ra biologic,atc,D18,family
+medication,ra biologic,atc,D19,family
+medication,ra biologic,atc,D2,family
+medication,ra biologic,atc,D3,family
+medication,ra biologic,atc,D4,family
+medication,ra biologic,atc,D5,family
+medication,ra biologic,atc,D6,family
+medication,ra biologic,atc,D7,family
+medication,ra biologic,atc,D8,family
+medication,ra biologic,atc,D9,family
+medication,ra biologic,atc,E,family
+medication,ra biologic,atc,F,family
+medication,ra biologic,atc,I,family
+medication,ra biologic,atc,J00,family
+medication,ra biologic,atc,J03,family
+medication,ra biologic,atc,J06,family
+medication,ra biologic,atc,J08,family
+medication,ra biologic,atc,J09,family
+medication,ra biologic,atc,J1,family
+medication,ra biologic,atc,J2,family
+medication,ra biologic,atc,J3,family
+medication,ra biologic,atc,J4,family
+medication,ra biologic,atc,J5,family
+medication,ra biologic,atc,J6,family
+medication,ra biologic,atc,J7,family
+medication,ra biologic,atc,J8,family
+medication,ra biologic,atc,J9,family
+medication,ra biologic,atc,K,family
+medication,ra biologic,atc,L00,family
+medication,ra biologic,atc,L01F,family
+medication,ra biologic,atc,L01G,family
+medication,ra biologic,atc,L01H,family
+medication,ra biologic,atc,L01I,family
+medication,ra biologic,atc,L01J,family
+medication,ra biologic,atc,L01K,family
+medication,ra biologic,atc,L01L,family
+medication,ra biologic,atc,L01M,family
+medication,ra biologic,atc,L01N,family
+medication,ra biologic,atc,L01O,family
+medication,ra biologic,atc,L01P,family
+medication,ra biologic,atc,L01Q,family
+medication,ra biologic,atc,L01R,family
+medication,ra biologic,atc,L01S,family
+medication,ra biologic,atc,L01T,family
+medication,ra biologic,atc,L01U,family
+medication,ra biologic,atc,L01V,family
+medication,ra biologic,atc,L01W,family
+medication,ra biologic,atc,L01X,family
+medication,ra biologic,atc,L01Y,family
+medication,ra biologic,atc,L01Z,family
+medication,ra biologic,atc,L03,family
+medication,ra biologic,atc,L04AA0,family
+medication,ra biologic,atc,L04AA10,family
+medication,ra biologic,atc,L04AA11,family
+medication,ra biologic,atc,L04AA12,family
+medication,ra biologic,atc,L04AA14,family
+medication,ra biologic,atc,L04AA15,family
+medication,ra biologic,atc,L04AA16,family
+medication,ra biologic,atc,L04AA17,family
+medication,ra biologic,atc,L04AA18,family
+medication,ra biologic,atc,L04AA19,family
+medication,ra biologic,atc,L04AA2,family
+medication,ra biologic,atc,L04AA3,family
+medication,ra biologic,atc,L04AA4,family
+medication,ra biologic,atc,L04AA5,family
+medication,ra biologic,atc,L04AA6,family
+medication,ra biologic,atc,L04AA7,family
+medication,ra biologic,atc,L04AA8,family
+medication,ra biologic,atc,L04AA9,family
+medication,ra biologic,atc,L04AC,family
+medication,ra biologic,atc,L04AG,family
+medication,ra biologic,atc,L04AI,family
+medication,ra biologic,atc,L04AJ,family
+medication,ra biologic,atc,L04AL,family
+medication,ra biologic,atc,L04AM,family
+medication,ra biologic,atc,L04AN,family
+medication,ra biologic,atc,L04AO,family
+medication,ra biologic,atc,L04AP,family
+medication,ra biologic,atc,L04AQ,family
+medication,ra biologic,atc,L04AR,family
+medication,ra biologic,atc,L04AS,family
+medication,ra biologic,atc,L04AT,family
+medication,ra biologic,atc,L04AU,family
+medication,ra biologic,atc,L04AV,family
+medication,ra biologic,atc,L04AW,family
+medication,ra biologic,atc,L04AX00,family
+medication,ra biologic,atc,L04AX08,family
+medication,ra biologic,atc,L04AX12,family
+medication,ra biologic,atc,L04AX13,family
+medication,ra biologic,atc,L04AX14,family
+medication,ra biologic,atc,L04AX15,family
+medication,ra biologic,atc,L04AX16,family
+medication,ra biologic,atc,L04AX17,family
+medication,ra biologic,atc,L04AX18,family
+medication,ra biologic,atc,L04AX19,family
+medication,ra biologic,atc,L04AX2,family
+medication,ra biologic,atc,L04AX3,family
+medication,ra biologic,atc,L04AX4,family
+medication,ra biologic,atc,L04AX5,family
+medication,ra biologic,atc,L04AX6,family
+medication,ra biologic,atc,L04AX7,family
+medication,ra biologic,atc,L04AX8,family
+medication,ra biologic,atc,L04AX9,family
+medication,ra biologic,atc,L04AY,family
+medication,ra biologic,atc,L04AZ,family
+medication,ra biologic,atc,L04B,family
+medication,ra biologic,atc,L04C,family
+medication,ra biologic,atc,L04D,family
+medication,ra biologic,atc,L04E,family
+medication,ra biologic,atc,L04F,family
+medication,ra biologic,atc,L04G,family
+medication,ra biologic,atc,L04H,family
+medication,ra biologic,atc,L04I,family
+medication,ra biologic,atc,L04J,family
+medication,ra biologic,atc,L04K,family
+medication,ra biologic,atc,L04L,family
+medication,ra biologic,atc,L04M,family
+medication,ra biologic,atc,L04N,family
+medication,ra biologic,atc,L04O,family
+medication,ra biologic,atc,L04P,family
+medication,ra biologic,atc,L04Q,family
+medication,ra biologic,atc,L04R,family
+medication,ra biologic,atc,L04S,family
+medication,ra biologic,atc,L04T,family
+medication,ra biologic,atc,L04U,family
+medication,ra biologic,atc,L04V,family
+medication,ra biologic,atc,L04W,family
+medication,ra biologic,atc,L04X,family
+medication,ra biologic,atc,L04Y,family
+medication,ra biologic,atc,L04Z,family
+medication,ra biologic,atc,L05,family
+medication,ra biologic,atc,L06,family
+medication,ra biologic,atc,L07,family
+medication,ra biologic,atc,L08,family
+medication,ra biologic,atc,L09,family
+medication,ra biologic,atc,L1,family
+medication,ra biologic,atc,L2,family
+medication,ra biologic,atc,L3,family
+medication,ra biologic,atc,L4,family
+medication,ra biologic,atc,L5,family
+medication,ra biologic,atc,L6,family
+medication,ra biologic,atc,L7,family
+medication,ra biologic,atc,L8,family
+medication,ra biologic,atc,L9,family
+medication,ra biologic,atc,M00,family
+medication,ra biologic,atc,M05,family
+medication,ra biologic,atc,M06,family
+medication,ra biologic,atc,M07,family
+medication,ra biologic,atc,M08,family
+medication,ra biologic,atc,M1,family
+medication,ra biologic,atc,M2,family
+medication,ra biologic,atc,M3,family
+medication,ra biologic,atc,M4,family
+medication,ra biologic,atc,M5,family
+medication,ra biologic,atc,M6,family
+medication,ra biologic,atc,M7,family
+medication,ra biologic,atc,M8,family
+medication,ra biologic,atc,M9,family
+medication,ra biologic,atc,N00,family
+medication,ra biologic,atc,N02,family
+medication,ra biologic,atc,N06,family
+medication,ra biologic,atc,N08,family
+medication,ra biologic,atc,N09,family
+medication,ra biologic,atc,N1,family
+medication,ra biologic,atc,N2,family
+medication,ra biologic,atc,N3,family
+medication,ra biologic,atc,N4,family
+medication,ra biologic,atc,N5,family
+medication,ra biologic,atc,N6,family
+medication,ra biologic,atc,N7,family
+medication,ra biologic,atc,N8,family
+medication,ra biologic,atc,N9,family
+medication,ra biologic,atc,O,family
+medication,ra biologic,atc,Q,family
+medication,ra biologic,atc,R00,family
+medication,ra biologic,atc,R03,family
+medication,ra biologic,atc,R04,family
+medication,ra biologic,atc,R08,family
+medication,ra biologic,atc,R09,family
+medication,ra biologic,atc,R1,family
+medication,ra biologic,atc,R2,family
+medication,ra biologic,atc,R3,family
+medication,ra biologic,atc,R4,family
+medication,ra biologic,atc,R5,family
+medication,ra biologic,atc,R6,family
+medication,ra biologic,atc,R7,family
+medication,ra biologic,atc,R8,family
+medication,ra biologic,atc,R9,family
+medication,ra biologic,atc,S00,family
+medication,ra biologic,atc,S01,family
+medication,ra biologic,atc,S04,family
+medication,ra biologic,atc,S05,family
+medication,ra biologic,atc,S06,family
+medication,ra biologic,atc,S07,family
+medication,ra biologic,atc,S08,family
+medication,ra biologic,atc,S09,family
+medication,ra biologic,atc,S1,family
+medication,ra biologic,atc,S2,family
+medication,ra biologic,atc,S3,family
+medication,ra biologic,atc,S4,family
+medication,ra biologic,atc,S5,family
+medication,ra biologic,atc,S6,family
+medication,ra biologic,atc,S7,family
+medication,ra biologic,atc,S8,family
+medication,ra biologic,atc,S9,family
+medication,ra biologic,atc,T,family
+medication,ra biologic,atc,U,family
+medication,ra biologic,atc,W,family
+medication,ra biologic,atc,X0,family
+medication,ra biologic,atc,X1,family
+medication,ra biologic,atc,X2,family
+medication,ra biologic,atc,X3,family
+medication,ra biologic,atc,X4,family
+medication,ra biologic,atc,X5,family
+medication,ra biologic,atc,X6,family
+medication,ra biologic,atc,X7,family
+medication,ra biologic,atc,X8,family
+medication,ra biologic,atc,X9,family
+medication,ra biologic,atc,Y,family
+medication,ra biologic,atc,Z,family
+medication,biologic dmard or jak inhibitor,atc,C00,family
+medication,biologic dmard or jak inhibitor,atc,C06,family
+medication,biologic dmard or jak inhibitor,atc,C10AE,family
+medication,biologic dmard or jak inhibitor,atc,C10AF,family
+medication,biologic dmard or jak inhibitor,atc,C10AG,family
+medication,biologic dmard or jak inhibitor,atc,C10AH,family
+medication,biologic dmard or jak inhibitor,atc,C10AI,family
+medication,biologic dmard or jak inhibitor,atc,C10AJ,family
+medication,biologic dmard or jak inhibitor,atc,C10AK,family
+medication,biologic dmard or jak inhibitor,atc,C10AL,family
+medication,biologic dmard or jak inhibitor,atc,C10AM,family
+medication,biologic dmard or jak inhibitor,atc,C10AN,family
+medication,biologic dmard or jak inhibitor,atc,C10AO,family
+medication,biologic dmard or jak inhibitor,atc,C10AP,family
+medication,biologic dmard or jak inhibitor,atc,C10AQ,family
+medication,biologic dmard or jak inhibitor,atc,C10AR,family
+medication,biologic dmard or jak inhibitor,atc,C10AS,family
+medication,biologic dmard or jak inhibitor,atc,C10AT,family
+medication,biologic dmard or jak inhibitor,atc,C10AU,family
+medication,biologic dmard or jak inhibitor,atc,C10AV,family
+medication,biologic dmard or jak inhibitor,atc,C10AW,family
+medication,biologic dmard or jak inhibitor,atc,C10AX,family
+medication,biologic dmard or jak inhibitor,atc,C10AY,family
+medication,biologic dmard or jak inhibitor,atc,C10AZ,family
+medication,biologic dmard or jak inhibitor,atc,C10C,family
+medication,biologic dmard or jak inhibitor,atc,C10D,family
+medication,biologic dmard or jak inhibitor,atc,C10E,family
+medication,biologic dmard or jak inhibitor,atc,C10F,family
+medication,biologic dmard or jak inhibitor,atc,C10G,family
+medication,biologic dmard or jak inhibitor,atc,C10H,family
+medication,biologic dmard or jak inhibitor,atc,C10I,family
+medication,biologic dmard or jak inhibitor,atc,C10J,family
+medication,biologic dmard or jak inhibitor,atc,C10K,family
+medication,biologic dmard or jak inhibitor,atc,C10L,family
+medication,biologic dmard or jak inhibitor,atc,C10M,family
+medication,biologic dmard or jak inhibitor,atc,C10N,family
+medication,biologic dmard or jak inhibitor,atc,C10O,family
+medication,biologic dmard or jak inhibitor,atc,C10P,family
+medication,biologic dmard or jak inhibitor,atc,C10Q,family
+medication,biologic dmard or jak inhibitor,atc,C10R,family
+medication,biologic dmard or jak inhibitor,atc,C10S,family
+medication,biologic dmard or jak inhibitor,atc,C10T,family
+medication,biologic dmard or jak inhibitor,atc,C10U,family
+medication,biologic dmard or jak inhibitor,atc,C10V,family
+medication,biologic dmard or jak inhibitor,atc,C10W,family
+medication,biologic dmard or jak inhibitor,atc,C10X,family
+medication,biologic dmard or jak inhibitor,atc,C10Y,family
+medication,biologic dmard or jak inhibitor,atc,C10Z,family
+medication,biologic dmard or jak inhibitor,atc,C11,family
+medication,biologic dmard or jak inhibitor,atc,C12,family
+medication,biologic dmard or jak inhibitor,atc,C13,family
+medication,biologic dmard or jak inhibitor,atc,C14,family
+medication,biologic dmard or jak inhibitor,atc,C15,family
+medication,biologic dmard or jak inhibitor,atc,C16,family
+medication,biologic dmard or jak inhibitor,atc,C17,family
+medication,biologic dmard or jak inhibitor,atc,C18,family
+medication,biologic dmard or jak inhibitor,atc,C19,family
+medication,biologic dmard or jak inhibitor,atc,C2,family
+medication,biologic dmard or jak inhibitor,atc,C3,family
+medication,biologic dmard or jak inhibitor,atc,C4,family
+medication,biologic dmard or jak inhibitor,atc,C5,family
+medication,biologic dmard or jak inhibitor,atc,C6,family
+medication,biologic dmard or jak inhibitor,atc,C7,family
+medication,biologic dmard or jak inhibitor,atc,C8,family
+medication,biologic dmard or jak inhibitor,atc,C9,family
+medication,biologic dmard or jak inhibitor,atc,D00,family
+medication,biologic dmard or jak inhibitor,atc,D11,family
+medication,biologic dmard or jak inhibitor,atc,D12,family
+medication,biologic dmard or jak inhibitor,atc,D13,family
+medication,biologic dmard or jak inhibitor,atc,D14,family
+medication,biologic dmard or jak inhibitor,atc,D15,family
+medication,biologic dmard or jak inhibitor,atc,D16,family
+medication,biologic dmard or jak inhibitor,atc,D17,family
+medication,biologic dmard or jak inhibitor,atc,D18,family
+medication,biologic dmard or jak inhibitor,atc,D19,family
+medication,biologic dmard or jak inhibitor,atc,D2,family
+medication,biologic dmard or jak inhibitor,atc,D3,family
+medication,biologic dmard or jak inhibitor,atc,D4,family
+medication,biologic dmard or jak inhibitor,atc,D5,family
+medication,biologic dmard or jak inhibitor,atc,D6,family
+medication,biologic dmard or jak inhibitor,atc,D7,family
+medication,biologic dmard or jak inhibitor,atc,D8,family
+medication,biologic dmard or jak inhibitor,atc,D9,family
+medication,biologic dmard or jak inhibitor,atc,E,family
+medication,biologic dmard or jak inhibitor,atc,F,family
+medication,biologic dmard or jak inhibitor,atc,I,family
+medication,biologic dmard or jak inhibitor,atc,J00,family
+medication,biologic dmard or jak inhibitor,atc,J03,family
+medication,biologic dmard or jak inhibitor,atc,J06,family
+medication,biologic dmard or jak inhibitor,atc,J08,family
+medication,biologic dmard or jak inhibitor,atc,J09,family
+medication,biologic dmard or jak inhibitor,atc,J1,family
+medication,biologic dmard or jak inhibitor,atc,J2,family
+medication,biologic dmard or jak inhibitor,atc,J3,family
+medication,biologic dmard or jak inhibitor,atc,J4,family
+medication,biologic dmard or jak inhibitor,atc,J5,family
+medication,biologic dmard or jak inhibitor,atc,J6,family
+medication,biologic dmard or jak inhibitor,atc,J7,family
+medication,biologic dmard or jak inhibitor,atc,J8,family
+medication,biologic dmard or jak inhibitor,atc,J9,family
+medication,biologic dmard or jak inhibitor,atc,K,family
+medication,biologic dmard or jak inhibitor,atc,L00,family
+medication,biologic dmard or jak inhibitor,atc,L01EI,family
+medication,biologic dmard or jak inhibitor,atc,L01EJ,family
+medication,biologic dmard or jak inhibitor,atc,L01EO,family
+medication,biologic dmard or jak inhibitor,atc,L01EQ,family
+medication,biologic dmard or jak inhibitor,atc,L01ER,family
+medication,biologic dmard or jak inhibitor,atc,L01ES,family
+medication,biologic dmard or jak inhibitor,atc,L01ET,family
+medication,biologic dmard or jak inhibitor,atc,L01EU,family
+medication,biologic dmard or jak inhibitor,atc,L01EV,family
+medication,biologic dmard or jak inhibitor,atc,L01EW,family
+medication,biologic dmard or jak inhibitor,atc,L01EX,family
+medication,biologic dmard or jak inhibitor,atc,L01EY,family
+medication,biologic dmard or jak inhibitor,atc,L01EZ,family
+medication,biologic dmard or jak inhibitor,atc,L01F,family
+medication,biologic dmard or jak inhibitor,atc,L01G,family
+medication,biologic dmard or jak inhibitor,atc,L01H,family
+medication,biologic dmard or jak inhibitor,atc,L01I,family
+medication,biologic dmard or jak inhibitor,atc,L01J,family
+medication,biologic dmard or jak inhibitor,atc,L01K,family
+medication,biologic dmard or jak inhibitor,atc,L01L,family
+medication,biologic dmard or jak inhibitor,atc,L01M,family
+medication,biologic dmard or jak inhibitor,atc,L01N,family
+medication,biologic dmard or jak inhibitor,atc,L01O,family
+medication,biologic dmard or jak inhibitor,atc,L01P,family
+medication,biologic dmard or jak inhibitor,atc,L01Q,family
+medication,biologic dmard or jak inhibitor,atc,L01R,family
+medication,biologic dmard or jak inhibitor,atc,L01S,family
+medication,biologic dmard or jak inhibitor,atc,L01T,family
+medication,biologic dmard or jak inhibitor,atc,L01U,family
+medication,biologic dmard or jak inhibitor,atc,L01V,family
+medication,biologic dmard or jak inhibitor,atc,L01W,family
+medication,biologic dmard or jak inhibitor,atc,L01X,family
+medication,biologic dmard or jak inhibitor,atc,L01Y,family
+medication,biologic dmard or jak inhibitor,atc,L01Z,family
+medication,biologic dmard or jak inhibitor,atc,L03,family
+medication,biologic dmard or jak inhibitor,atc,L04AA0,family
+medication,biologic dmard or jak inhibitor,atc,L04AA10,family
+medication,biologic dmard or jak inhibitor,atc,L04AA11,family
+medication,biologic dmard or jak inhibitor,atc,L04AA12,family
+medication,biologic dmard or jak inhibitor,atc,L04AA14,family
+medication,biologic dmard or jak inhibitor,atc,L04AA15,family
+medication,biologic dmard or jak inhibitor,atc,L04AA16,family
+medication,biologic dmard or jak inhibitor,atc,L04AA17,family
+medication,biologic dmard or jak inhibitor,atc,L04AA18,family
+medication,biologic dmard or jak inhibitor,atc,L04AA19,family
+medication,biologic dmard or jak inhibitor,atc,L04AA2,family
+medication,biologic dmard or jak inhibitor,atc,L04AA3,family
+medication,biologic dmard or jak inhibitor,atc,L04AA4,family
+medication,biologic dmard or jak inhibitor,atc,L04AA5,family
+medication,biologic dmard or jak inhibitor,atc,L04AA6,family
+medication,biologic dmard or jak inhibitor,atc,L04AA7,family
+medication,biologic dmard or jak inhibitor,atc,L04AA8,family
+medication,biologic dmard or jak inhibitor,atc,L04AA9,family
+medication,biologic dmard or jak inhibitor,atc,L04AC,family
+medication,biologic dmard or jak inhibitor,atc,L04AG,family
+medication,biologic dmard or jak inhibitor,atc,L04AI,family
+medication,biologic dmard or jak inhibitor,atc,L04AJ,family
+medication,biologic dmard or jak inhibitor,atc,L04AL,family
+medication,biologic dmard or jak inhibitor,atc,L04AM,family
+medication,biologic dmard or jak inhibitor,atc,L04AN,family
+medication,biologic dmard or jak inhibitor,atc,L04AO,family
+medication,biologic dmard or jak inhibitor,atc,L04AP,family
+medication,biologic dmard or jak inhibitor,atc,L04AQ,family
+medication,biologic dmard or jak inhibitor,atc,L04AR,family
+medication,biologic dmard or jak inhibitor,atc,L04AS,family
+medication,biologic dmard or jak inhibitor,atc,L04AT,family
+medication,biologic dmard or jak inhibitor,atc,L04AU,family
+medication,biologic dmard or jak inhibitor,atc,L04AV,family
+medication,biologic dmard or jak inhibitor,atc,L04AW,family
+medication,biologic dmard or jak inhibitor,atc,L04AX00,family
+medication,biologic dmard or jak inhibitor,atc,L04AX08,family
+medication,biologic dmard or jak inhibitor,atc,L04AX12,family
+medication,biologic dmard or jak inhibitor,atc,L04AX13,family
+medication,biologic dmard or jak inhibitor,atc,L04AX14,family
+medication,biologic dmard or jak inhibitor,atc,L04AX15,family
+medication,biologic dmard or jak inhibitor,atc,L04AX16,family
+medication,biologic dmard or jak inhibitor,atc,L04AX17,family
+medication,biologic dmard or jak inhibitor,atc,L04AX18,family
+medication,biologic dmard or jak inhibitor,atc,L04AX19,family
+medication,biologic dmard or jak inhibitor,atc,L04AX2,family
+medication,biologic dmard or jak inhibitor,atc,L04AX3,family
+medication,biologic dmard or jak inhibitor,atc,L04AX4,family
+medication,biologic dmard or jak inhibitor,atc,L04AX5,family
+medication,biologic dmard or jak inhibitor,atc,L04AX6,family
+medication,biologic dmard or jak inhibitor,atc,L04AX7,family
+medication,biologic dmard or jak inhibitor,atc,L04AX8,family
+medication,biologic dmard or jak inhibitor,atc,L04AX9,family
+medication,biologic dmard or jak inhibitor,atc,L04AY,family
+medication,biologic dmard or jak inhibitor,atc,L04AZ,family
+medication,biologic dmard or jak inhibitor,atc,L04B,family
+medication,biologic dmard or jak inhibitor,atc,L04C,family
+medication,biologic dmard or jak inhibitor,atc,L04D,family
+medication,biologic dmard or jak inhibitor,atc,L04E,family
+medication,biologic dmard or jak inhibitor,atc,L04F,family
+medication,biologic dmard or jak inhibitor,atc,L04G,family
+medication,biologic dmard or jak inhibitor,atc,L04H,family
+medication,biologic dmard or jak inhibitor,atc,L04I,family
+medication,biologic dmard or jak inhibitor,atc,L04J,family
+medication,biologic dmard or jak inhibitor,atc,L04K,family
+medication,biologic dmard or jak inhibitor,atc,L04L,family
+medication,biologic dmard or jak inhibitor,atc,L04M,family
+medication,biologic dmard or jak inhibitor,atc,L04N,family
+medication,biologic dmard or jak inhibitor,atc,L04O,family
+medication,biologic dmard or jak inhibitor,atc,L04P,family
+medication,biologic dmard or jak inhibitor,atc,L04Q,family
+medication,biologic dmard or jak inhibitor,atc,L04R,family
+medication,biologic dmard or jak inhibitor,atc,L04S,family
+medication,biologic dmard or jak inhibitor,atc,L04T,family
+medication,biologic dmard or jak inhibitor,atc,L04U,family
+medication,biologic dmard or jak inhibitor,atc,L04V,family
+medication,biologic dmard or jak inhibitor,atc,L04W,family
+medication,biologic dmard or jak inhibitor,atc,L04X,family
+medication,biologic dmard or jak inhibitor,atc,L04Y,family
+medication,biologic dmard or jak inhibitor,atc,L04Z,family
+medication,biologic dmard or jak inhibitor,atc,L05,family
+medication,biologic dmard or jak inhibitor,atc,L06,family
+medication,biologic dmard or jak inhibitor,atc,L07,family
+medication,biologic dmard or jak inhibitor,atc,L08,family
+medication,biologic dmard or jak inhibitor,atc,L09,family
+medication,biologic dmard or jak inhibitor,atc,L1,family
+medication,biologic dmard or jak inhibitor,atc,L2,family
+medication,biologic dmard or jak inhibitor,atc,L3,family
+medication,biologic dmard or jak inhibitor,atc,L4,family
+medication,biologic dmard or jak inhibitor,atc,L5,family
+medication,biologic dmard or jak inhibitor,atc,L6,family
+medication,biologic dmard or jak inhibitor,atc,L7,family
+medication,biologic dmard or jak inhibitor,atc,L8,family
+medication,biologic dmard or jak inhibitor,atc,L9,family
+medication,biologic dmard or jak inhibitor,atc,M00,family
+medication,biologic dmard or jak inhibitor,atc,M05,family
+medication,biologic dmard or jak inhibitor,atc,M06,family
+medication,biologic dmard or jak inhibitor,atc,M07,family
+medication,biologic dmard or jak inhibitor,atc,M08,family
+medication,biologic dmard or jak inhibitor,atc,M1,family
+medication,biologic dmard or jak inhibitor,atc,M2,family
+medication,biologic dmard or jak inhibitor,atc,M3,family
+medication,biologic dmard or jak inhibitor,atc,M4,family
+medication,biologic dmard or jak inhibitor,atc,M5,family
+medication,biologic dmard or jak inhibitor,atc,M6,family
+medication,biologic dmard or jak inhibitor,atc,M7,family
+medication,biologic dmard or jak inhibitor,atc,M8,family
+medication,biologic dmard or jak inhibitor,atc,M9,family
+medication,biologic dmard or jak inhibitor,atc,N00,family
+medication,biologic dmard or jak inhibitor,atc,N02,family
+medication,biologic dmard or jak inhibitor,atc,N06,family
+medication,biologic dmard or jak inhibitor,atc,N08,family
+medication,biologic dmard or jak inhibitor,atc,N09,family
+medication,biologic dmard or jak inhibitor,atc,N1,family
+medication,biologic dmard or jak inhibitor,atc,N2,family
+medication,biologic dmard or jak inhibitor,atc,N3,family
+medication,biologic dmard or jak inhibitor,atc,N4,family
+medication,biologic dmard or jak inhibitor,atc,N5,family
+medication,biologic dmard or jak inhibitor,atc,N6,family
+medication,biologic dmard or jak inhibitor,atc,N7,family
+medication,biologic dmard or jak inhibitor,atc,N8,family
+medication,biologic dmard or jak inhibitor,atc,N9,family
+medication,biologic dmard or jak inhibitor,atc,O,family
+medication,biologic dmard or jak inhibitor,atc,Q,family
+medication,biologic dmard or jak inhibitor,atc,R00,family
+medication,biologic dmard or jak inhibitor,atc,R03,family
+medication,biologic dmard or jak inhibitor,atc,R04,family
+medication,biologic dmard or jak inhibitor,atc,R08,family
+medication,biologic dmard or jak inhibitor,atc,R09,family
+medication,biologic dmard or jak inhibitor,atc,R1,family
+medication,biologic dmard or jak inhibitor,atc,R2,family
+medication,biologic dmard or jak inhibitor,atc,R3,family
+medication,biologic dmard or jak inhibitor,atc,R4,family
+medication,biologic dmard or jak inhibitor,atc,R5,family
+medication,biologic dmard or jak inhibitor,atc,R6,family
+medication,biologic dmard or jak inhibitor,atc,R7,family
+medication,biologic dmard or jak inhibitor,atc,R8,family
+medication,biologic dmard or jak inhibitor,atc,R9,family
+medication,biologic dmard or jak inhibitor,atc,S00,family
+medication,biologic dmard or jak inhibitor,atc,S01,family
+medication,biologic dmard or jak inhibitor,atc,S04,family
+medication,biologic dmard or jak inhibitor,atc,S05,family
+medication,biologic dmard or jak inhibitor,atc,S06,family
+medication,biologic dmard or jak inhibitor,atc,S07,family
+medication,biologic dmard or jak inhibitor,atc,S08,family
+medication,biologic dmard or jak inhibitor,atc,S09,family
+medication,biologic dmard or jak inhibitor,atc,S1,family
+medication,biologic dmard or jak inhibitor,atc,S2,family
+medication,biologic dmard or jak inhibitor,atc,S3,family
+medication,biologic dmard or jak inhibitor,atc,S4,family
+medication,biologic dmard or jak inhibitor,atc,S5,family
+medication,biologic dmard or jak inhibitor,atc,S6,family
+medication,biologic dmard or jak inhibitor,atc,S7,family
+medication,biologic dmard or jak inhibitor,atc,S8,family
+medication,biologic dmard or jak inhibitor,atc,S9,family
+medication,biologic dmard or jak inhibitor,atc,T,family
+medication,biologic dmard or jak inhibitor,atc,U,family
+medication,biologic dmard or jak inhibitor,atc,W,family
+medication,biologic dmard or jak inhibitor,atc,X0,family
+medication,biologic dmard or jak inhibitor,atc,X1,family
+medication,biologic dmard or jak inhibitor,atc,X2,family
+medication,biologic dmard or jak inhibitor,atc,X3,family
+medication,biologic dmard or jak inhibitor,atc,X4,family
+medication,biologic dmard or jak inhibitor,atc,X5,family
+medication,biologic dmard or jak inhibitor,atc,X6,family
+medication,biologic dmard or jak inhibitor,atc,X7,family
+medication,biologic dmard or jak inhibitor,atc,X8,family
+medication,biologic dmard or jak inhibitor,atc,X9,family
+medication,biologic dmard or jak inhibitor,atc,Y,family
+medication,biologic dmard or jak inhibitor,atc,Z,family
+medication,egfr tyrosine kinase inhibitor,atc,E,family
+medication,egfr tyrosine kinase inhibitor,atc,F,family
+medication,egfr tyrosine kinase inhibitor,atc,I,family
+medication,egfr tyrosine kinase inhibitor,atc,K,family
+medication,egfr tyrosine kinase inhibitor,atc,L00,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EA,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EC,family
+medication,egfr tyrosine kinase inhibitor,atc,L01ED,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EE,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EF,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EG,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EH,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EI,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EJ,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EK,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EL,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EM,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EN,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EO,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EP,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EQ,family
+medication,egfr tyrosine kinase inhibitor,atc,L01ER,family
+medication,egfr tyrosine kinase inhibitor,atc,L01ES,family
+medication,egfr tyrosine kinase inhibitor,atc,L01ET,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EU,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EV,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EW,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EX,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EY,family
+medication,egfr tyrosine kinase inhibitor,atc,L01EZ,family
+medication,egfr tyrosine kinase inhibitor,atc,L01F,family
+medication,egfr tyrosine kinase inhibitor,atc,L01G,family
+medication,egfr tyrosine kinase inhibitor,atc,L01H,family
+medication,egfr tyrosine kinase inhibitor,atc,L01I,family
+medication,egfr tyrosine kinase inhibitor,atc,L01J,family
+medication,egfr tyrosine kinase inhibitor,atc,L01K,family
+medication,egfr tyrosine kinase inhibitor,atc,L01L,family
+medication,egfr tyrosine kinase inhibitor,atc,L01M,family
+medication,egfr tyrosine kinase inhibitor,atc,L01N,family
+medication,egfr tyrosine kinase inhibitor,atc,L01O,family
+medication,egfr tyrosine kinase inhibitor,atc,L01P,family
+medication,egfr tyrosine kinase inhibitor,atc,L01Q,family
+medication,egfr tyrosine kinase inhibitor,atc,L01R,family
+medication,egfr tyrosine kinase inhibitor,atc,L01S,family
+medication,egfr tyrosine kinase inhibitor,atc,L01T,family
+medication,egfr tyrosine kinase inhibitor,atc,L01U,family
+medication,egfr tyrosine kinase inhibitor,atc,L01V,family
+medication,egfr tyrosine kinase inhibitor,atc,L01W,family
+medication,egfr tyrosine kinase inhibitor,atc,L01X,family
+medication,egfr tyrosine kinase inhibitor,atc,L01Y,family
+medication,egfr tyrosine kinase inhibitor,atc,L01Z,family
+medication,egfr tyrosine kinase inhibitor,atc,L05,family
+medication,egfr tyrosine kinase inhibitor,atc,L06,family
+medication,egfr tyrosine kinase inhibitor,atc,L07,family
+medication,egfr tyrosine kinase inhibitor,atc,L08,family
+medication,egfr tyrosine kinase inhibitor,atc,L09,family
+medication,egfr tyrosine kinase inhibitor,atc,L1,family
+medication,egfr tyrosine kinase inhibitor,atc,L2,family
+medication,egfr tyrosine kinase inhibitor,atc,L3,family
+medication,egfr tyrosine kinase inhibitor,atc,L4,family
+medication,egfr tyrosine kinase inhibitor,atc,L5,family
+medication,egfr tyrosine kinase inhibitor,atc,L6,family
+medication,egfr tyrosine kinase inhibitor,atc,L7,family
+medication,egfr tyrosine kinase inhibitor,atc,L8,family
+medication,egfr tyrosine kinase inhibitor,atc,L9,family
+medication,egfr tyrosine kinase inhibitor,atc,O,family
+medication,egfr tyrosine kinase inhibitor,atc,Q,family
+medication,egfr tyrosine kinase inhibitor,atc,T,family
+medication,egfr tyrosine kinase inhibitor,atc,U,family
+medication,egfr tyrosine kinase inhibitor,atc,W,family
+medication,egfr tyrosine kinase inhibitor,atc,X0,family
+medication,egfr tyrosine kinase inhibitor,atc,X1,family
+medication,egfr tyrosine kinase inhibitor,atc,X2,family
+medication,egfr tyrosine kinase inhibitor,atc,X3,family
+medication,egfr tyrosine kinase inhibitor,atc,X4,family
+medication,egfr tyrosine kinase inhibitor,atc,X5,family
+medication,egfr tyrosine kinase inhibitor,atc,X6,family
+medication,egfr tyrosine kinase inhibitor,atc,X7,family
+medication,egfr tyrosine kinase inhibitor,atc,X8,family
+medication,egfr tyrosine kinase inhibitor,atc,X9,family
+medication,egfr tyrosine kinase inhibitor,atc,Y,family
+medication,egfr tyrosine kinase inhibitor,atc,Z,family
+medication,anticoagulant,atc,B00,family
+medication,anticoagulant,atc,B01AB,family
+medication,anticoagulant,atc,B01AC3,family
+medication,anticoagulant,atc,B01AC4,family
+medication,anticoagulant,atc,B01AC5,family
+medication,anticoagulant,atc,B01AC6,family
+medication,anticoagulant,atc,B01AC7,family
+medication,anticoagulant,atc,B01AC8,family
+medication,anticoagulant,atc,B01AC9,family
+medication,anticoagulant,atc,B01AD,family
+medication,anticoagulant,atc,B01AG,family
+medication,anticoagulant,atc,B01AH,family
+medication,anticoagulant,atc,B01AI,family
+medication,anticoagulant,atc,B01AJ,family
+medication,anticoagulant,atc,B01AK,family
+medication,anticoagulant,atc,B01AL,family
+medication,anticoagulant,atc,B01AM,family
+medication,anticoagulant,atc,B01AN,family
+medication,anticoagulant,atc,B01AO,family
+medication,anticoagulant,atc,B01AP,family
+medication,anticoagulant,atc,B01AQ,family
+medication,anticoagulant,atc,B01AR,family
+medication,anticoagulant,atc,B01AS,family
+medication,anticoagulant,atc,B01AT,family
+medication,anticoagulant,atc,B01AU,family
+medication,anticoagulant,atc,B01AV,family
+medication,anticoagulant,atc,B01AW,family
+medication,anticoagulant,atc,B01AX,family
+medication,anticoagulant,atc,B01AY,family
+medication,anticoagulant,atc,B01AZ,family
+medication,anticoagulant,atc,B01B,family
+medication,anticoagulant,atc,B01C,family
+medication,anticoagulant,atc,B01D,family
+medication,anticoagulant,atc,B01E,family
+medication,anticoagulant,atc,B01F,family
+medication,anticoagulant,atc,B01G,family
+medication,anticoagulant,atc,B01H,family
+medication,anticoagulant,atc,B01I,family
+medication,anticoagulant,atc,B01J,family
+medication,anticoagulant,atc,B01K,family
+medication,anticoagulant,atc,B01L,family
+medication,anticoagulant,atc,B01M,family
+medication,anticoagulant,atc,B01N,family
+medication,anticoagulant,atc,B01O,family
+medication,anticoagulant,atc,B01P,family
+medication,anticoagulant,atc,B01Q,family
+medication,anticoagulant,atc,B01R,family
+medication,anticoagulant,atc,B01S,family
+medication,anticoagulant,atc,B01T,family
+medication,anticoagulant,atc,B01U,family
+medication,anticoagulant,atc,B01V,family
+medication,anticoagulant,atc,B01W,family
+medication,anticoagulant,atc,B01X,family
+medication,anticoagulant,atc,B01Y,family
+medication,anticoagulant,atc,B01Z,family
+medication,anticoagulant,atc,B04,family
+medication,anticoagulant,atc,B05,family
+medication,anticoagulant,atc,B07,family
+medication,anticoagulant,atc,B08,family
+medication,anticoagulant,atc,B09,family
+medication,anticoagulant,atc,B1,family
+medication,anticoagulant,atc,B2,family
+medication,anticoagulant,atc,B3,family
+medication,anticoagulant,atc,B4,family
+medication,anticoagulant,atc,B5,family
+medication,anticoagulant,atc,B6,family
+medication,anticoagulant,atc,B7,family
+medication,anticoagulant,atc,B8,family
+medication,anticoagulant,atc,B9,family
+medication,anticoagulant,atc,C00,family
+medication,anticoagulant,atc,C05,family
+medication,anticoagulant,atc,C11,family
+medication,anticoagulant,atc,C12,family
+medication,anticoagulant,atc,C13,family
+medication,anticoagulant,atc,C14,family
+medication,anticoagulant,atc,C15,family
+medication,anticoagulant,atc,C16,family
+medication,anticoagulant,atc,C17,family
+medication,anticoagulant,atc,C18,family
+medication,anticoagulant,atc,C19,family
+medication,anticoagulant,atc,C2,family
+medication,anticoagulant,atc,C3,family
+medication,anticoagulant,atc,C4,family
+medication,anticoagulant,atc,C5,family
+medication,anticoagulant,atc,C6,family
+medication,anticoagulant,atc,C7,family
+medication,anticoagulant,atc,C8,family
+medication,anticoagulant,atc,C9,family
+medication,anticoagulant,atc,E,family
+medication,anticoagulant,atc,F,family
+medication,anticoagulant,atc,I,family
+medication,anticoagulant,atc,K,family
+medication,anticoagulant,atc,O,family
+medication,anticoagulant,atc,Q,family
+medication,anticoagulant,atc,T,family
+medication,anticoagulant,atc,U,family
+medication,anticoagulant,atc,W,family
+medication,anticoagulant,atc,X0,family
+medication,anticoagulant,atc,X1,family
+medication,anticoagulant,atc,X2,family
+medication,anticoagulant,atc,X3,family
+medication,anticoagulant,atc,X4,family
+medication,anticoagulant,atc,X5,family
+medication,anticoagulant,atc,X6,family
+medication,anticoagulant,atc,X7,family
+medication,anticoagulant,atc,X8,family
+medication,anticoagulant,atc,X9,family
+medication,anticoagulant,atc,Y,family
+medication,anticoagulant,atc,Z,family
+medication,抗凝固薬,atc,B00,family
+medication,抗凝固薬,atc,B01AB,family
+medication,抗凝固薬,atc,B01AC3,family
+medication,抗凝固薬,atc,B01AC4,family
+medication,抗凝固薬,atc,B01AC5,family
+medication,抗凝固薬,atc,B01AC6,family
+medication,抗凝固薬,atc,B01AC7,family
+medication,抗凝固薬,atc,B01AC8,family
+medication,抗凝固薬,atc,B01AC9,family
+medication,抗凝固薬,atc,B01AD,family
+medication,抗凝固薬,atc,B01AG,family
+medication,抗凝固薬,atc,B01AH,family
+medication,抗凝固薬,atc,B01AI,family
+medication,抗凝固薬,atc,B01AJ,family
+medication,抗凝固薬,atc,B01AK,family
+medication,抗凝固薬,atc,B01AL,family
+medication,抗凝固薬,atc,B01AM,family
+medication,抗凝固薬,atc,B01AN,family
+medication,抗凝固薬,atc,B01AO,family
+medication,抗凝固薬,atc,B01AP,family
+medication,抗凝固薬,atc,B01AQ,family
+medication,抗凝固薬,atc,B01AR,family
+medication,抗凝固薬,atc,B01AS,family
+medication,抗凝固薬,atc,B01AT,family
+medication,抗凝固薬,atc,B01AU,family
+medication,抗凝固薬,atc,B01AV,family
+medication,抗凝固薬,atc,B01AW,family
+medication,抗凝固薬,atc,B01AX,family
+medication,抗凝固薬,atc,B01AY,family
+medication,抗凝固薬,atc,B01AZ,family
+medication,抗凝固薬,atc,B01B,family
+medication,抗凝固薬,atc,B01C,family
+medication,抗凝固薬,atc,B01D,family
+medication,抗凝固薬,atc,B01E,family
+medication,抗凝固薬,atc,B01F,family
+medication,抗凝固薬,atc,B01G,family
+medication,抗凝固薬,atc,B01H,family
+medication,抗凝固薬,atc,B01I,family
+medication,抗凝固薬,atc,B01J,family
+medication,抗凝固薬,atc,B01K,family
+medication,抗凝固薬,atc,B01L,family
+medication,抗凝固薬,atc,B01M,family
+medication,抗凝固薬,atc,B01N,family
+medication,抗凝固薬,atc,B01O,family
+medication,抗凝固薬,atc,B01P,family
+medication,抗凝固薬,atc,B01Q,family
+medication,抗凝固薬,atc,B01R,family
+medication,抗凝固薬,atc,B01S,family
+medication,抗凝固薬,atc,B01T,family
+medication,抗凝固薬,atc,B01U,family
+medication,抗凝固薬,atc,B01V,family
+medication,抗凝固薬,atc,B01W,family
+medication,抗凝固薬,atc,B01X,family
+medication,抗凝固薬,atc,B01Y,family
+medication,抗凝固薬,atc,B01Z,family
+medication,抗凝固薬,atc,B04,family
+medication,抗凝固薬,atc,B05,family
+medication,抗凝固薬,atc,B07,family
+medication,抗凝固薬,atc,B08,family
+medication,抗凝固薬,atc,B09,family
+medication,抗凝固薬,atc,B1,family
+medication,抗凝固薬,atc,B2,family
+medication,抗凝固薬,atc,B3,family
+medication,抗凝固薬,atc,B4,family
+medication,抗凝固薬,atc,B5,family
+medication,抗凝固薬,atc,B6,family
+medication,抗凝固薬,atc,B7,family
+medication,抗凝固薬,atc,B8,family
+medication,抗凝固薬,atc,B9,family
+medication,抗凝固薬,atc,C00,family
+medication,抗凝固薬,atc,C05,family
+medication,抗凝固薬,atc,C11,family
+medication,抗凝固薬,atc,C12,family
+medication,抗凝固薬,atc,C13,family
+medication,抗凝固薬,atc,C14,family
+medication,抗凝固薬,atc,C15,family
+medication,抗凝固薬,atc,C16,family
+medication,抗凝固薬,atc,C17,family
+medication,抗凝固薬,atc,C18,family
+medication,抗凝固薬,atc,C19,family
+medication,抗凝固薬,atc,C2,family
+medication,抗凝固薬,atc,C3,family
+medication,抗凝固薬,atc,C4,family
+medication,抗凝固薬,atc,C5,family
+medication,抗凝固薬,atc,C6,family
+medication,抗凝固薬,atc,C7,family
+medication,抗凝固薬,atc,C8,family
+medication,抗凝固薬,atc,C9,family
+medication,抗凝固薬,atc,E,family
+medication,抗凝固薬,atc,F,family
+medication,抗凝固薬,atc,I,family
+medication,抗凝固薬,atc,K,family
+medication,抗凝固薬,atc,O,family
+medication,抗凝固薬,atc,Q,family
+medication,抗凝固薬,atc,T,family
+medication,抗凝固薬,atc,U,family
+medication,抗凝固薬,atc,W,family
+medication,抗凝固薬,atc,X0,family
+medication,抗凝固薬,atc,X1,family
+medication,抗凝固薬,atc,X2,family
+medication,抗凝固薬,atc,X3,family
+medication,抗凝固薬,atc,X4,family
+medication,抗凝固薬,atc,X5,family
+medication,抗凝固薬,atc,X6,family
+medication,抗凝固薬,atc,X7,family
+medication,抗凝固薬,atc,X8,family
+medication,抗凝固薬,atc,X9,family
+medication,抗凝固薬,atc,Y,family
+medication,抗凝固薬,atc,Z,family
 procedure,bariatric surgery,nhi_order,75614B,exact
 procedure,bariatric surgery,nhi_order,75613B,exact
 observation,serum urate,loinc,3084-1,exact
@@ -168,9 +2164,19 @@ condition,一過性脳虚血発作,icd10cm,G45.9,exact
 medication,anticoagulant,atc,B01AA,prefix
 medication,anticoagulant,atc,B01AE,prefix
 medication,anticoagulant,atc,B01AF,prefix
+medication,anticoagulant,atc,B01AA03,exact
+medication,anticoagulant,atc,B01AE07,exact
+medication,anticoagulant,atc,B01AF01,exact
+medication,anticoagulant,atc,B01AF02,exact
+medication,anticoagulant,atc,B01AF03,exact
 medication,抗凝固薬,atc,B01AA,prefix
 medication,抗凝固薬,atc,B01AE,prefix
 medication,抗凝固薬,atc,B01AF,prefix
+medication,抗凝固薬,atc,B01AA03,exact
+medication,抗凝固薬,atc,B01AE07,exact
+medication,抗凝固薬,atc,B01AF01,exact
+medication,抗凝固薬,atc,B01AF02,exact
+medication,抗凝固薬,atc,B01AF03,exact
 encounter,memory clinic visit,department,NEUR,exact
 encounter,memory clinic visit,department,PSY,exact
 condition,herpes zoster,icd10cm,B02,prefix
@@ -184,4 +2190,10 @@ condition,靜脈血栓栓塞,icd10cm,I82.5,prefix
 medication,biologic dmard or jak inhibitor,atc,L04AB,prefix
 medication,biologic dmard or jak inhibitor,atc,L04AC07,exact
 medication,biologic dmard or jak inhibitor,atc,L04AF,prefix
+medication,biologic dmard or jak inhibitor,atc,L04AF01,exact
+medication,biologic dmard or jak inhibitor,atc,L04AF02,exact
+medication,biologic dmard or jak inhibitor,atc,L04AF03,exact
 medication,jak inhibitor,atc,L04AF,prefix
+medication,jak inhibitor,atc,L04AF01,exact
+medication,jak inhibitor,atc,L04AF02,exact
+medication,jak inhibitor,atc,L04AF03,exact

@@ -1,0 +1,12 @@
+# M2 (V-19): the code systems from a signed pack on a stick or in TB_TERMINOLOGY_UPDATE_DIR, checked (signature, hash,
+# version, licence row) and applied all-or-nothing across the three readers. Refused or failed: exit 3 or 4, the reason
+# in the audit log and on the doctor's terminology line. Run by trialbox-terminology.timer.
+[Unit]
+Description=TrialBox scheduled code-system update
+After=trialbox.service docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@TB_ROOT@
+ExecStart=@TB_ROOT@/deploy/terminology-update.sh --scheduled
+TimeoutStartSec=3600

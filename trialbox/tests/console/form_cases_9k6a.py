@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class Case:
     template: str
-    role: str  # "coordinator" or "pi"
+    role: str  # "coordinator", "pi" or "admin"
     page: str
     action: str
     prefix: str
@@ -31,6 +31,35 @@ class Case:
 
 
 CASES: dict[str, Case] = {
+    "screen-now": Case(
+        template="screen_now.html",
+        role="coordinator",
+        page="/studies/GZQO/screen-now",
+        action="/studies/GZQO/screen-now",
+        prefix="sn",
+        bad={"all_dept": "0"},
+        failing=("all_dept",),
+        good={"all_dept": "1"},
+        testid="screennow-errors",
+        saved_event="console.screen_now",
+        title_key="screennow.title",
+        saved_at="/studies/GZQO/screen-now",
+    ),
+    "still-needed": Case(
+        template="still_needed.html",
+        role="admin",
+        page="/admin/still-needed",
+        action="/admin/still-needed/mail_relay",
+        prefix="sn-mail_relay",
+        bad={"smtp_host": "mail.hospa.test", "smtp_port": "port"},
+        failing=("smtp_port",),
+        good={"smtp_host": "mail.hospa.test", "smtp_port": "25"},
+        testid="sn-errors",
+        saved_event="console.site_needs",
+        kept=("smtp_host", "smtp_port"),
+        title_key="stillneeded.title",
+        saved_at="/admin/still-needed?sent=mail_relay",
+    ),
     "identity": Case(
         template="study_state.html",
         role="coordinator",

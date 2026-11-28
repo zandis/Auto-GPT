@@ -48,7 +48,7 @@ byte-identical re-run.
 | --- | --- |
 | 0 | lake counts equal generator counts; no chart number, ID or phone column; keys are pseudonyms |
 | 1–2 | criteria pasted, FEAS report with provenance and no model; the investigator approves; a coordinator cannot |
-| 3 | SCREEN: funnel never grows; no note excludes without two models (stub: never) |
+| 3 | SCREEN: funnel never grows; no note answer excludes a patient (D-1072) |
 | 4–5 | marks and their history; N1 and N2 mail with no chart number or name; ready and needs-information lists |
 | 7, audit | REDCap read-back, screening log XLSX; reveals audited; the chain verifies |
 | 8–9 | REDCap write-back; the data core with REDCap off and on, conflicts, a PI's sheet |
@@ -62,13 +62,14 @@ The budget is 15 minutes; it runs in about 2. `.github/workflows/trialbox-e2e.ym
 
 ## 3. The model gate
 
-The pair (judge Gemma 4 26B-A4B NVFP4, verifier Qwen3.5-9B AWQ) excludes on a note only when both say "fail".
+A note answer of the pair (the judge and the verifier of `models/registry.yaml`) never excludes a patient (D-1072);
+it is final only when both say "fail", and the patient goes to review.
 
 **The validation figures (D-918).** Each is measured on the product path: the set is screened as a site by SCREEN,
 through the gateway, on the installed box, and scored by ids after the run. Words used in every row:
 
-- **Excluded**: the patient is listed under "criteria not matched" for that trial, by a coded record or by a note
-  answer both models gave.
+- **Excluded**: the patient is listed under "criteria not matched" for that trial, by a coded record. Since
+  D-1072 no note answer excludes; a figure measured before it also counts a note answer both models gave.
 - **Not excluded**: listed for review, or as a candidate. An unknown is never an exclusion.
 - **Unanswered**: the run gave the pair no answer at all.
 
@@ -94,7 +95,7 @@ measurement pass on master.
 and names any recording a GPU run must still add (none is missing for the deployed pair: EN, JA and zh-TW are all in
 `eval/trialgpt_compare/results/raw`).
 N-12 is the unadjusted figure (D-343, REG-030). The audit-adjusted figure, 3.1 % (95 % 1.8–5.0), is a note and not
-the gate result: the adjustment rests on a sampled check of NIST labels by Claude, not a clinician
+the gate result: the adjustment rests on a sampled check of NIST labels by an automated reviewer, not a clinician
 (`eval/trec_ct/AUDIT.md`). It stays a note until a clinician repeats the sample.
 
 **Model changes** follow the model change protocol (`docs/validation/model-change-protocol.md`): each foreseen change

@@ -24,7 +24,7 @@ find out itself. If the screen and this page differ, the screen is right: tell t
 - The release of 23 November 2026 filled 60.7 GB of the stick. The 500 GB free asked above also leaves room for the
   data the box gathers.
 
-## Hospital IT: from the stick to the code
+## Hospital IT: from the stick to the sign-in
 
 1. Plug the stick into the machine. Sign in as the administrator and open a terminal.
 2. Type the line printed on the delivery sheet, exactly as printed. It looks like this:
@@ -35,21 +35,26 @@ find out itself. If the screen and this page differ, the screen is right: tell t
    the same, type yes. If not, press Enter and call the vendor.
 4. The screen shows `Vendor key fingerprint:`. Compare it with the vendor key's code on the sheet. If they are the
    same, type yes. If not, type no and call the vendor.
-5. The screen shows the machine's graphics card, memory and free disk, and asks
-   `Is this the machine to install TrialBox on? [Y/n]`. If it is, press Enter.
-6. Wait. Loading takes 10 to 20 minutes. Nothing is asked.
-7. The screen shows `TrialBox set-up:` with an address, and `One-time code:`. Give both to the box owner. The code
-   is shown on this screen only and is kept in no log: keep this window open until the owner has finished.
+5. The screen shows `this machine`: the graphics card, the memory, the free disk. Then it asks four things: the
+   language, the time zone (press Enter when it is right), the first administrator's mail address and full name, and,
+   only where the machine has no security chip, a passphrase of at least 12 characters, typed twice and not shown.
+   Keep it in a safe place: the box asks for it after every restart.
+6. Wait. Loading takes 10 to 20 minutes. Nothing more is asked. The screen lists what has a default now and can be
+   given later.
+7. The screen shows the first password and the enrolment code of the administrator, once, then `TrialBox is ready:`
+   and the address. Hand all three to the administrator in person.
 
-## The box owner: the set-up page
+## The administrator: the first sign-in
 
-1. On a computer on the hospital's network, open the address in a browser.
-2. Type the code from the box's screen.
-3. Answer the questions on the page. A demonstration box never needs real patient data.
-4. If the page asks for a passphrase, the machine has no security chip. Choose one of at least 12 characters. Keep
-   it in a safe place: the box asks for it after every restart. Type it only on this page, never in the terminal.
-5. Press "Make my accounts and finish". Wait a few minutes.
-6. The box's screen shows `TrialBox is ready:` and the address. Sign in with the account you just made.
+1. On a computer on the hospital's network, open the address in a browser. The browser warns until hospital IT has
+   made the computers trust the box; you can sign in all the same.
+2. Sign in as admin with the first password, and choose your own.
+3. Add the box to your authenticator app with the enrolment code. It works for 24 hours.
+4. On the administration page open Operations, then "Information still needed".
+5. Fill in what you know. Each item says why it is needed and who usually knows it. The box checks it, and the item
+   leaves the list within a minute or two.
+6. Leave the rest for later. Only the step that needs an item waits for it. A demonstration box never needs real
+   patient data: it shows a sample hospital.
 
 ## When the screen stops
 
@@ -66,7 +71,7 @@ Each line below is what the screen says, then what to do. "Nothing was changed" 
 | `no answer: stopped. Nothing was changed.` | Type the sheet's line again, and answer yes or no |
 | `the bundle's signature does not check with the vendor key` | Call the vendor |
 | `Docker is missing on this machine` | The machine was not prepared. Call the vendor |
-| `stopped: nothing was changed` | You answered n to the machine question. Type the sheet's line again on the right machine |
+| `the questions were not answered (above): nothing was changed` | Type the sheet's line again, and answer the four questions |
 | `the install stopped` | Call the vendor. Leave the machine as it is |
 | `the code was voided (five wrong codes): a new one` | Use the new code the screen shows |
 | `the set-up is not finished` | Call the vendor. Leave the machine as it is |

@@ -482,7 +482,18 @@ def criteria_table(rulesets: Path = RULESETS) -> str:
 # --- the report --------------------------------------------------------------------------------------------------
 
 
-def coverage(rows: list[dict[str, str]], ref: Reference, rulesets: Path = RULESETS) -> dict[str, Any]:
+def atc_families_lost(terminology: Path | None = None) -> dict[str, list[str]]:
+    """V-18b review F1 (D-1183): each grouper whose ATC families no code of the site's copy, the NHI lists or the
+    grouper itself fills, with the terminology loaded at install (``TB_TERMINOLOGY_DIR``)."""
+    from criteria_compiler.terminology import installed as inst
+
+    from tools.terminology_load import atc_losses
+
+    return atc_losses(terminology if terminology is not None else inst.installed_dir())
+
+
+def coverage(rows: list[dict[str, str]], ref: Reference, rulesets: Path = RULESETS,
+             terminology: Path | None = None) -> dict[str, Any]:  # fmt: skip
     results = [check_code(r, ref) for r in rows]
     by_domain: dict[str, dict[str, Any]] = {}
     for d in [*DOMAINS, "unknown"]:
@@ -543,6 +554,7 @@ def coverage(rows: list[dict[str, str]], ref: Reference, rulesets: Path = RULESE
         ],
         "valuesets_without_list": sorted({v["domain"] for v in valuesets if not v["list_given"]}),
         "references": ref.sources,
+        **({"atc_families_lost": lost} if (lost := atc_families_lost(terminology)) else {}),
     }
 
 
@@ -575,6 +587,10 @@ def render(report: dict[str, Any], title: str = "Mapping coverage") -> str:
                 out.append(
                     f"  {v['ruleset']}/{v['valueset']} ({', '.join(v['systems'])}): {', '.join(v['criteria']) or '-'}"
                 )
+    if report.get("atc_families_lost"):  # V-18b F1
+        out.append("Groupers whose ATC families no code fills (load the site's ATC copy; their criteria read unknown):")
+        for name, codes in report["atc_families_lost"].items():
+            out.append(f"  {name}: {', '.join(codes)}")
     return "\n".join(out)
 
 

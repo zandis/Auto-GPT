@@ -22,12 +22,13 @@ from typing import Any, Protocol
 from urllib.parse import urlencode
 
 import httpx
+from tb_common import egress_edge
 from tb_common.audit import AuditLog
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
-from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
+from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, list_rulesets, load_approved, seed_working_copy
 from tb_common.service_auth import actor_header
 from tb_contracts import (
     Job,
@@ -194,7 +195,7 @@ def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, Any]]:
     exactly this text (``console.ruleset_labels``)."""
     try:
         rs = load_approved(rulesets_dir, ruleset)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         return []
     shipped = ruleset_labels.shipped(ruleset, rulesets_dir)
     return [
@@ -220,7 +221,7 @@ def approval_state_of(rulesets_dir: Path, ruleset: str) -> dict[str, Any] | None
 
     try:
         rs = load_approved(rulesets_dir, ruleset)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         return None
     try:
         from criteria_compiler.terminology import resolver
@@ -312,7 +313,7 @@ def ruleset_infos(rulesets_dir: Path) -> list[RulesetInfo]:
         try:
             rs = load_approved(rulesets_dir, rid)
             out.append(RulesetInfo(rid, rs.version, "approved", str(rs.manifest.kind or "")))
-        except (RulesetNotApproved, FileNotFoundError, ValueError):
+        except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
             out.append(RulesetInfo(rid, None, "draft", ""))
     return out
 
@@ -640,6 +641,10 @@ class HttpBackend:
         if not self.test_smtp:
             raise Unavailable("no test mail server configured (TB_CONSOLE_TEST_SMTP)")
         host, _, port = self.test_smtp.partition(":")
+        if "." in host and host != "127.0.0.1":  # M3: a test server off the box (a service of the box has no dot)
+            out = egress_edge.leave("mail.test", host, egress_edge.Message(subject, body, tuple(files)),
+                                    audit=self.audit_log, actor="console")  # fmt: skip
+            subject, body, files = out.subject, out.body, list(out.files)
         m = EmailMessage()
         domain = sender.rsplit("@", 1)[-1]
         m["From"] = sender

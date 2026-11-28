@@ -679,8 +679,37 @@ restore-drill:
 # H139-13: the full set's console and poc stages (tools/full_set.py) allow no skip, as test-compose and test-walks:
 # a browser driver node cannot load is a failure that names it, never a skip that turns the stage green. The unit
 # shards run the console tests without this: there a host with no node still skips them with their own reasons.
-test-console:
-	TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
+# H-145 (#1504): the console tests run as `make test` runs the unit suite: the same marked TB_TEST_ROOT and its lock,
+# the xdist workers with --dist worksteal, TMPDIR and basetemp under the root. TB_STRICT_SKIPS=1 (tests/conftest.py):
+# a browser file that cannot start node or Chromium fails with its reason, it never turns the stage green by skipping.
+# The lead's bench (#1504): a run under nohup (SIGHUP ignored) is refused, since its workers, servers and browsers
+# would outlive a closed session; so is a root that group or others can write into, or that lies under such a folder
+# without the sticky bit (pglocal mark closes the folders this user owns; this refuses the ones it cannot close).
+# R1 (#1539): every cleanup step after pytest runs; a green run fails with the first cleanup step that failed, and a
+# red run keeps pytest's status.
+test-console: venv-check test-console-preflight
+	@TB_STRICT_SKIPS=1 flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-console-locked; rc=$$?; \
+	if [ $$rc = 75 ]; then echo "test-console: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
+
+.PHONY: test-console-preflight
+test-console-preflight:
+	@case "$$(sed -n 's/^SigIgn:[[:space:]]*//p' /proc/$$$$/status)" in *[13579bdfBDF]) \
+		echo "test-console: SIGHUP is ignored (nohup?): run it in a session that can end it" >&2; exit 1;; esac
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	@d="$(TB_TEST_ROOT)"; while :; do m=$$(stat -L -c %A "$$d") || exit 1; \
+		case "$$m" in ?????w????|????????w?) case "$$m" in *[tT]) ;; *) \
+			echo "test-console: $$d ($$m) can be written by others: give TB_TEST_ROOT a parent only you can write" >&2; \
+			exit 1;; esac;; esac; [ "$$d" = / ] && break; d=$$(dirname "$$d"); done
+
+.PHONY: test-console-locked
+test-console-locked:
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -m 0700 -p "$(TB_TEST_ROOT)/tmp"
+	TB_STRICT_SKIPS=1 TB_ENV=TEST TMPDIR="$(TB_TEST_ROOT)/tmp" PYTHONPATH=libs:services:. $(PY) -m pytest -q -n $(PYTEST_N) $(XDIST_DIST) \
+		--basetemp "$(TB_TEST_ROOT)/pytest" tests/console; rc=$$?; \
+	c=0; rm -rf "$(TB_TEST_ROOT)/tmp"; s=$$?; [ $$c != 0 ] || c=$$s; \
+	PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; s=$$?; [ $$c != 0 ] || c=$$s; \
+	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; s=$$?; [ $$c != 0 ] || c=$$s; fi; \
+	if [ $$rc != 0 ]; then exit $$rc; fi; exit $$c
 
 # browser + e-mail end to end against the running POC (make poc first): Playwright (Node) drives the console
 test-console-e2e:

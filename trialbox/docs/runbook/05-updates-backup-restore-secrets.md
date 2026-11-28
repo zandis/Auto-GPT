@@ -395,6 +395,46 @@ key under its unsealed KEK), or `--restic-share <file>` once per custodian's sha
 refuse and name the two options. The file's folder is read as a whole (the sidecar, the repository and its escrow
 file), read-only.
 
+**A rerun of the same restore takes off its own hold (INT-M5, ruling 7178128292).** This narrows "run a second time,
+the box stays held" in step 4 and "a second restore leaves the box held" above, for one case only. The restore writes
+its id first in the hold's reason: `[restore <the backup's sha256>@<the run's start, UTC>]`. A rerun of the same
+command takes the hold off only when all four of these are true:
+
+- it restores the same backup file;
+- the hold carries an earlier restore's id for that backup;
+- nothing changed the hold since: its last change on `/ops/flags` is that restore's own setting of it;
+- the rerun ends complete.
+
+The release is in the audit: `flag.set` names both restore ids and the backup's sha256, and `backup.restored` carries
+`restore_id` and `rerun_of`. This holds whether the first run was ended by Ctrl-C or SIGTERM (put back, held), by
+SIGKILL, or by a power loss (held on the restored database). Every other hold stays for a person, as above: one a
+person set or changed, one of another backup, one of a restore that did not end complete, and one with an earlier
+restore's set-aside audit chain on the box. Read `trialbox doctor` (`restore_hold`) after the rerun.
+
+**Restoring into a second, empty box.** A box newly installed beside the first (new hardware, a stand-by) takes the
+first box's backup with the one command above, given four things. Each one missing is refused before anything
+changes:
+
+1. **The backup file, by name.** `--last` reads this box's own nightly record, and a new box has none. Copy the first
+   box's backup file and its `.sha256` sidecar into one folder on this box and name the file; the sidecar must match.
+2. **The key, owned by root, mode 0600.** `--key` names a file owned by root and readable by root alone, not a link:
+   copy it from the stick first, as above.
+3. **`--no-copy` with `--yes-really`, or a target for the copy.** A box that holds data is kept as an encrypted copy
+   first, which needs this box's public key and a folder (`--public <key> --keep-to <folder>`). On a box that has no
+   backup key yet, `--no-copy --yes-really` goes on without the copy.
+4. **The same site.** The backup's site must be this box's `TB_SITE_ID`. A box installed by the four questions takes
+   its site id from the hospital's name: give it the first box's name on "Information still needed" first, then
+   compare `grep '^TB_SITE_ID=' deploy/.env` on both boxes. The id is set once, from the first name given: a later
+   name changes the display name only. A backup taken while the box still ran on the stand-in name carries the
+   stand-in id (`TRIALBOX-SITE-NAME-NEEDE`): once the name is given, it restores, on this box or another, only with
+   `--other-site`. Otherwise `--other-site` is for moving a site to new hardware only.
+
+The command, from the install folder of the second box:
+
+    sudo install -m 0600 -o root -g root /media/usb/trialbox-backup.key /root/trialbox-backup.key
+    sudo trialbox restore /srv/restore/trialbox-<site id>-<time>.tbbak --key /root/trialbox-backup.key --yes --restart --no-copy --yes-really
+    sudo rm /root/trialbox-backup.key
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |
@@ -470,3 +510,18 @@ command would import it). Look in the folder for a change of your own first, the
 The doctor's checks that need the box image's libraries, the services' code or `models/` (`doctor.IMAGE_CHECKS`) run
 in a one-off container of the box's own image when `trialbox doctor` is typed on the host; a check that cannot run
 there is a FAIL that says why, never a pass.
+
+**The update's networks (H-150).** Before the database starts, an update's database step (`python3 -m tools.trialbox
+db-up`, run by the release being installed) puts the box's networks on that release's settings with the box's own
+compose, then recreates through compose every container that does not answer to its service's name on one of its
+networks; the line says so ("db, orchestrator recreated through compose (no service name on a network)"). A container
+still without its name stops the update, which is then rolled back. Before H-150, a release that changed a network's
+settings (H-137's address range behind Caddy) left `db` with no name on trialbox-net, and the services could not find
+it ("failed to resolve host 'db'").
+
+**The rollback's database restore (H-151).** A release that carries H-151 puts each database back by loading the
+dump into a database made fresh beside the one in place (`<db>_tbrb`, with its owner, encoding, collation and grants),
+and swaps the two names in one transaction only when the whole load is in; the replaced database (`<db>_tbold`) is
+then dropped. A restore that fails or is stopped leaves the database in place as it was and the marker in place: run
+the rollback again. The volume needs room for the largest database twice while it runs; the update's space check
+counts it.

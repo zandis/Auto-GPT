@@ -5,6 +5,7 @@
     python -m tools.runbook_install static                      # the findings the runbook's text alone shows
     python -m tools.runbook_install follow --bundle B --vendor-pub K --out run.json [--machine container|vm]
     python -m tools.runbook_install compare run.json            # the run against the committed findings file
+    python3 -m tools.runbook_install bare                       # host commands that do not start bare (R22-48)
     python -m tools.runbook_install bundle                      # the vendor side only: a site bundle from a commit
     python -m tools.runbook_install run [--bundle B --vendor-pub K]   # make runbook-install: the container run
 
@@ -1076,6 +1077,44 @@ def _cmd_extract(a: argparse.Namespace) -> int:
     return 0
 
 
+BARE_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C.UTF-8"}
+_HOST = re.compile(r"(?:^|[;&|] *)(?:sudo +)?(?:python3? +-m +(tools(?:\.\w+)+)|(trialbox))\b((?: +[a-z][a-z0-9-]*)?)")
+
+
+def host_commands(root: Path = ROOT) -> dict[tuple[str, str], str]:
+    """Every host command of the runbook's pages that runs the product's own Python: (module, first word) and where it
+    is first written. A command inside a container (``docker ... exec``, ``docker run``) is not the host's."""
+    out: dict[tuple[str, str], str] = {}
+    for page in sorted((root / "docs" / "runbook").glob("*.md")):
+        for c in extract(str(page.relative_to(root)), root):
+            if "docker" in c.text:
+                continue
+            for mod, short, word in _HOST.findall(c.text):
+                out.setdefault((mod or ("tools.trialbox" if short else ""), word.strip()), c.place)
+    return out
+
+
+def bare_failures(root: Path = ROOT, python: str = "/usr/bin/python3") -> list[tuple[str, str]]:
+    """R22-48: the commands that do not even start from a bare environment (no ``PYTHONPATH``, the system's python3):
+    their ``--help`` ends in anything but 0. (command, the last line it said)."""
+    bad = []
+    for (mod, word), place in host_commands(root).items():
+        argv = [python, "-m", mod, *([word] if word else []), "--help"]
+        done = subprocess.run(argv, cwd=root, env=BARE_ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=120, check=False)  # fmt: skip
+        if done.returncode != 0:
+            bad.append((f"{place}: {mod} {word}".strip(), (done.stderr.strip().splitlines() or [""])[-1][:160]))
+    return bad
+
+
+def _cmd_bare(a: argparse.Namespace) -> int:
+    total, bad = len(host_commands()), bare_failures(python=a.python)
+    for cmd, why in bad:
+        print(f"{cmd}\t{why}")
+    print(f"bare host: {len(bad)} of {total} runbook host commands do not start")
+    return 1 if bad else 0
+
+
 def _cmd_plan(a: argparse.Namespace) -> int:
     for s in PLAN:
         print(f"{s.key:18s} {s.action:13s} {s.command or s.quote}")
@@ -1522,6 +1561,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     e.add_argument("--json", action="store_true")
     sub.add_parser("plan")
     sub.add_parser("static")
+    ba = sub.add_parser("bare", help="runbook host commands that do not start on a bare host (R22-48)")
+    ba.add_argument("--python", default="/usr/bin/python3")
     f = sub.add_parser("follow")
     f.add_argument("--bundle", required=True)
     f.add_argument("--vendor-pub", required=True)
@@ -1556,6 +1597,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         "extract": _cmd_extract,
         "plan": _cmd_plan,
         "static": _cmd_static,
+        "bare": _cmd_bare,
         "follow": _cmd_follow,
         "compare": _cmd_compare,
         "run": _cmd_run,

@@ -344,14 +344,14 @@ def models_canary() -> dict[str, Any]:
 def ruleset_detail(ruleset: str) -> dict[str, Any]:
     """The approved manifest's provenance (version, approval record, population, kind): what the console prints in
     a sponsor pack README (D-101). Aggregate: no criteria text, no patients."""
-    from tb_common.ruleset import RulesetNotApproved, load_approved
+    from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, load_approved
 
     rid = ruleset.strip().upper()
     if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{1,31}", rid):
         raise HTTPException(status_code=404, detail="no such ruleset")
     try:
         rs = load_approved(orch().rulesets_dir, rid)
-    except (RulesetNotApproved, FileNotFoundError, ValueError) as exc:
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError) as exc:
         # D-555: the error's own text names a folder of the box or the version asked for; the answer is fixed
         log.info("ruleset detail: %s has no approved version to show (%s)", rid, type(exc).__name__)
         raise HTTPException(status_code=404, detail="no approved version of that ruleset on this box") from exc
@@ -404,7 +404,12 @@ def waiting_studies() -> list[str]:
 
 
 @app.get("/jobs/{job_id}/outputs-current")
-def job_outputs_current(job_id: str, key: Annotated[list[str] | None, Query()] = None) -> dict[str, bool]:
+def job_outputs_current(
+    job_id: str,
+    key: Annotated[list[str] | None, Query()] = None,
+    to: Annotated[list[str] | None, Query()] = None,
+    made: bool = False,
+) -> dict[str, Any]:
     """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``key``, by object
     key; every output when none is named) are still current against the opt-out register, asked by the mail gateway just
     before it sends them (at publish, a queued try, a person's resend). ``current`` false: one names a patient opted
@@ -416,10 +421,21 @@ def job_outputs_current(job_id: str, key: Annotated[list[str] | None, Query()] =
     job = o.db.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
+    if made:  # 1523 ruling (review round 3, M1): the sha256 the job recorded of each file it built, by object key
+        return {"made": {out.minio_key: out.sha256 for out in job.outputs or []}}
     try:
         gone = frozenset(register_now())
     except Exception as exc:
         raise HTTPException(status_code=503, detail="the opt-out register did not answer") from exc
+    if to:  # M3: the mail's recipients, and who asked for the job, on the study's delegation log today
+        from tb_common.authz import norm
+
+        from orchestrator.core import SYSTEM_SENDERS
+        from orchestrator.grants import all_of, mailbox_right
+
+        study, day = (job.ruleset or "").upper(), o._now().date()
+        rights = {r: mailbox_right(norm(r), study, day) for r in {*to, job.requested_by} - set(SYSTEM_SENDERS)}
+        return {"delegated": all_of([rights.get(r) for r in to]), "sender": rights.get(job.requested_by, True)}
     keys = list(key or [])
     current = not outputs_name_opted_out(o, job, gone, keys or None)
     # the review of D-863: each ask is audited, by count (a yes or no for so many files; never a name or a patient)
@@ -813,11 +829,11 @@ def _flush_main(svc: Any, o: Orchestrator | None = None) -> None:
 
 def study_info(o: Orchestrator, rid: str) -> dict[str, Any]:
     """Question 1 of the readiness page: does the study have criteria, approved, and is a draft waiting?"""
-    from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
+    from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, list_rulesets, load_approved
 
     exists = rid in list_rulesets(o.rulesets_dir)
     version = None
-    with contextlib.suppress(RulesetNotApproved, FileNotFoundError, ValueError):
+    with contextlib.suppress(RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         version = load_approved(o.rulesets_dir, rid).version
     waiting = o.db.find(ruleset=rid, state="awaiting_approval", limit=20)
     exists = exists or bool(waiting) or bool(o.db.find(ruleset=rid, limit=1))
@@ -831,11 +847,11 @@ def records_info(o: Orchestrator, rid: str) -> dict[str, Any]:
 
 
 def approved_of(o: Orchestrator, rid: str) -> Any:
-    from tb_common.ruleset import RulesetNotApproved, load_approved
+    from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, load_approved
 
     try:
         return load_approved(o.rulesets_dir, rid)
-    except (RulesetNotApproved, FileNotFoundError, ValueError):
+    except (RulesetNotApproved, RulesetReadIncomplete, FileNotFoundError, ValueError):
         return None
 
 
@@ -871,6 +887,8 @@ def edc_of(o: Orchestrator) -> Any:
     from edc.store import EdcStore, sign_key_of
     from tb_common.optout import opted_out
 
+    from orchestrator.scheduler import recorded_study_state  # M7 (R1-E6): the console's recorded state, none = not open
+
     key = o.db.url or str(o.data_dir)
     if key not in _edcs:  # the signature key lives with the orchestrator alone (D-281)
         _edcs[key] = EdcStore(o.db.url, sign_key_of(os.environ, Path(o.cfg.env.secrets_dir)))
@@ -878,7 +896,7 @@ def edc_of(o: Orchestrator) -> Any:
     return EdcService(_edcs[key], core_of(o), o.audit, lambda: _now(o), o.today, study_service_of(o).client,
                       lambda: LakeFacts(o.services.lake),
                       (lambda job: gateway_drafter(llm, job)) if llm is not None else (lambda _job: None),
-                      opted_out)  # fmt: skip
+                      opted_out, study_open=lambda rs: recorded_study_state(rs, o.db.url) == "open")  # fmt: skip
 
 
 app.include_router(edc_router(lambda: edc_of(orch()), _claim))  # the person from the signed assertion (D-162)
@@ -1012,7 +1030,7 @@ def registry_update(
 @app.post("/registry/{ruleset}/promote")
 def registry_promote(ruleset: str, body: RegistryPromoteBody, claim: Claim = AS_REQUESTER) -> dict[str, int]:
     o = orch()
-    from tb_common.ruleset import RulesetNotApproved, load_approved
+    from tb_common.ruleset import RulesetNotApproved, RulesetReadIncomplete, load_approved
 
     try:
         req = RegistryPromote.model_validate({"by": claim.sub, "tiers": body.tiers})
@@ -1023,8 +1041,15 @@ def registry_promote(ruleset: str, body: RegistryPromoteBody, claim: Claim = AS_
     # D-476 (review of T-707): only pool rows evaluated on the criteria version in force are promoted; with no
     # approved version there is none ("": no row matches)
     in_force = ""
-    with contextlib.suppress(RulesetNotApproved, FileNotFoundError, ValueError):
+    try:
         in_force = load_approved(o.rulesets_dir, ruleset.upper(), on=o.today()).version
+    except RulesetReadIncomplete as exc:  # INT-R3A: a damaged copy is not "no approved version"; promote nothing
+        log.warning("registry promote: %s approved copy could not be read whole", ruleset.upper())
+        raise HTTPException(
+            status_code=409, detail="the approved ruleset could not be read whole; nothing was promoted"
+        ) from exc
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        pass
     try:
         return {"added": registry_of(o).promote(ruleset, req, _now(o), in_force)}
     except RegistryError as exc:

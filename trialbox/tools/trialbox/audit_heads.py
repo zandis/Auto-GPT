@@ -44,6 +44,8 @@ KEK_FILE = "/run/trialbox/kek"  # tb_common.kek.DEFAULT_KEK_FILE (the host wrapp
 #: passphrase (H-97, the review's L-2): a passphrase box's signer opens the KEK from the unsealed KEK file it mounts
 PASSED = ("TB_ENV", "TB_KEK_FILE", "TB_KMS_TOKEN", "TB_TZ")
 
+HEAD_MAX_AGE_H = 36.0  # TB_AUDIT_HEAD_MAX_AGE_H: nightly job, 36 h (ruling: not the plan's hourly)
+
 Recorder = Callable[[str, str, dict[str, Any]], None]
 Run = Callable[..., str]
 
@@ -131,20 +133,47 @@ def check_and_sign(audit_dir: Path, secrets_dir: Path, targets: Sequence[Path], 
             why = "; ".join(res.errors[:3])
             return Night(False, [f"the audit chain does not agree with {what} ({why}): nothing was signed; look at it "
                                  "with tools/audit_verify.py --heads before anything else"])  # fmt: skip
+        if not earlier and any(res.told(t) for t in targets):  # V8-05, V8-06: never signed over
+            return Night(False, ["no anchor folder here holds a signed head, but the audit chain records heads written "
+                                 "to one: emptied or replaced; nothing was signed; a person looks "
+                                 "(tools/audit_verify.py --heads) and signs by hand (tools/audit_verify.py "
+                                 "--sign-head)"])  # fmt: skip
+        first, last = audit._ts(res.first_ts), audit._ts(res.last_ts)
+        if not earlier and not res.signed_events and first and last and last - first > audit.FIRST_SIGNING_MAX:
+            return Night(False, ["the audit chain spans more than 48 h, no anchor folder holds a signed head and the "
+                                 "chain records none: a first signing is not made over what may be an emptied "
+                                 "anchor; a person looks (tools/audit_verify.py --heads) and signs by hand "
+                                 "(tools/audit_verify.py --sign-head)"])  # fmt: skip
         files = sorted(p.name for p in audit_dir.glob("*.jsonl"))
         try:
             rec = audit.make_signed_head(res.lines, res.last_hash, files[-1] if files else None, private_pem,
                                          public_pem, ts=now)  # fmt: skip
         except audit.AuditSignError as exc:
             return Night(False, [str(exc)])
-    written, failed = 0, []
+    written, failed, took = 0, [], []
+    holding = sum(audit.holds_heads(t) for t in targets)  # 1523 review M2: a folder added since, or one emptied
     for t in targets:  # after the lock: a slow share does not hold the box's audit writer
+        if res.told(t, holding) and not audit.holds_heads(t):
+            # OCR 1523-17, 1523-4: emptied, replaced, or a share not mounted (its mount point is there and empty):
+            # never signed over; named, so that the share mounted again is not held to this night's head
+            failed.append(
+                f"{t}: holds no signed head, but the audit chain records heads written to it (emptied, "
+                "replaced or not mounted): not written; a person looks (tools/audit_verify.py --heads)"
+            )
+            continue
         try:
             audit.publish_head(t, rec, public_pem)
             written += 1
+            took.append(str(t))
         except (OSError, audit.AuditSignError) as exc:
             failed.append(f"{t}: {exc}")
-    detail: dict[str, Any] = {"lines": res.lines, "head": res.last_hash, "key_id": rec["key_id"], "anchors": written}
+    detail: dict[str, Any] = {
+        "lines": res.lines,
+        "head": res.last_hash,
+        "key_id": rec["key_id"],
+        "anchors": written,
+        "to": took,
+    }  # OCR 1523-21: a folder is held only to the heads it took
     if failed:
         detail["failed"] = failed
     problems = [f"the signed head was not written to {f}" for f in failed]
@@ -292,6 +321,81 @@ def write_state(path: Path, night: Night) -> None:
         os.replace(tmp, path)
     except OSError as exc:
         print(f"audit-sign: the result was not kept in {path} ({exc})", file=sys.stderr)
+
+
+GATE = "go-live gate audit-anchor"  # PRODUCTION names an anchor that is lost, missing or stale as an open gate
+
+
+def doctor_checks(env: Mapping[str, str], deploy: Path, now: datetime | None = None) -> list[tuple[str, str, str]]:
+    """M4, the doctor hook: rows ``(key, state, text)`` for ``audit_heads``. Losing the anchor (none set, not
+    reachable, no head yet, stale, on the audit volume) is a WARN and never stops the box; in PRODUCTION the text
+    names the open gate. A trail that disagrees with a signed head, and a missing signing key, are FAIL."""
+    _libs()
+    from tb_common import audit, kek
+
+    now = now or datetime.now(UTC)
+    audit_dir, secrets, targets = host_dirs(env)
+    prod = (env.get("TB_ENV") or "PRODUCTION").strip().upper() == "PRODUCTION"
+    gate = f" [{GATE}: open]" if prod else ""
+    if not targets:
+        why = (f"no anchor folder: set {audit.ANCHOR_TARGETS_ENV} in deploy/.env to a folder off the box (the "
+               "hospital's share); `trialbox audit-sign` then keeps a signed head of the audit chain there every "
+               "night. Until then a removed audit event leaves no trace (D-562)")  # fmt: skip
+        return [("audit_heads", "WARN", why + gate)]
+    try:
+        limit = float(env.get("TB_AUDIT_HEAD_MAX_AGE_H") or HEAD_MAX_AGE_H)
+    except ValueError:
+        limit = HEAD_MAX_AGE_H
+    fail: list[str] = []
+    warn: list[str] = []
+    oks: list[str] = []
+    key_age: float | None = None  # a new key has no head until the first night
+    if not kek.key_present(secrets / audit.SIGN_KEY_FILE):
+        fail.append(f"no audit signing key in {secrets}: sh deploy/hardening/seal_keys.sh --secrets {secrets} makes it "
+                    "once (TB_SECRETS_HOST_DIR names the folder)")  # fmt: skip
+    else:
+        try:
+            made = datetime.fromtimestamp((secrets / audit.SIGN_PUB_FILE).stat().st_mtime, UTC)
+            key_age = (now - made).total_seconds() / 3600
+        except OSError:
+            key_age = None
+    try:
+        last = json.loads(state_file(deploy, env).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        last = None
+    if isinstance(last, dict) and last.get("ok") is False:
+        said = "; ".join(str(x) for x in (last.get("problems") or [])[:2])[:500]
+        warn.append(f"the last audit-sign ({last.get('at')}) was refused or failed: {said}")
+    own: dict[str, bytes] | None
+    try:
+        own = own_keys(secrets)
+    except (OSError, ValueError):
+        own = {}
+    except ImportError:  # OCR 1523-14: a host python3 without the crypto library: the dates and the chain
+        own = None
+    holding = sum(audit.holds_heads(t) for t in targets)
+    for t in targets:
+        try:
+            state, text = audit.anchor_state(t, audit_dir, own, now, limit, holding)
+        except PermissionError as exc:  # an ordinary user's doctor: not looked at, never a FAIL for it
+            warn.append(f"cannot look at {t} here ({exc.filename}: not readable by this user)")
+            continue
+        if state == "missing" and "no signed head" in text and key_age is not None and abs(key_age) <= limit:
+            text += f": the audit key is {key_age:.0f} h old, the first night has not signed"
+        if state == "tampered":
+            fail.append(text)
+        elif state != "ok":
+            warn.append(text)
+        else:
+            oks.append(text)
+    custody = ("audit_key_custody", "WARN", "the audit signing key is kept in this box's own secrets folder: a person "
+               "with root on the box can sign a rewritten trail. A separate signer or a hardware key is open "
+               "(OWNER: H10G4-03)")  # fmt: skip
+    if fail:
+        return [("audit_heads", "FAIL", "; ".join(fail + warn)), custody]
+    if warn:
+        return [("audit_heads", "WARN", "; ".join(warn) + gate), custody]
+    return [("audit_heads", "PASS", "newest signed head " + ", ".join(oks)), custody]
 
 
 def init_key(secrets_dir: Path) -> int:

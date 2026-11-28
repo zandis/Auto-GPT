@@ -61,7 +61,7 @@ import sys
 import tarfile
 import time
 import urllib.request
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -110,6 +110,25 @@ STRICT_ENVS = ("PRODUCTION", "VALIDATION")
 
 class UpdateRefused(UpdateFailed):
     """A preflight refusal: nothing on the box was changed (no marker, no backup, no service stopped)."""
+
+
+#: the kernel's machine name as an image platform names the architecture
+_ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
+
+
+def host_architecture() -> str:
+    """This host's architecture as an image platform names it (``amd64``, ``arm64``); "" when it cannot say."""
+    machine = os.uname().machine.lower() if hasattr(os, "uname") else ""
+    return _ARCH.get(machine, machine)
+
+
+def architecture_mismatch(release: Mapping[str, Any] | None, arch: str) -> str:
+    """The platform ``release`` (release.json) was built for (its top-level ``platform``, ``os/arch``, recorded by
+    tools/release.py build --platform) when it is not ``arch``; "" otherwise. A release that records none (every
+    bundle built before it) is not compared, nor are its images' own ``platform`` (from images.lock, which may name
+    another manifest of a multi-architecture image), nor a host that cannot say."""
+    plat = str((release or {}).get("platform") or "")
+    return plat if arch and plat.count("/") >= 1 and plat.split("/")[1] != arch else ""
 
 
 class UpdateInterrupted(KeyboardInterrupt):
@@ -1038,13 +1057,66 @@ REFDATA_SWEEP_SH = 'rm -rf -- "${TMPDIR:?}"/tb-refdata-*'
 # own under PGDATA (the volume's mount point is PGDATA itself, so no sibling exists; the only other postgres-owned
 # mount, the pgBackRest repository, is the hospital's off-box share when archiving is on, no place for a plaintext
 # script). 0700, emptied first (a killed rollback's leftover) and removed on every exit. ``space_needs`` counts it.
+# H-151: never ``--clean`` over the database in place: on a partitioned lake it drops the key of a partition child,
+# which PostgreSQL refuses ("cannot drop inherited constraint"), and the rollback failed half way. The dump loads into
+# a database made fresh beside it (``<db>_tbrb``: template0, the owner, encoding, collation, connection limit and
+# grants of the one in place; the dump's extensions, and their comments, made by the superuser first from the
+# archive's list, as the image's init script makes them: the role, not their owner, may not), then the archive's
+# other entries (``-L``) as the role, in one transaction. The archive is kept in that 0700 folder while it is read.
+# Only when the whole load committed are the two names swapped, in one transaction (``<db>`` becomes ``<db>_tbold``,
+# then dropped). Until then the database in place is untouched: a failure or a signal drops the fresh one on the way
+# out, and the marker stays (the rollback can run again, and drops a fresh or a replaced database a killed run
+# left). The superuser is the container's POSTGRES_USER (the role itself where none is named: it needs CREATEDB
+# then). ``space_needs`` counts the fresh database and the archive too.
 RESTORE_DIR = "${PGDATA:?}/tb-rollback"
+RESTORE_MAKE_SQL = (
+    'DROP DATABASE IF EXISTS :"n" WITH (FORCE);\n'
+    'DROP DATABASE IF EXISTS :"o" WITH (FORCE);\n'
+    "SELECT format('CREATE DATABASE %I WITH TEMPLATE template0 OWNER %I ENCODING %L LC_COLLATE %L LC_CTYPE %L "
+    "CONNECTION LIMIT %s', :'n', pg_get_userbyid(datdba), pg_encoding_to_char(encoding), datcollate, datctype, "
+    "datconnlimit) FROM pg_database WHERE datname = :'db' \\gexec\n"
+    "SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'n') \\gexec\n"
+    "SELECT format('GRANT %s ON DATABASE %I TO %s%s', a.privilege_type, :'n', CASE a.grantee WHEN 0 THEN 'PUBLIC' "
+    "ELSE quote_ident(pg_get_userbyid(a.grantee)) END, CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' "
+    "END) FROM pg_database d CROSS JOIN LATERAL aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a "
+    "WHERE d.datname = :'db' \\gexec\n"
+)
+RESTORE_SWAP_SQL = (
+    "SELECT count(pg_terminate_backend(pid)) AS ended FROM pg_stat_activity\n"
+    "  WHERE datname IN (:'db', :'n') AND pid <> pg_backend_pid() \\gset\n"
+    "BEGIN;\n"
+    'ALTER DATABASE :"db" RENAME TO :"o";\n'
+    'ALTER DATABASE :"n" RENAME TO :"db";\n'
+    "COMMIT;\n"
+)
+#: review 1535-1, 1535-2: the archive's own list (``pg_restore -l``) is split by each entry's kind, never a line of the
+#: generated SQL (a stored value begins a line of COPY data): an extension and its comment go to the superuser's
+#: list, every other entry to the role's. A list line is ``<id>; <oid> <oid> <kind> ...``; ``;`` lines are comments.
+RESTORE_SPLIT_AWK = (
+    '$4 == "EXTENSION" || ($4 == "COMMENT" && $5 == "-" && $6 == "EXTENSION") { print > x; next } { print > m }'
+)
 RESTORE_SH = (
-    f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1; '
-    "trap 'rm -rf -- \"$d\"' EXIT; trap 'exit 1' HUP INT TERM; "
-    't=$(mktemp -p "$d") || exit 1; '
-    'pg_restore --clean --if-exists --no-owner -f "$t" || exit 1; '
-    '{ printf "%s\\n" "$3"; cat "$t"; } | psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$1" -d "$2"'
+    f'umask 077; d="{RESTORE_DIR}"; rm -rf -- "$d"; mkdir -m 0700 "$d" || exit 1\n'
+    'r="$1"; db="$2"; reset="$3"; n="${db}_tbrb"; o="${db}_tbold"; made=\n'
+    'adm() { psql -X -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-$r}" -v db="$db" -v n="$n" -v o="$o" "$@"; }\n'
+    "gone() { [ -z \"$made\" ] || printf '%s\\n' 'DROP DATABASE IF EXISTS :\"n\" WITH (FORCE);' | adm -d postgres; }\n"
+    "trap 'gone; rm -rf -- \"$d\"' EXIT; trap 'exit 1' HUP INT TERM\n"
+    'a="$d/dump"; cat > "$a" || exit 1\n'
+    'pg_restore -l -f "$d/all.list" "$a" || exit 1\n'
+    f'awk -v x="$d/ext.list" -v m="$d/main.list" \'{RESTORE_SPLIT_AWK}\' "$d/all.list" || exit 1\n'
+    ': >> "$d/ext.list"; : >> "$d/main.list"\n'
+    'pg_restore --no-owner -L "$d/ext.list" -f "$d/ext.sql" "$a" || exit 1\n'
+    't=$(mktemp -p "$d") || exit 1\n'
+    'pg_restore --no-owner -L "$d/main.list" -f "$t" "$a" || exit 1\n'
+    "made=1\n"
+    f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_MAKE_SQL}TBSQL\n"
+    'adm -d "$n" -f "$d/ext.sql" || exit 1\n'
+    '{ printf "%s\\n" "$reset"; cat "$t"; } '
+    '| psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$r" -d "$n" || exit 1\n'
+    f"adm -d postgres <<'TBSQL' || exit 1\n{RESTORE_SWAP_SQL}TBSQL\n"
+    "made=\n"
+    "printf '%s\\n' 'DROP DATABASE IF EXISTS :\"o\" WITH (FORCE);' | adm -d postgres "
+    '|| echo "restore: $db is restored; the database it replaced is left as $o (the next rollback drops it)" >&2\n'
 )
 # Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
 # its relations in public (not an extension's). D-541: and what the database's owner owns (the FHIR store's own role
@@ -1276,6 +1348,18 @@ class Updater:
             )
         return []
 
+    def _same_architecture(self, plan: Plan) -> list[str]:
+        """A bundle built for another architecture than the host (release.json's top-level ``platform``, recorded by
+        tools/make_bundle.sh --platform, every image checked against it) is refused: the box could load none of
+        them. A bundle that records no platform is not refused here."""
+        other = architecture_mismatch(plan.release, host_architecture())
+        if other:
+            raise UpdateRefused(
+                f"{plan.bundle_id} is built for another architecture than this host ({host_architecture()}): "
+                f"{other}. Ask for the bundle of this machine (tools/make_bundle.sh --platform)"
+            )
+        return []
+
     def _tls_old_clients(self) -> list[str]:
         """H-48 (D-1328): a site box's update recreates Caddy from deploy/.env (``up -d``), so a TB_TLS_OLD_CLIENTS
         that is not off or cbc, or not the value deploy/install.sh last audited, is refused before anything changes:
@@ -1319,6 +1403,7 @@ class Updater:
         notes: list[str] = []
         notes += self._tls_old_clients()
         notes += self._from_a_commit(plan)
+        notes += self._same_architecture(plan)
         notes += self._audit_waits()
         if plan.release_seq is not None:
             inst = us.installed(self.dir)
@@ -2023,8 +2108,14 @@ class _DockerImages:
         for tag, rt in point.images.items():
             if rt:
                 self.run(["docker", "tag", rt, tag])
-            else:
-                self.run(["docker", "image", "rm", "-f", tag])
+                continue
+            try:
+                self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag])
+            except UpdateFailed as exc:
+                if not re.search(r"(?i)no such image", str(exc)):
+                    raise  # termfix R1: a daemon error is not proof the tag is gone
+                continue  # termfix: already removed by a rollback that failed later; this one finishes it
+            self.run(["docker", "image", "rm", "-f", tag])
 
 
 class ComposeBox(_DockerImages):
@@ -2323,7 +2414,13 @@ class ComposeBox(_DockerImages):
                  (self.deploy.parent, 2 * plan.payload_bytes("host"), "host tree (unpacked)"),
                  # H10G1-05: a rollback writes one database's plain script on the db volume (RESTORE_DIR), under
                  # Docker's root on a box; a plain script is about the database's size or less (no indexes)
-                 (root / "volumes", largest, "rollback script (largest database) on the db volume")]  # fmt: skip
+                 (root / "volumes", largest, "rollback script (largest database) on the db volume"),
+                 # H-151: the rollback loads the dump into a fresh database beside the one in place (RESTORE_SH), on
+                 # the same volume; a restored database is about the size it had (indexes included)
+                 (root / "volumes", largest,
+                  "fresh database during a rollback (largest database) on the db volume"),
+                 # review 1535-1: the rollback keeps the dump's archive there while it reads it (at most its size)
+                 (root / "volumes", largest, "rollback archive (largest database) on the db volume")]  # fmt: skip
         for t in [t for t in (self.env.get("TB_BACKUP_TARGETS") or "").replace(",", " ").split() if t]:
             needs.append((Path(t), sizes, "backup (at least the databases)"))
         return needs
@@ -2410,6 +2507,62 @@ class ComposeBox(_DockerImages):
             return False
         return bool(src) and src == os.path.realpath(self.deploy / "docker" / "db-init")
 
+    #: H-150: the format of ``docker inspect`` for :meth:`lacking_names`: a container's compose service, whether it is a
+    #: one-off of ``compose run`` (``oneoff:True``; review 1535-3: ``compose ps -a`` lists a stopped one), then each of
+    #: its networks with the names it answers to there
+    NAMES_FMT = (
+        '{{index .Config.Labels "com.docker.compose.service"}} '
+        'oneoff:{{index .Config.Labels "com.docker.compose.oneoff"}}'
+        '{{range $k, $v := .NetworkSettings.Networks}} {{$k}}={{join $v.Aliases ","}}{{end}}'
+    )
+    #: the engine's own networks, which carry no service names
+    ENGINE_NETWORKS = frozenset({"host", "none", "bridge"})
+
+    @classmethod
+    def lacking_names(cls, inspected: str) -> dict[str, list[str]]:
+        """H-150: ``{service: [network, ...]}`` for each container (a line of :data:`NAMES_FMT`) that does not answer
+        to its service's name on one of its networks; the engine's own networks are left out, and so is a one-off
+        container of ``compose run`` (it answers to its run's name and is no service's container)."""
+        out: dict[str, list[str]] = {}
+        for line in inspected.splitlines():
+            parts = line.split()
+            if len(parts) < 2 or parts[1] == "oneoff:True":
+                continue
+            svc, nets = parts[0], parts[2:]
+            for net in nets:
+                name, _, names = net.partition("=")
+                if name not in cls.ENGINE_NETWORKS and svc not in names.split(","):
+                    out.setdefault(svc, []).append(name)
+        return out
+
+    def _names(self) -> dict[str, list[str]]:
+        ids = self.run(self._c("ps", "-a", "-q")).split()
+        if not ids:
+            return {}
+        return self.lacking_names(self.run([*self.docker, "inspect", "-f", self.NAMES_FMT, *ids]))
+
+    def keep_names(self) -> list[str]:
+        """H-150: compose makes a network again when its settings changed (a release's new address range, H-137),
+        but only when every container on it is in the command's selection, and it reconnects the containers that
+        were there without their service's name: the next ``up`` of the whole project left ``db`` with no name on
+        trialbox-net, and nothing could find the database. So, before the database starts, the networks are put on
+        this release's settings by the box's own compose (``up --no-start --no-recreate``: nothing is started and
+        no container is recreated), and each service whose container lacks its name on one of its networks is
+        recreated by the same compose (``up --no-start --no-deps --force-recreate``), never by a raw engine call.
+        Returns the services recreated; one still without its name stops the update."""
+        t = self.up_wait()
+        self.run(self._c("up", "--no-start", "--no-recreate", "--pull", self._pull()), timeout=t + 120)
+        lacking = self._names()
+        if not lacking:
+            return []
+        self.run(self._c("up", "--no-start", "--no-deps", "--force-recreate", "--pull", self._pull(), *sorted(lacking)),
+                 timeout=t + 120)  # fmt: skip
+        still = self._names()
+        if still:
+            said = "; ".join(f"{svc}: no name on {', '.join(nets)}" for svc, nets in sorted(still.items()))
+            raise UpdateFailed(f"recreated through compose, still without their service's name: {said}")
+        return sorted(lacking)
+
     def db_on_new_settings(self) -> str:
         """D-624: the ``db`` service as the release now in force makes it, before anything is run in it. Two things
         of the container are still the previous release's until here. Its environment: the role script reads each
@@ -2418,14 +2571,17 @@ class ComposeBox(_DockerImages):
         Compose recreates a container when its settings changed and leaves it otherwise; when the folder it holds
         is not this release's (or Docker cannot say), it is made again here. The final ``up`` recreated it before;
         what is still running then (``fhir-store`` always, every service with ``--no-backup``) loses its
-        connections a little earlier and is recreated by that ``up``."""
+        connections a little earlier and is recreated by that ``up``. H-150: first the networks are put on this
+        release's settings and every service keeps its name on them (:meth:`keep_names`)."""
         if not self.env.get("TB_DB_URL", ""):  # as set_roles
             return "no database step on this box"
+        renamed = self.keep_names()  # H-150: before the database's own check and start
+        note = f"; {', '.join(renamed)} recreated through compose (no service name on a network)" if renamed else ""
         t = str(self.up_wait())
         again = [] if self._db_scripts_are_this_releases() else ["--force-recreate"]
         self.run(self._c("up", "-d", "--pull", self._pull(), *again, "--wait", "--wait-timeout", t, "db"),
                  timeout=int(t) + 120)  # fmt: skip
-        return "made again: it held another release's scripts" if again else "on this release's settings"
+        return ("made again: it held another release's scripts" if again else "on this release's settings") + note
 
     def fhir_password_set(self) -> bool:
         """Whether ``.env`` holds a password for the FHIR store's role: not empty and not the example file's
@@ -2704,8 +2860,42 @@ class ComposeBox(_DockerImages):
                           timeout=7200)  # fmt: skip
         site = self.deploy / "site"
         site.mkdir(parents=True, exist_ok=True)
-        (site / "terminology-load.json").write_text(report, encoding="utf-8")
+        from tools import terminology_load as tl
+
+        path = site / "terminology-load.json"
+        try:  # review 1439-4: systems an earlier restart did not serve stay pending
+            new = json.loads(report)
+            old = json.loads(path.read_text("utf-8")) if path.is_file() else None
+            tl.write_report(path, tl.carry(old if isinstance(old, dict) else None, new))
+        except ValueError:
+            tl.write_text_whole(path, report)  # whole or not at all (review 1439-3): the doctor reads it
+        self._restart_fhir_store(path)
         return done
+
+    def _restart_fhir_store(self, path: Path) -> None:
+        """V-18b (D-1183, V18-01): after a load that changed a system, the FHIR store is restarted and waited for, so
+        it never answers ``$lookup`` or ``$validate-code`` from the earlier version (its cache keeps them for minutes,
+        and no operation clears it); the report records it for the doctor."""
+        import time
+        from datetime import UTC, datetime
+
+        from tools import terminology_load as tl
+
+        try:
+            rep = json.loads(path.read_text("utf-8"))
+        except (OSError, ValueError):
+            return
+        if not tl.changed(rep):
+            return
+        start = time.monotonic()
+        answered = True
+        try:
+            self.run(self._c("restart", "fhir-store"), timeout=300)
+            self.run(self._c("up", "-d", "--wait", "--wait-timeout", "900", "fhir-store"), timeout=960)
+        except (UpdateFailed, subprocess.TimeoutExpired):  # said in the report and by the doctor, never a stop
+            answered = False
+        at = datetime.now(UTC).isoformat(timespec="seconds")
+        tl.write_report(path, tl.restarted(rep, answered, int(time.monotonic() - start), at))  # whole or not at all
 
     def check(self, plan: Plan) -> str:
         weights = self.check_weights()  # first: a flag it writes makes the gateway unhealthy for the wait below
@@ -2738,8 +2928,11 @@ class ComposeBox(_DockerImages):
         self.run(self._c("stop", *PY_SERVICES, "fhir-store"), timeout=600)  # nobody holds the databases open
         self.restore_images(point)
         restore_models(self.models, rb, point)
-        restore_host(self.deploy.parent, point)  # the previous release's compose files for the restart below
         self.restore_databases(rb, point)
+        # termfix: the host tree (the code the next `tools/apply_update.sh rollback` runs) goes back only after the
+        # databases: a restore that fails leaves the release that wrote the marker in place to finish its rollback,
+        # never the release before it (whose restore may be the pre-H-151 one, as on the bench box)
+        restore_host(self.deploy.parent, point)  # the previous release's compose files for the restart below
         refs = point.extra.get("rulesets_refs")
         if refs:  # rulesets-data back to the tag of the rollback point (imports of this update dropped)
             self.run(self._c("run", "--rm", "--no-deps", "-T", "criteria-compiler", "python", "-c", RULESETS_PY,
@@ -3221,6 +3414,7 @@ def _main_apply(
     # bundle by installing it again
     try:
         Updater(box, updates, say=print)._from_a_commit(plan)
+        Updater(box, updates, say=print)._same_architecture(plan)  # install.sh's first load too
     except UpdateRefused as exc:
         print(f"update REFUSED: {exc}; nothing was changed")
         return 1

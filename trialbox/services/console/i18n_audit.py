@@ -219,6 +219,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.data_resolve": ("Data difference resolved", "データ差異の解決", "解決資料差異"),
     "console.data_source": ("Data source changed", "データソースの変更", "資料來源變更"),
     "console.data_sync": ("Study data synchronised", "研究データの同期", "同步研究資料"),
+    "console.screen_now": (
+        "Screen now: started, queued, joined or refused",
+        "今すぐスクリーニング(開始・待機・合流・拒否)",
+        "立即篩選(開始、排隊、併入或拒絕)",
+    ),
     "console.conflict_resolved": ("Clinical conflict resolved", "臨床データ矛盾の解決", "解決臨床資料衝突"),
     "console.site_check": ("Site check recorded", "施設確認の記録", "記錄院內確認"),
     "console.site_fact": ("Site fact recorded", "施設情報の記録", "記錄院內事實"),
@@ -228,6 +233,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.site_remote": ("Remote site source changed", "遠隔施設ソースの変更", "遠端院內來源變更"),
     "console.site_resolve": ("Site question resolved", "施設の確認事項の解決", "解決院內問題"),
     "console.site_sheet": ("Site sheet read", "施設シートの読込", "讀取院內試算表"),
+    "console.site_needs": ("Site information filled in", "まだ必要な情報の入力", "填寫尚需的資料"),
     "console.ops": ("Operations action", "運用操作", "維運操作"),
     # services: data, EDC, set-up, mail, model gateway, operations
     "data.entry": ("Study data entered (service)", "研究データの入力（サービス）", "輸入研究資料（服務）"),

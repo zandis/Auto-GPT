@@ -326,8 +326,10 @@ def _outside(path: Path, sec: Path, what: str) -> None:
         raise K.KekError(f"{what} {path} is inside the secrets folder {sec}: it must live elsewhere")
 
 
-def new_kek(a: argparse.Namespace, sec: Path, env: Mapping[str, str], pass_var: str) -> tuple[bytes, dict[str, Any]]:
-    """A new KEK and its kek.json for the back end of ``a``; shares and KEK files are written here."""
+def new_kek(a: argparse.Namespace, sec: Path, env: Mapping[str, str], pass_var: str,
+            old: tuple[bytes, Mapping[str, Any] | None] | None = None) -> tuple[bytes, dict[str, Any]]:  # fmt: skip
+    """A new KEK and its kek.json for the back end of ``a``; shares and KEK files are written here. ``old``: the KEK
+    and kek.json a rotation replaces (H-110 (l): a new passphrase that opens the old KEK is refused)."""
     if a.backend == "passphrase":
         params = K.passphrase_params()
         if a.scrypt_n:
@@ -335,6 +337,17 @@ def new_kek(a: argparse.Namespace, sec: Path, env: Mapping[str, str], pass_var: 
         phrase = _passphrase(env, pass_var, "new KEK passphrase", twice=True)
         if len(phrase) < 12:
             raise K.KekError("the passphrase is shorter than 12 characters")
+        if (
+            old is not None
+            and old[1] is not None
+            and old[1].get("backend") == "passphrase"
+            and hmac.compare_digest(K.derive_from_passphrase(phrase, old[1]), old[0])
+        ):
+            # H-110 (l): a new salt gives a new KEK id, but the box would still open with the old (exposed) passphrase
+            raise K.KekError(
+                "the new passphrase is the one the box is sealed under now: a rotation to it leaves "
+                "the old passphrase opening the box; give a new passphrase (nothing was changed)"
+            )
         kek = K.derive_from_passphrase(phrase, params)
         return kek, K.new_meta("passphrase", kek, **params)
     kek = os.urandom(K.KEK_LEN)
@@ -1125,7 +1138,7 @@ def _rotate_kek_locked(a: argparse.Namespace, env: Mapping[str, str], sec: Path,
              f"KEK is not rotated")  # fmt: skip
         return 1
     try:
-        new, meta = new_kek(a, sec, env, "TB_KEK_NEW_PASSPHRASE")
+        new, meta = new_kek(a, sec, env, "TB_KEK_NEW_PASSPHRASE", old=(old, old_meta))
         if journal["credential"]:
             seal_to_tpm(new)
         old_esc = ke.current(old_meta)

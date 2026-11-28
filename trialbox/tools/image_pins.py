@@ -144,6 +144,8 @@ def _write_atomic(path: Path, text: str, mode: int) -> None:
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         try:
+            if os.geteuid() == 0:  # H-110 (OCR 1455-5, M-LH-1): root's alone, never the old file's owner handed on
+                os.fchown(fd, 0, 0)
             os.fchmod(fd, mode)
             while data:
                 data = data[os.write(fd, data) :]
@@ -298,8 +300,7 @@ def write_env(path: Path, changes: dict[str, str | None]) -> None:
         return
     lines = [ln for ln in read_env(path) if ln.partition("=")[0].strip() not in changes]
     lines += [f"{k}={v}" for k, v in sorted(changes.items()) if v]
-    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
-    _write_atomic(path, "\n".join(lines) + "\n", mode)
+    _write_atomic(path, "\n".join(lines) + "\n", 0o600)  # H-110 (OCR 1455-5): the box file is 0600, root's as root
 
 
 # --------------------------------------------------------------------------------- the bundle's side (make_bundle.sh)

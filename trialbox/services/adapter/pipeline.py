@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno, feedguard, labvalue, refdata
+from tb_common import chartno, feedguard, labvalue, refdata, site_needs
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -102,6 +102,11 @@ class AdapterConfig:
     site_profile: Path | None = None
     # 10B-6: settings.profiles (tw_core, twpas_version): a profile's standard versions must agree with them
     profile_standards: dict[str, str] = field(default_factory=dict)
+    # U-5 (D-1280): settings.yaml as loaded, for the run gate's items answered there (site.name, data_source.type)
+    site_settings: dict[str, Any] = field(default_factory=dict)
+    # M1: the in-process box of the tools and tests says its source is synthetic: the run gate is for real data. In code
+    # only, from no setting; the box's own entries (cli, app, run_job) never set it
+    synthetic_source: bool = False
 
     def __post_init__(self) -> None:
         from tb_common.config import site_tz
@@ -524,7 +529,7 @@ def run_ingest(
                 validator=validator,
                 cleanup=cleanup,
             )
-    except SiteKeyError:  # T-612 audits its own refusal (with the reason); one event per night
+    except (SiteKeyError, SiteNeeded):  # T-612 and U-5 audit their own refusal (with the reason); one event per night
         raise
     except Exception as exc:
         if cfg.audit_dir:
@@ -599,6 +604,7 @@ def _run_ingest(
                 },
             )
         raise
+    refuse_site_needs(cfg, snap, source_kind)  # U-5 (D-1280): before a row, a folder or a lake build exists for it
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
@@ -618,12 +624,17 @@ def _run_ingest(
     # is scratch on the lake volume (``lake:tmp``), removed when the night ends
     spool = cleanup.enter_context(contextlib.closing(Spool(cfg.lake_dir / "tmp" / f"ingest-{snap}")))
     patient_ids: list[str] = []  # in the order sent: the merged chart numbers drop by id alone
+    patient_who: dict[str, dict[str, str]] = {}  # H34-06: the demographics each chart number first arrived with
+    identity_conflicts: set[str] = set()  # H34-06: chart numbers (pids) that arrived tonight as two people
 
     def to_spool(r: Resource) -> None:
         spool.add(r)
         if r["resourceType"] == "Patient":
-            patient_ids.append(str(r.get("id")))
+            patient_ids.append(pid := str(r.get("id")))
+            if _two_people_seen(patient_who, pid, _who(r)):
+                identity_conflicts.add(pid)
 
+    against_served: set[str] = set()  # H34-06: chart numbers whose name or national id differ from the served one
     patient_pairs: list[tuple[str, str]] = []
     identities: list[tuple[str, dict[str, str]]] = []
     fhir_profiles = ""
@@ -635,6 +646,7 @@ def _run_ingest(
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}  # NEW-DIN-6: table -> look-up -> code -> rows
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
+    unlisted_views: dict[str, int] = {}  # M6-TW: views the source offers that the mapping does not name -> rows
     current_before = _current(cfg.lake_dir)
     # T-659b (D-370): the controls moved from the retired data platform: contracts, row quarantine, control totals
     contracts = (
@@ -841,6 +853,10 @@ def _run_ingest(
                         (pid, {k: str(r.get(col) or "") for k, col in ident.items()})
                         for (pid, _), r in zip(patient_pairs, rows, strict=True)
                     ]
+                    names: dict[str, dict[str, str]] = {}  # H34-06: one chart number, two names or national ids
+                    for pid, said in identities:
+                        if _two_people_seen(names, pid, said):
+                            identity_conflicts.add(pid)
             # STD-025 (T-615a): a row the mapping cannot read is rejected and counted by reason (its values left out);
             # the table goes on, and the night is held only when rejects pass REJECT_MAX_PCT % of the table's rows
             rejected: Counter[str] = Counter()
@@ -890,6 +906,10 @@ def _run_ingest(
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
+        if callable(told := getattr(source, "unlisted", None)):  # M6-TW: named and counted, never read
+            unlisted_views = told({str(t["source"]) for t in mapping.tables.values()})
+            for name, n in unlisted_views.items():
+                log.warning("view %s (%d rows) is not in the mapping: not read", name, n)
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if mapping is not None else _bulk_unit_defaults(cfg.mapping_path)
     counts = spool.counts()
@@ -926,6 +946,12 @@ def _run_ingest(
                 served_now = _current(cfg.lake_dir)
                 pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
             pm.stage(snap, patient_pairs, identities or [])
+            # H34-06: tonight's name and national id against the served ones (the pid map's identity is written
+            # only when a night is published); the served NDJSON carries neither
+            # ponytail: one look-up per patient; a bulk read if it ever shows in the night's timings
+            for pid, said in identities:
+                if _two_people(pm.identity(pid) or {}, said):
+                    against_served.add(pid)
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
@@ -1008,6 +1034,8 @@ def _run_ingest(
     # T-611: the completeness gate. A missing or emptied table, a table that shrank past the band, or a patient who
     # left the feed while their records stayed holds the night; D-271's override for this night lets it through
     gaps, completeness = completeness_check(cfg, tables, out_dir, last_good, full=not since)
+    if unlisted_views:  # M6-TW
+        completeness["unlisted"] = unlisted_views
     (out_dir / COMPLETENESS).write_text(
         json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -1051,6 +1079,42 @@ def _run_ingest(
                     f"{feedguard.OVERRIDE_ENV}='{snap}: <reason>' (this night only; the reason is audited)"
                 )
                 completeness_msgs.append(errors[-1])
+    # H34-06 (T-659b: identity changes are a person's; DATA-017's "last row wins" is for one person's rows): a chart
+    # number that arrives as two people, tonight or against the served night, is never merged into one patient: the
+    # night is held and the pseudonymous ids go to a file in its folder. Two people within the night cannot be
+    # accepted (adapter.publish.refuse_two_people: an accept would serve one under the other's chart); a change
+    # against the served night is the steward's to accept (a correction of one person) or reject (another person)
+    against: set[str] = set(against_served)
+    if last_good is not None and patient_who:
+        # one read of the served night's Patient file per night (an index if it ever shows in the night's timings)
+        for r in read_type(snapshot_dir(cfg.lake_dir, last_good), "Patient"):
+            pid = str(r.get("id"))
+            if pid in patient_who and _two_people(_who(r), patient_who[pid]):
+                against.add(pid)
+    against -= identity_conflicts
+    if identity_conflicts or against:
+        (out_dir / IDENTITY_CONFLICT).write_text(
+            json.dumps({"snapshot": snap, "tonight": sorted(identity_conflicts),
+                        "against": {"snapshot": last_good, "pids": sorted(against)}}, indent=1) + "\n",
+            encoding="utf-8",
+        )  # fmt: skip
+        log.error("patient identity: %d chart number(s) arrive as two people tonight, %d against night %s",
+                  len(identity_conflicts), len(against), last_good)  # fmt: skip
+        then = (
+            "it cannot be accepted as it stands: correct the chart at the source and run the night again"
+            if identity_conflicts
+            else "accept it only if each is a correction of the same person's details; another person under a "
+            "served chart number is rejected and corrected at the source"
+        )
+        errors.append(
+            f"patient identity: {len(identity_conflicts) + len(against)} chart number(s) arrive with two different "
+            f"people's demographics (birth date, sex, name or national id differ; {len(identity_conflicts)} within "
+            f"this night, {len(against)} against the served night {last_good or '-'}): never merged into one "
+            f"patient. The night is held; {then} (the pseudonymous ids are in {IDENTITY_CONFLICT} in the night's "
+            "folder)"
+        )
+    else:  # an earlier attempt of this night may have left one
+        (out_dir / IDENTITY_CONFLICT).unlink(missing_ok=True)
     # dataflow review P0-2 (WS-08.1): validate first. fhir-store and the lake are loaded, and CURRENT moves, only for
     # a night that passed; a failed night is *held*: its NDJSON stays for the steward to look at, the box keeps
     # serving the previous snapshot
@@ -1257,6 +1321,10 @@ def _run_ingest(
                 # T-611: what the readiness page shows for a held night (tables only, never a row)
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
+                # H34-06: chart numbers that arrived as two people (counts only; the ids are in the night's folder)
+                "identity_conflicts": {"tonight": len(identity_conflicts), "against_served": len(against)}
+                if identity_conflicts or against
+                else None,
                 "orphans": completeness["orphans"] or None,
                 # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (the codes: the file)
                 "unmapped": {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(unmapped_codes.items())}
@@ -1600,6 +1668,52 @@ class FutureNight(ValueError):
     """A night dated after the site's today (D-529): refused, nothing read or written."""
 
 
+class SiteNeeded(RuntimeError):
+    """U-5 (D-1280): a run on real data refused on a PRODUCTION box, before anything is read or written, while site
+    information it needs is still needed. The message is the gate's line, which names the page "Information still
+    needed"."""
+
+
+#: the boxes that run on synthetic data (D-1091): the run gate warns there and the run goes on with the stand-ins
+POC_ENVS = ("DEV", "TEST", "VALIDATION")
+
+
+def refuse_site_needs(cfg: AdapterConfig, snap: str, source_kind: str) -> None:
+    """U-5 (D-1280, the integrator's go on #639): the first real-data run, at any time, is the step that needs the
+    data source, the chart-number rule, the backup target, key and alarm, the audit share and the hospital's name.
+    On a PRODUCTION box a run with any of them missing, not usable or a stand-in is refused, and the refusal is
+    audited (``ingest.failed``, ``refused: site_needs``, the keys only); on a PoC box the run goes on and the items
+    are logged. The backup key is on the host only: the host's ``host-given.json`` says whether it is there."""
+    from tb_common.config import environment_name
+
+    g = site_needs.gate(
+        "first_real_run",
+        production=environment_name(os.environ) not in POC_ENVS and not cfg.synthetic_source,
+        env=os.environ,
+        settings=cfg.site_settings,
+        files=site_needs.mounted_files(),
+        stand_ins=site_needs.read_mounted_stand_ins(),
+    )
+    if not g.refused:
+        if g.warning:
+            log.warning("run goes on with stand-ins: %s", ", ".join(n.key for n, _ in g.warning))
+        return
+    msg = g.message("en")
+    log.error("run refused: %s", msg)
+    if cfg.audit_dir:
+        open_audit(cfg.audit_dir, cfg.tz).append(
+            "ingest.failed",
+            snapshot=snap,
+            actor="adapter",
+            detail={
+                "source": source_kind,
+                "refused": "site_needs",
+                "needs": {n.key: st for n, st in g.blocking},
+            },
+        )
+    raise SiteNeeded(msg)
+
+
 def refuse_future_night(snap: str, today: date) -> None:
     """NEW-PERF-3 (D-529; PERF-009): a night dated after the site's today is refused. Once served, every later
     night is older than it and is never served ("the box never moves back in time"), and the lake's age check read
@@ -1650,6 +1764,30 @@ def check_lookup_factors(mapping: Any) -> None:
 REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)
 UNMAPPED_CODES = "unmapped_codes.json"  # NEW-DIN-6 (D-580): every code no look-up knows, with its row count
 COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
+IDENTITY_CONFLICT = "identity_conflict.json"  # H34-06: the pids that arrived as two people (tonight / against)
+_WHO = ("birthDate", "gender")  # H34-06: what a mapped or bulk Patient says of who the person is
+
+
+def _who(r: Resource) -> dict[str, str]:
+    return {k: str(r[k]) for k in _WHO if r.get(k)}
+
+
+def _two_people_seen(seen: dict[str, dict[str, str]], pid: str, said: dict[str, str]) -> bool:
+    """H34-06: :func:`_two_people` of ``said`` against everything ``pid`` gave so far this night, then keep its values
+    not given before: a first row that leaves a value out does not let two later rows differ unseen."""
+    kept = seen.setdefault(pid, {})
+    differs = _two_people(kept, said)
+    kept.update({k: v for k, v in said.items() if v and not kept.get(k)})
+    return differs
+
+
+def _two_people(a: dict[str, str], b: dict[str, str]) -> bool:
+    """H34-06: two accounts of one chart number name two people when a value both give differs (a value one of them
+    leaves out is no difference). A correction of one person's birth date is held too: identity changes are a
+    person's (T-659b)."""
+    return any(a[k] != b[k] for k in a.keys() & b.keys() if a[k] and b[k])
+
+
 _PATIENT_REF = re.compile(rb'"Patient/([^"]+)"')
 
 

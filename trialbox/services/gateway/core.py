@@ -67,13 +67,14 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 from guard.guard import Guard
 from registry.registry import Registry, RegistryError, Resolved, check_served, provider_routing
+from tb_common import egress_edge
 from tb_common.audit import AuditLog, canonical
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_text
@@ -247,6 +248,24 @@ def _content_text(messages: Any) -> str:
     return "\n".join(parts)
 
 
+def _leaves(v: Any) -> Iterator[str]:
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, dict | list):
+        for x in v.values() if isinstance(v, dict) else v:
+            yield from _leaves(x)
+
+
+def _body_text(body: Mapping[str, Any]) -> str:
+    """Every text of a call that would leave the box: its messages with their tool calls, the answer's schema, the
+    tools (OCR 1523-13). A part that is no text cannot be read: refused."""
+    for m in body.get("messages") or []:
+        parts = m.get("content") if isinstance(m, dict) else None
+        if isinstance(parts, list) and any(not isinstance(p, dict) or p.get("type", "text") != "text" for p in parts):
+            raise egress_edge.Refused("model.offbox", "unreadable")
+    return "\n".join(_leaves({k: v for k, v in body.items() if k != "model"}))
+
+
 def _schema_ok(content: str, response_format: Any) -> bool | None:
     try:
         schema = response_format["json_schema"]["schema"]
@@ -283,6 +302,8 @@ class Gateway:
         self.registry = registry
         self.audit = audit
         self.config = config or GatewayConfig()
+        if not self.config.phi_tripwire and self.config.environment.value == "PRODUCTION":  # M3: refused at start
+            raise ValueError("TB_GATEWAY_PHI_TRIPWIRE=off is refused on a PRODUCTION box: set it to on")
         if not self.config.phi_tripwire:  # D-792: the owner's setting; said once at start, and on every call's audit
             log.warning(
                 "the PHI tripwire is off (TB_GATEWAY_PHI_TRIPWIRE=off): D0-D2 calls may leave the box unchecked "
@@ -597,6 +618,7 @@ class Gateway:
         # 5-8 resolve, cache, dispatch, echo
         registry_refusals: list[RegistryError] = []
         upstream_errors: list[str] = []
+        stopped: Refusal | None = None
         for cand in candidates:
             try:
                 res = self.registry.resolve(
@@ -616,10 +638,21 @@ class Gateway:
                 registry_refusals.append(RegistryError("provider_unpinned", msg))
                 call.fallbacks += 1
                 continue
+            if ep.zone != "perimeter":  # M3: a call that leaves the box passes the egress edge
+                try:
+                    egress_edge.leave("model.offbox", ep.name, _body_text(body) if cfg.phi_tripwire else "",
+                                      audit=self.audit, actor=call.caller,
+                                      unchecked=not cfg.phi_tripwire)  # fmt: skip
+                except egress_edge.Refused as e:  # OCR 1523-13: a later candidate may be on the box
+                    stopped = Refusal("phi_tripwire", f"the call may not leave the box ({e.reason})")
+                    call.fallbacks += 1
+                    continue
             out = self._try(call, cand, res, label, body, free_form, upstream_errors)
             if out is not None:
                 return out
             call.fallbacks += 1
+        if stopped is not None and not upstream_errors:
+            raise stopped
         interactive = bool(self.policy.roles.get(call.role, {}).get("interactive"))
         if only_kinds(upstream_errors, {"busy"}):
             raise Refusal("model_busy", BUSY_MESSAGE, status=503)

@@ -42,7 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common import trusted_proxy
+from tb_common import egress_edge, trusted_proxy
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
@@ -53,7 +53,7 @@ from tb_common.flowledger import level_of_tag, record_export
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
-from tb_common.verdict_word import shown_of
+from tb_common.verdict_word import against_ids, flagged_last, shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import (
@@ -107,6 +107,11 @@ from console.refusals import localize as localize_refusal
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
+#: F0: the system modules' page files (framework section 4), one registration line each in create_app. Each has
+#: register(app, helpers, env) for its own routes and joins its own i18n_<module>.py there, as instruments_page does. A
+#: file that is not there yet is logged and passed over, so the console starts; tests/unit/test_framework_f0.py stops on
+#: one missing that no module still owes
+MODULE_PAGES = ("still_needed", "egress_page", "health_page", "data_step", "support_page", "screen_now")
 #: D-1245: how far back a protocol's audit rows are read while it is compiled (the model answers since its start)
 COMPILE_ROWS = 5000
 COOKIE = "tb_console"
@@ -430,6 +435,13 @@ def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
     return dict(env if env is not None else os.environ)
 
 
+def _module_page(name: str) -> bool:
+    """Whether a system module has brought its page file (``MODULE_PAGES``); said in the log when not."""
+    if not (there := (HERE / f"{name}.py").is_file()):
+        logging.getLogger(__name__).warning("declared page file not in this tree, its pages are off: console.%s", name)
+    return there
+
+
 def _provenance_db(env: Mapping[str, str]) -> Callable[[], Any] | None:
     """D-1155: a connection to the trial database for D-989's provenance index, as the console's role, or None when
     the box has no trial database (the search says it is off). One short-lived connection per search."""
@@ -469,8 +481,9 @@ def build_sponsor_pack(
     if models:
         verifier = f", verifier {models['verifier_model']}" if models.get("verifier_model") else ", no verifier"
         screening = (
-            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers may exclude: "
-            f"{'yes' if models.get('may_block') else 'no'}."
+            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers final: "
+            f"{'yes' if models.get('may_block') else 'no'} (the notes may speak against a criterion; no note answer "
+            "takes a patient off a list)."
         )
     lines = [
         f"TrialBox sponsor pack · {job.ruleset} v{version} · job {job.job_id}",
@@ -1619,6 +1632,30 @@ def create_app(
 
     twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
     people_lists.register(app, helpers, templates.env)  # J-5 (D-1223): Candidates and Participants, behind a flag
+    if _module_page("still_needed"):
+        from console.still_needed import register as still_needed
+
+        still_needed(app, helpers, raw_env)  # M1: "Information still needed"
+    if _module_page("egress_page"):
+        from console.egress_page import register as egress_page
+
+        egress_page(app, helpers, raw_env)  # M3: "What left this box"
+    if _module_page("health_page"):
+        from console.health_page import register as health_page
+
+        health_page(app, helpers, raw_env)  # M5: the health page
+    if _module_page("data_step"):
+        from console.data_step import register as data_step
+
+        data_step(app, helpers, raw_env)  # M5: the data step
+    if _module_page("support_page"):
+        from console.support_page import register as support_page
+
+        support_page(app, helpers, raw_env)  # M5: the support session
+    if _module_page("screen_now"):
+        from console.screen_now import register as screen_now
+
+        screen_now(app, helpers, raw_env)  # M8: "Screen now"
     from console import rc1_guard
 
     # R22-34 (D-1072): the last middleware added, so the outermost: it reads the address before any rewrite
@@ -2010,7 +2047,10 @@ def create_app(
                     # D-478: the words a person reads (one model's "not met" is an open point, not a failing one)
                     words = {v["id"]: shown_of(v)[0] for v in r.get("criteria") or []}
                     unknown = [i for i, w in words.items() if w == "unknown"]
-                    failing = [i for i, w in words.items() if w == "fail"]
+                    against = against_ids(
+                        r.get("criteria")
+                    )  # INT-S-B: still open (above), said as a note speaking against
+                    failing = [i for i, w in words.items() if w == "fail" and i not in against]
                     quotes = [
                         {
                             "id": v["id"],
@@ -2030,6 +2070,7 @@ def create_app(
                             "department": r.get("department") or "",
                             "unknown": unknown,
                             "failing": failing,
+                            "against": against,
                             "quotes": quotes,
                             "actions": r.get("actions") or [],
                             "changed": r.get("changed") or [],
@@ -2037,6 +2078,13 @@ def create_app(
                     )
                 order = {"high": 0, "review": 1}
                 rows.sort(key=lambda r: (order.get(str(r["tier"]), 2), r["next_appointment"] or "9", r["pid"]))
+                rows = flagged_last(
+                    rows,
+                    lambda r: r["next_appointment"][:10],
+                    lambda r: r["tier"] == "review",
+                    lambda r: bool(r["against"]),
+                )
+                card["against_n"] = sum(1 for r in rows if r["against"])
                 card["rows"] = rows
         card["practitioners"] = (card["summary"] or {}).get("practitioner_names") or {}
         return card
@@ -2615,11 +2663,16 @@ def create_app(
             raise _Problem(404, "notfound")
         if job.type != "FEAS" or job.state != "done":
             raise _Problem(404, "notfound")
-        files = [(o.filename, bk.get_object(o.minio_key)) for o in job.outputs or [] if o.tag == "aggregate"]
+        outs = [o for o in job.outputs or [] if o.tag == "aggregate"]
+        files = [(o.filename, bk.get_object(o.minio_key)) for o in outs]
+        if any(sha256_bytes(d) != o.sha256 for o, (_n, d) in zip(outs, files, strict=True)):  # review round 3, M3
+            raise _Problem(
+                409, "request.refused", reason="a file of the job is not what the job recorded when it built it"
+            )
         if not files:
             raise _Problem(404, "notfound")
         detail = bk.ruleset_detail(job.ruleset or "") or {}
-        data = build_sponsor_pack(job, files, detail, bk.models())
+        data = egress_edge.made(build_sponsor_pack(job, files, detail, bk.models()))  # built here (1523 ruling)
         au.append(
             "console.export",
             job_id=job_id,
@@ -2755,7 +2808,10 @@ def create_app(
                       approval=f"released (D1) cascade numbers of run {run.run_id}; console role {sess.user.role}",
                       actor=actor(sess), ruleset=run.trial)  # fmt: skip
         media = {".pdf": "application/pdf", ".json": "application/json"}.get(path.suffix, "application/octet-stream")
-        return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{path.name}"'})
+        headers = {"Content-Disposition": f'attachment; filename="{path.name}"'}
+        if (sha := runs.made_sha(run, name)) is not None:  # the run's record of the file it built (1523 ruling)
+            headers["x-tb-made-sha256"] = sha
+        return Response(data, media_type=media, headers=headers)
 
     @app.get("/pilot/mailbox", response_class=HTMLResponse)
     def mailbox_form(request: Request) -> Response:

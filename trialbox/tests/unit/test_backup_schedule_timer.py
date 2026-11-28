@@ -436,7 +436,11 @@ def _install_sh_cron_part(tmp_path: Path, systemd: bool, env: str) -> subprocess
     for name, body in (("id", "echo 0"), ("systemctl", "exit 0"), ("python3", "exit 0")):
         (stub / name).write_text(f"#!/bin/sh\n{body}\n")
         (stub / name).chmod(0o755)
-    script = (f'die() {{ echo "DIE: $*"; exit 3; }}\nROOT={tmp_path}\n' + stop_prelude() + INSTALL[a:b] + INSTALL[c:d]
+    (
+        tmp_path / "units"
+    ).mkdir()  # the units folder a systemd host has (OCR 1455-8: a timer not installed stops PRODUCTION)
+    script = (f'die() {{ echo "DIE: $*"; exit 3; }}\nROOT={tmp_path}\nSYSTEMD_DIR={tmp_path / "units"}\n' + stop_prelude()
+              + INSTALL[a:b] + INSTALL[c:d]
               + 'echo "CAN_CRON=$CAN_CRON"\n').replace("/run/systemd/system", str(run))  # fmt: skip
     return subprocess.run(
         ["bash", "-c", script],

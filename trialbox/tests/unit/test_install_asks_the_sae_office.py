@@ -54,10 +54,11 @@ def _sh(
                           stdin=subprocess.DEVNULL)  # fmt: skip
 
 
-def test_the_question_sits_with_the_tls_name_and_is_asked_only_at_a_terminal() -> None:
+def test_the_point_sits_with_the_tls_name_and_asks_nothing() -> None:
+    """M1 (D-1280): the mailbox is not asked; the administrator's mail stands in, and the item is open."""
     block = _block()
     assert INSTALL.index('TLS_HOST="$(envget TB_TLS_HOSTNAME)"') < INSTALL.index(MARK) < INSTALL.index("- 4. start\n")
-    assert '[ "$YES" != 1 ] && [ -t 0 ]' in block and "serious adverse event" in block
+    assert "[ -t 0 ]" not in block and "read -r" not in block and "serious adverse event" in block
 
 
 def test_production_without_a_mailbox_stops_and_says_why(tmp_path: Path) -> None:

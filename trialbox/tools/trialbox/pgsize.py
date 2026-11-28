@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Literal
 
 from tools.trialbox.memcaps import COMPOSE, _parse_env, compose_default, size_mb
+from tools.trialbox.private_file import replace_private
 
 __all__ = ["PG", "POSTGRES_DEFAULTS", "check", "main", "plan", "settings", "size_mb", "write"]
 
@@ -104,7 +105,7 @@ def write(env_file: Path, values: Mapping[str, str]) -> None:
     lines += [f"{k}={v}" for k, v in values.items()]
     recorded = {**_marker(text), **values}
     lines.append(f"{MARKER} " + " ".join(f"{k}={v}" for k, v in sorted(recorded.items())))
-    env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    replace_private(env_file, "\n".join(lines) + "\n")  # H-110: whole, 0600, never in place
 
 
 def check(env: Mapping[str, str], proc: Path = Path("/proc")) -> tuple[Literal["PASS", "WARN", "FAIL"], str]:

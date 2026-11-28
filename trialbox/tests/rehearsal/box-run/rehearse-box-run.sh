@@ -511,7 +511,10 @@ for CASE in "${CASES[@]}"; do
     session) setup "$CASE" "dev session" dev-routes; session_setup DEV; boot; to_the_end ;;
     session-stop)   # the session asks for more than the cap leaves: it ends at the cap less its margin, closed first;
       # lane D's units enabled on the disk (rounds 3 and 4): off while the accounts are open, put back after the close
-      setup "$CASE" "dev session" unit-enabled ops-timer; session_setup VALIDATION; m tb-session-minutes 600; m tb-max-minutes 60; boot; to_the_end ;;
+      # H-148: a "minute" of 2 s here (knob minute-s, read by standins/boot.sh): the bring-up must open the session
+      # before the cap less its margin, and on a loaded runner 50 s of 1 s minutes was not always enough
+      setup "$CASE" "dev session" unit-enabled ops-timer; echo 2 > "$S/knobs/minute-s"
+      session_setup VALIDATION; m tb-session-minutes 600; m tb-max-minutes 60; boot; to_the_end ;;
     session-cut)
       setup "$CASE" "dev session" dev-routes; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
       wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"

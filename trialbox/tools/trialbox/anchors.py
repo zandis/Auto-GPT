@@ -187,3 +187,28 @@ def main_action(deploy: Path) -> int:
         for host, _ in plan(env):
             print(host)
     return 0
+
+
+#: file systems a hospital share is mounted as; a disk is a block device under /dev
+_SHARES = ("nfs", "nfs4", "cifs", "smb3", "smbfs")
+_PLACES = ("/mnt/", "/media/", "/srv/", "/run/media/")
+
+
+def candidate_places(mounts: str, audit_dir: str) -> tuple[list[str], str | None]:
+    """M4: the places the install can offer for the anchor folder, from the text of ``/proc/mounts`` (a second
+    disk or a mounted share, never the disk that holds ``audit_dir``). ``([], open item)`` when there is none: the
+    anchor then defaults to this machine for now, which protects nothing, and the open item says so."""
+    rows = [ln.split()[:3] for ln in mounts.splitlines() if len(ln.split()) >= 3]
+    mine = max(
+        (r for r in rows if audit_dir == r[1] or audit_dir.startswith(r[1].rstrip("/") + "/")),
+        key=lambda r: len(r[1]),
+        default=None,
+    )
+    out = [
+        r[1]
+        for r in rows
+        if (r[2] in _SHARES or r[1].startswith(_PLACES)) and (mine is None or r[2] in _SHARES or r[0] != mine[0])
+    ]
+    if out:
+        return sorted(dict.fromkeys(out)), None
+    return [], "audit anchor: no second disk or share found; this machine for now protects nothing (open item)"

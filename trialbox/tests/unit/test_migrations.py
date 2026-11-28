@@ -455,6 +455,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "237fcba81e000e604f3cc4bac1e217bd99ed1a73bc031522efb79fb04801fdac",
         # E-PROV-1 (D-1047, D-989): edc version 8, the model calls each draft came from
         "9d2f3dc99b16a609aeefd428212cadc11d3b1c75f7014354a9e12d83323d4697",
+        # M7 (R1-E5): edc version 9, REDCap's own log line of each value sent
+        "5458e36ffcdfdbb1e2126f3c5dcad00804bae1f1fc0c9242a38affafb1296c2d",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),

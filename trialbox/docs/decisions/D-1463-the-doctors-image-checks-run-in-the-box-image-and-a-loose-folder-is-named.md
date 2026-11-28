@@ -17,8 +17,9 @@ update replaces or checks it.
 
 ## Decision
 
-1. **Read from the image, not packed.** The 16 checks (`doctor.IMAGE_CHECKS`) run in one one-off container of the
-   box's own image (`tools/trialbox/doctor_image.py`). The image carries the services' code, `models/` and the
+1. **Read from the image, not packed.** The checks of `doctor.IMAGE_CHECKS` (16 when this was decided; 18 since H-137's
+   `trusted_proxy` and `mail_tls` joined, ruling 7169948573; 19 on the system join with M2's `terminology_tables`) run
+   in one one-off container of the box's own image (`tools/trialbox/doctor_image.py`). The image carries the services' code, `models/` and the
    locked libraries; packing them into the host tree would need those libraries on the host's Python.
 2. **The container** is the box file's image and runtime, `--pull never`, `--cap-drop ALL`, no new privileges. A
    network only for a check that needs one (the integrator's 7159790789): `perimeter_addresses` runs on the box's
@@ -43,7 +44,7 @@ update replaces or checks it.
 ## Consequences
 
 - A host's `trialbox doctor` reports each check's own verdict. It needs the box image and its runtime; without
-  them the 16 checks are FAILs that say so.
+  them the checks of `doctor.IMAGE_CHECKS` are FAILs that say so.
 - A host command that imports a service package or a library beyond PyYAML at load time fails a test per command
   (`tests/unit/test_doctor_in_image_h144.py`). What a function imports when it runs is not covered by that test
   (H144-03).

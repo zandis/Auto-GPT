@@ -59,6 +59,25 @@ class SqlSource:
         self._present[source_name] = present
         return present
 
+    def unlisted(self, listed: set[str]) -> dict[str, int]:
+        """M6-TW: the views this account can see that the mapping does not name, with their row counts: said in the
+        night's report, never read as data. A view the DBA added for another purpose is told, not dropped silently.
+        ponytail: the default schema only, and a COUNT per view; a schema list or a sampled count if a site needs it."""
+        from sqlalchemy import func, inspect, select, table
+        from sqlalchemy.exc import SQLAlchemyError
+
+        named = {n.rpartition(".")[2].lower() for n in listed}
+        found = {}
+        with self.engine.connect() as con:
+            for view in sorted(inspect(self.engine).get_view_names()):
+                if view.lower() not in named and _IDENT.match(view):
+                    try:
+                        found[view] = int(con.execute(select(func.count()).select_from(table(view))).scalar_one())
+                    except SQLAlchemyError:  # a view this account cannot query is told (-1), never the night's end
+                        con.rollback()
+                        found[view] = -1
+        return found
+
     def _columns(self, source_name: str) -> set[str]:
         return {c.lower() for c in self.columns(source_name)}  # identifier validated by the caller too
 

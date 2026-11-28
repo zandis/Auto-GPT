@@ -54,7 +54,7 @@ from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
 from criteria_compiler.equivalence.gate import run_gate, unproven, without_pseudonyms
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, hold_reused_negated, postprocess
-from criteria_compiler.repo import RulesetRepo
+from criteria_compiler.repo import RulesetRepo, SwapUnsupported
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
 from criteria_compiler.semantics import FILTERED, CompileError, atoms, class_split, compiled
 from criteria_compiler.terminology.installed import SITE_PREFIX
@@ -1092,6 +1092,23 @@ class Compiler:
             raise CompileFailed("approve", f"no draft of {ruleset} v{version} awaiting approval")
         return best[1], best[2]
 
+    def _tagged_draft(self, req: ApproveRequest, tag: str) -> tuple[Ruleset, dict[str, bytes]] | None:
+        """INT-R3A (INTR3A-08): what an approval of the already tagged version starts from: the draft the tagged
+        commit approved. None when another draft of this version waits: that one is what is being approved (its tree
+        is held against the tag's too). Never once a later version is tagged: that would put the older one back."""
+        mine = tuple(int(x) for x in req.version.split("."))
+        for other in self.d.repo.tags(f"{req.ruleset}/v"):
+            if tuple(int(x) for x in other.rsplit("/v", 1)[1].split(".")) > mine:
+                raise CompileFailed("approve", f"{tag} is already approved and a later version is too")
+        with contextlib.suppress(CompileFailed):
+            self._draft(req.ruleset, req.version)
+            return None
+        files = self.d.repo.files_before(tag, f"{req.ruleset}/")
+        rs = Ruleset.from_files(files) if "manifest.yaml" in files else None
+        if rs is None or rs.version != req.version or rs.manifest.status != "draft":
+            raise CompileFailed("approve", f"no draft of {req.ruleset} v{req.version} awaiting approval")
+        return rs, files
+
     def approve(self, req: ApproveRequest) -> ApproveResult:
         """H-45: :meth:`_approve` with the seconds of its steps in ``step_seconds`` (fixed names, numbers only); a
         step that raises leaves the steps before it on the exception's ``step_seconds``, the failure unchanged."""
@@ -1105,12 +1122,31 @@ class Compiler:
         return res.model_copy(update={"step_seconds": clock.closed("compiler.unaccounted")})
 
     def _approve(self, req: ApproveRequest, clock: StepClock) -> ApproveResult:
-        branch, rs = self._draft(req.ruleset, req.version)
+        tag = f"{req.ruleset}/v{req.version}"
+        tagged = {
+            p[len(req.ruleset) + 1 :]: b for p, b in self.d.repo.files(f"refs/tags/{tag}", f"{req.ruleset}/").items()
+        }
+        draft = self._tagged_draft(req, tag) if tagged else None
+        if draft:  # the branch the tag was cut from
+            at = self.d.repo.ref(f"refs/tags/{tag}")
+            branch = next(
+                (b for b in self.d.repo.branches() if b.startswith("draft/") and self.d.repo.ref(b) == at), tag
+            )
+            rs = draft[0]
+        else:
+            branch, rs = self._draft(req.ruleset, req.version)
         clock.lap("compiler.draft_read")
         refresh_installed(self.d.term)  # E-TERM-3 (D-1048): a list loaded again or removed since the compile
         clock.lap("compiler.refresh_installed")
         job_id = req.job_id or branch.split("/", 1)[1]
         now = datetime.now(ZoneInfo(self.d.tz))
+        if tagged:
+            # INT-R3A (INTR3A-08): the version is tagged already: an approval cut short before its swap, sent again.
+            # Built again at the tagged approval's own time, so the same approval is the same tree, byte for byte
+            first = Ruleset.from_files(tagged).manifest.review
+            if first is None or first.approved_at is None or any(d.status == "edit" for d in req.decisions):
+                raise CompileFailed("approve", f"{tag} is already approved with different content")
+            now = datetime.fromisoformat(str(first.approved_at)).astimezone(ZoneInfo(self.d.tz))
         decisions = {d.id: d for d in req.decisions}
         round_no = rs.manifest.review.rounds if rs.manifest.review and rs.manifest.review.rounds else 1
         criteria = rs.ordered()
@@ -1192,11 +1228,14 @@ class Compiler:
                     criteria=updated,
                     blocking=[d.id for d in edits],
                 )
-        index_date = self._today()
+        index_date = now.date() if tagged else self._today()
         clock.mark()
         art = self.build_artifacts(req.ruleset, req.version, updated, valuesets)
         clock.lap("compiler.build_artifacts")
-        prev = self.d.repo.read(branch, f"{req.ruleset}/tests/equivalence.json")
+        if draft:
+            prev = draft[1].get("tests/equivalence.json")
+        else:
+            prev = self.d.repo.read(branch, f"{req.ruleset}/tests/equivalence.json")
         clock.lap("compiler.draft_read")
         if edits or prev is None or any(d.status == "reject" for d in req.decisions):
             tests = self._equivalence(updated, art, valuesets, index_date, f"{req.ruleset}|{req.version}")
@@ -1215,6 +1254,8 @@ class Compiler:
             blocking.append(differ)
         blocking += site_list_blocks(rs.manifest, self.d.term)  # E-TERM-3 (D-1048): fail closed
         manifest = rs.manifest.model_copy(update={"criteria": [c.id for c in updated]})
+        if tagged and blocking:
+            raise CompileFailed("approve", f"{tag} is already approved with different content")
         if edits or blocking:
             manifest = RulesetManifest.model_validate({**dump(manifest), "review": {"rounds": round_no}})
             clock.lap("compiler.checks")
@@ -1286,6 +1327,16 @@ class Compiler:
         clock.lap("compiler.checks")
         files = self._files(manifest, updated, valuesets, art, tests)
         clock.lap("compiler.files")
+        if tagged and files != tagged:
+            raise CompileFailed("approve", f"{tag} is already approved with different content")
+        # INT-R3A (INTR3A-02): the working copy is swapped in one rename; a folder that cannot is refused here, before
+        # the FHIR load, the commit and the tag, so the refusal changes nothing
+        try:
+            self.d.repo.check_swap()
+        except SwapUnsupported as exc:
+            raise CompileFailed(
+                "approve", "the rulesets folder cannot swap a ruleset's copy in one rename; nothing was approved"
+            ) from exc
         # G3 of the P1b review (D-952): the FHIR load ran after the tag and the promotion, unguarded; a server that
         # refused it (FhirEvalError) left the ruleset approved and released while the job failed with an HTTP 500. It
         # runs first: a refusal changes nothing in the repo and fails the approval by its step, with the server's text
@@ -1307,12 +1358,13 @@ class Compiler:
                     "approve", f"the FHIR server did not take the ruleset's libraries or value sets: {said}"
                 ) from exc
         clock.mark()
-        self.d.repo.write_dir(
-            branch, "main", f"{req.ruleset}/", files, f"approve {req.ruleset} v{req.version} by {req.by}", req.by
-        )
+        if not tagged:
+            self.d.repo.write_dir(
+                branch, "main", f"{req.ruleset}/", files, f"approve {req.ruleset} v{req.version} by {req.by}", req.by
+            )
         clock.lap("compiler.repo_write")
-        tag = f"{req.ruleset}/v{req.version}"
-        self.d.repo.tag(tag, branch, f"{req.ruleset} v{req.version} approved by {req.by}", req.by)
+        if not tagged:
+            self.d.repo.tag(tag, branch, f"{req.ruleset} v{req.version} approved by {req.by}", req.by)
         clock.lap("compiler.repo_tag")
         self.d.repo.promote(req.ruleset, tag, f"release {tag}", req.by)
         clock.lap("compiler.repo_promote")

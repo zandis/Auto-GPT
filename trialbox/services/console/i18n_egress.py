@@ -1,0 +1,117 @@
+"""Strings of M3: the page "What left this box" and the refusal of a file that may not leave."""
+
+from __future__ import annotations
+
+EN: dict[str, str] = {
+    "egress.title": "What left this box",
+    "egress.help": "Every file, mail and call that left this box in the last {days} days, by day and route, and every "
+    "one that was refused. No patient is named here.",
+    "egress.none": "Nothing left this box in this time.",
+    "egress.day": "Day",
+    "egress.route": "Route",
+    "egress.result": "Result",
+    "egress.reason": "Reason",
+    "egress.count": "Count",
+    "egress.rules": "The rule of each route",
+    "egress.refused": "This file did not leave the box: {why}.",
+    "egress.reason.no_rule": "no rule lists this file",
+    "egress.reason.not_named": "you are not one of its named recipients",
+    "egress.reason.identifiers": "it holds a patient identifier that cannot be masked in it",
+    "egress.reason.free_text": "it holds note text, which an aggregate file may not",
+    "egress.reason.unreadable": "the box cannot read it to check it",
+    "egress.reason.rebuild_table": "tables and spreadsheets cannot be rebuilt; export from the box instead",
+    "egress.reason.rebuild_lossy": "it cannot be rebuilt faithfully: it holds pictures, hidden or deleted text, "
+    "headers, footers, notes or comments that a plain PDF of its text would drop; export from the box instead",
+    "egress.reason.not_made": "the box did not make this file, or no longer remembers making it (a restart "
+    "forgets). Two ways out: make it again on the box and download what the box made, or download it rebuilt as "
+    "a plain PDF of its text (add ?rebuild=1 to its address)",
+    "egress.reason.form_pdf": "it is a PDF form or a signed PDF: what its fields show is drawn, not text the box "
+    "can read; print it to a plain PDF and send that",
+    "egress.reason.too_large": "it is too large to check",
+    "egress.reason.mask_failed": "the check failed",
+    "egress.reason.not_recorded": "the departure could not be recorded",
+    "egress.reason.not_delegated": "you are not on the study's delegation log today",
+    "egress.reason.sender_right": "the person who asked for it has no right to it",
+    "egress.reason.rights unknown": "delegation not known",
+    "egress.sent": "sent",
+    "egress.masked": "sent, masked",
+    "egress.exception": "sent under an exception",
+    "egress.unchecked": "sent unchecked (development)",
+    "egress.refusal": "refused",
+    "problem.h.egress.refused": "The file was refused",
+}
+JA: dict[str, str] = {
+    "egress.title": "このボックスから出たもの",
+    "egress.help": "直近 {days} 日間にこのボックスから出たファイル、メール、呼び出しと、"
+    "拒否したものを、日と経路ごとに示します。患者は表示しません。",
+    "egress.none": "この期間にボックスから出たものはありません。",
+    "egress.day": "日",
+    "egress.route": "経路",
+    "egress.result": "結果",
+    "egress.reason": "理由",
+    "egress.count": "件数",
+    "egress.rules": "経路ごとの規則",
+    "egress.refused": "このファイルはボックスから出ていません：{why}。",
+    "egress.reason.no_rule": "このファイルの規則がありません",
+    "egress.reason.not_named": "あなたは指定された受取人ではありません",
+    "egress.reason.identifiers": "マスクできない患者識別情報が含まれています",
+    "egress.reason.free_text": "集計ファイルに含められないカルテ本文があります",
+    "egress.reason.unreadable": "ボックスが内容を読み取って確認できません",
+    "egress.reason.rebuild_table": "表とスプレッドシートは作り直せません。ボックスから出力してください",
+    "egress.reason.rebuild_lossy": "正確に作り直せません：図、隠し文字や削除された文字、ヘッダー、フッター、"
+    "注、コメントがあり、本文だけの PDF では失われます。ボックスから出力してください",
+    "egress.reason.not_made": "このファイルはボックスが作成したものではないか、作成した記録が残っていません"
+    "（再起動で消えます）。方法は二つです：ボックスでもう一度作成してダウンロードする、"
+    "または本文だけを通常の PDF に作り直してダウンロードする（アドレスに ?rebuild=1 を付けます）",
+    "egress.reason.form_pdf": "PDF フォームまたは署名付き PDF です。欄の内容は描画されたもので、"
+    "ボックスは文字として読み取れません。通常の PDF に印刷してから送ってください",
+    "egress.reason.too_large": "大きすぎて確認できません",
+    "egress.reason.mask_failed": "確認に失敗しました",
+    "egress.reason.not_recorded": "持ち出しを記録できませんでした",
+    "egress.reason.not_delegated": "本日の治験分担医師・治験協力者リストにあなたの名前がありません",
+    "egress.reason.sender_right": "依頼者に権限がありません",
+    "egress.reason.rights unknown": "治験分担医師・治験協力者リストの記載は不明",
+    "egress.sent": "送信",
+    "egress.masked": "マスクして送信",
+    "egress.exception": "例外として送信",
+    "egress.unchecked": "確認なしで送信（開発用）",
+    "egress.refusal": "拒否",
+    "problem.h.egress.refused": "ファイルは拒否されました",
+}
+ZH: dict[str, str] = {
+    "egress.title": "離開本機的資料",
+    "egress.help": "最近 {days} 天離開本機的檔案、郵件與呼叫，以及被拒絕的項目，依日期與路徑列出。此頁不顯示任何病人。",
+    "egress.none": "這段期間沒有資料離開本機。",
+    "egress.day": "日期",
+    "egress.route": "路徑",
+    "egress.result": "結果",
+    "egress.reason": "原因",
+    "egress.count": "件數",
+    "egress.rules": "各路徑的規則",
+    "egress.refused": "此檔案未離開本機：{why}。",
+    "egress.reason.no_rule": "沒有規則列出此檔案",
+    "egress.reason.not_named": "您不是指定的收件人",
+    "egress.reason.identifiers": "內含無法遮蔽的病人識別資料",
+    "egress.reason.free_text": "內含彙總檔案不得包含的病歷內文",
+    "egress.reason.unreadable": "本機無法讀取以進行檢查",
+    "egress.reason.rebuild_table": "表格與試算表無法重新製作；請改由本機匯出",
+    "egress.reason.rebuild_lossy": "無法如實重新製作：其中有圖片、隱藏或已刪除的文字、頁首、頁尾、註解或批註，"
+    "只含文字的 PDF 會遺漏它們；請改由本機匯出",
+    "egress.reason.not_made": "此檔案不是本機產生的，或本機已不記得產生過它（重新啟動後會忘記）。"
+    "有兩種方式：在本機重新產生後下載本機產生的檔案，或下載只含其文字、重新製成的一般 PDF"
+    "（在網址後加上 ?rebuild=1）",
+    "egress.reason.form_pdf": "這是 PDF 表單或已簽章的 PDF：欄位內容是繪製的，"
+    "本機無法當作文字讀取；請先列印成一般 PDF 再傳送",
+    "egress.reason.too_large": "檔案過大，無法檢查",
+    "egress.reason.mask_failed": "檢查失敗",
+    "egress.reason.not_recorded": "無法記錄這次傳出",
+    "egress.reason.not_delegated": "您目前不在此試驗的授權紀錄表中",
+    "egress.reason.sender_right": "提出要求者沒有權限",
+    "egress.reason.rights unknown": "授權紀錄表的記載不明",
+    "egress.sent": "已傳出",
+    "egress.masked": "遮蔽後傳出",
+    "egress.exception": "依例外傳出",
+    "egress.unchecked": "未檢查即傳出（開發用）",
+    "egress.refusal": "已拒絕",
+    "problem.h.egress.refused": "檔案已被拒絕",
+}

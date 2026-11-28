@@ -173,6 +173,10 @@ NOT_DRIVEN = {
     "host-baseline-ssh": "root only (deploy/site/hardening.conf as root): the tests run as a user, as CI does",
     "host-baseline": "root only: the tests run as a user, as CI does",
     "systemd-units": "root only (systemd): the tests run as a user, as CI does",
+    "egress-at-boot": "root only (the egress rules applied, no systemd): the tests run as a user, as CI does",  # H-110
+    "cron-daemon": "root only (the cron file written by root, no cron daemon): the tests run as a user",  # H-110
+    "retention-timer": "root only (systemd, the timer not installable): the tests run as a user",  # OCR 1455-8
+    "cron-daemon-unknown": "root only (the cron file written by root, a host without pgrep)",  # OCR 1455-8
     "install-lock-open": "the deploy folder cannot be made unreadable to root, and the bench may run as root",
     "override-owner": "a file owned by another user cannot be made without root",
     "docker-missing": "the next step that runs Docker is kept refusal 1: test_with_no_docker_a_poc_box_warns_then_stops_at_the_load",
@@ -405,11 +409,11 @@ def test_a_poc_install_goes_through_every_converted_point(tmp_path: Path) -> Non
     r = first.install("--mode", "stub", "--yes", force=("finish-early-did-not-run",))
     seen |= _check("third install", r, {"finish-early-did-not-run"})
     assert not {"install.sh/project-cleanup-refused", "install.sh/finish-early"} & r.listed_keys()
-    # the questions on a terminal: no answers file, a ClinicalTrials.gov answer that is neither
+    # the questions on a terminal: no answers file, and the four questions not answered (M1: nothing else is asked)
     tty = Box(tmp_path / "tty", env="TB_ENV=TEST\n")
     r = tty.install("--environment", "TEST", "--mode", "stub", "--answers", str(tmp_path / "none.yaml"),
-                    answers=False, tty="bogus\n\n\ny\n")  # fmt: skip
-    seen |= _check("questions", r, {"answers-file", "ctgov-answer"})
+                    answers=False, tty="bogus\n" * 5)  # fmt: skip
+    seen |= _check("questions", r, {"answers-file", "no-settings"})
     # no answers and no terminal: no settings are written (the services cannot start), the install goes on
     r = Box(tmp_path / "no-settings").install("--environment", "TEST", "--mode", "stub", "--yes", answers=False)
     seen |= _check("no settings", r, {"no-settings"})
@@ -780,8 +784,8 @@ def _firstrun(tmp: Path, *args: str, force: tuple[str, ...] = (), environment: s
     stubs = {"python3": BOX_PYTHON3, "boxpy": BOX_PY, "getent": getent,
              "compose": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" stack-restart "*) exit 1 ;; esac\nexit 0\n',
              "hostcheck": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" host-check "*) echo "FAIL  x"; exit 1 ;; esac\n'
-                          'case " $TB_H94_FORCE " in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned)"; exit 1 ;; esac\n'
-                          'case " $TB_H94_FORCE " in *" disk-full "*) echo "FAIL  free space on /var/lib/docker: 4% (below 10%)"; exit 1 ;; esac\n',
+                          'case " $TB_H94_FORCE " in *" env-mode "*) echo "FAIL  .env mode 644 (want 600, root-owned) [H-94 (5)]"; exit 1 ;; esac\n'
+                          'case " $TB_H94_FORCE " in *" disk-full "*) echo "FAIL  free space on /var/lib/docker: 4% (below 10%) [H-94 (2)]"; exit 1 ;; esac\n',
              "probe": '#!/bin/sh\ncase " $TB_H94_FORCE " in *" anchor-read "*) exit 1 ;; esac\nexit 0\n'}  # fmt: skip
     for name, text in stubs.items():
         (b / name).write_text(text, encoding="utf-8")

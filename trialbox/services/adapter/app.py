@@ -39,7 +39,7 @@ from tb_contracts import IngestRequest, dump
 
 from adapter import failure, runs
 from adapter.cli import build_config
-from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, run_ingest
+from adapter.pipeline import LakeBudgetError, NoRoomForNight, SiteKeyError, SiteNeeded, run_ingest
 
 log = logging.getLogger("adapter")
 
@@ -227,7 +227,8 @@ def run(req: IngestRequest) -> JSONResponse:
                 validate=req.validate_,
             )
             end.update(state="done", report=dump(report))
-        except (SiteKeyError, NoRoomForNight, LakeBudgetError) as exc:  # T-612, D-679: refused before anything was read
+        # T-612, D-679, U-5 (D-1280): refused before anything was read
+        except (SiteKeyError, SiteNeeded, NoRoomForNight, LakeBudgetError) as exc:
             end.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)
@@ -289,7 +290,14 @@ def publish(body: PublishBody) -> JSONResponse:
     night (409), an ingest or another publish running (409)."""
     from datacore.dataops import DataOps
 
-    from adapter.publish import NothingToPublish, held_folder, publish_held, published
+    from adapter.publish import (
+        NothingToPublish,
+        TwoPeopleOneChart,
+        held_folder,
+        publish_held,
+        published,
+        refuse_two_people,
+    )
 
     _plain_snapshot(body.snapshot)
     if not _running.acquire(blocking=False):
@@ -300,7 +308,9 @@ def publish(body: PublishBody) -> JSONResponse:
         if run_mode() == "process" and runs.running(ac.lake_dir):  # D-663: an ingest of an earlier life still runs
             raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
         try:
-            held_folder(ac, body.snapshot)
+            refuse_two_people(held_folder(ac, body.snapshot))  # H34-06: refused before the accept starts anything
+        except TwoPeopleOneChart as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except NothingToPublish as exc:
             if published(ac, body.snapshot):
                 _accepting.clear()

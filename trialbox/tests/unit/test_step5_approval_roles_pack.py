@@ -45,9 +45,9 @@ def test_models_used_names_what_ran_not_what_is_configured() -> None:
     assert models_used(None) == NO_MODEL
     assert models_used({"mode": "none", "judge_model": None}) == NO_MODEL
     pair = {"mode": "agreement", "judge_model": "j", "verifier_model": "v", "note_block": "both_agree"}
-    assert models_used(pair) == "j + v (both agree)"
+    assert models_used(pair) == "j + v (both agree; notes never exclude)"
     single = {"mode": "agreement", "judge_model": "j", "verifier_model": None, "note_block": "never"}
-    assert models_used(single) == "j (single, never-exclude)"
+    assert models_used(single) == "j (single; notes never exclude)"
 
 
 def test_footer_prints_the_pinned_clock_only_when_pinned() -> None:

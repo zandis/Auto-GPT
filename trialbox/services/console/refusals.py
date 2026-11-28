@@ -13,6 +13,11 @@ from collections.abc import Mapping
 
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
+    # 1523 ruling (review round 3, M3): the sponsor pack packs only what the job recorded
+    "a file of the job is not what the job recorded when it built it": (
+        "ジョブのファイルが、ジョブが作成時に記録したものと一致しません",
+        "此工作的檔案與工作產生時記錄的內容不符",
+    ),
     # D-719 (NEW-SEC-3): the account requests page
     "an account with this name exists": ("この名前のアカウントはすでにあります", "已有此名稱的帳號"),
     "this request is no longer waiting": ("この依頼はもう待っていません", "此申請已不在等待中"),

@@ -84,7 +84,7 @@ equivalence:
     RA-JAK-INC-04: 100.0
   failing: []
   evaluated_at: '2026-11-11T04:31:43.359347+08:00'
-terminology_release: TR-7cedf1a45e79
+terminology_release: TR-e2f7eee5053f
 prompt_pins:
   judge:
     version: 4

@@ -1526,7 +1526,7 @@ class ReleaseGates(BaseModel):
 
 class ReleaseRecord(BaseModel):
     """
-    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.2.0 (1.1.0, D-367: component kind host, the host tree; 1.2.0, D-726: rehearsal, a bundle built for a rehearsal box). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
+    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.3.0 (1.1.0, D-367: component kind host, the host tree; 1.2.0, D-726: rehearsal, a bundle built for a rehearsal box; 1.3.0: platform, the architecture a bundle was built for). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
     """
 
     model_config = ConfigDict(
@@ -1545,6 +1545,10 @@ class ReleaseRecord(BaseModel):
     rehearsal: bool | None = None
     """
     D-726: true when tools/make_bundle.sh --rehearsal built it, for a rehearsal box (deploy/install.sh --rehearsal, TB_ENV TEST). A PRODUCTION or VALIDATION box refuses it at install and update. Absent on a bundle built for a site.
+    """
+    platform: str | None = Field(None, pattern="^[a-z0-9]+/[a-z0-9]+$")
+    """
+    The os/arch tools/make_bundle.sh --platform built the bundle for; every image archive was checked against it. The update path refuses the bundle on a host of another architecture. Absent on a bundle built before it, which is not compared.
     """
     gates: ReleaseGates = Field(..., title="ReleaseGates")
     """

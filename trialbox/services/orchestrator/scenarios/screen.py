@@ -5,6 +5,7 @@ candidate pool persisted for MICROBATCH."""
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -55,7 +56,7 @@ from orchestrator.scenarios.evaluate import (
     not_in_snapshot,
     row,
     served,
-    sort_key,
+    sort_rows,
 )
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
@@ -141,8 +142,9 @@ def attach_values(lake: Any, rs: Ruleset, verdicts: dict[str, Any], run_date: da
 
 
 def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
-    """How note criteria were judged on this run: models, agreement mode, and whether a note answer could exclude
-    (D-97). Aggregate metadata: goes into the candidate list, the summary PDF, the done mail and the console.
+    """How note criteria were judged on this run: models, agreement mode, and whether its note answers
+    are final (D-97; none excludes a patient, D-1072). Aggregate metadata: goes into the candidate list, the summary
+    PDF, the done mail and the console.
     ``ctx``: the job, so the record says the decision the job ran under (D-477); None for a caller with no job."""
     nb = note_block_of(judge, ctx)
     may_block, policy, reason, code = nb.may_block, nb.policy, nb.reason, nb.code
@@ -164,12 +166,12 @@ def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
 
 
 def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
-    """One sentence for the mail and the PDF: who judged the notes and whether a note answer could exclude."""
+    """One sentence for the mail and the PDF: who judged the notes, and that a note answer never excludes (D-1072)."""
     if j.get("mode") == "nothing":  # D-909: every criterion is a person's
         return t(lang, "screen.judging.nothing")
     if j.get("mode") == "none":
         return t(lang, "screen.judging.none")
-    if j.get("may_block"):
+    if j.get("may_block") or (j.get("verifier_model") and j.get("note_block_code") == "configured"):  # a pair read them
         return t(lang, "screen.judging.pair", judge=j.get("judge_model"), verifier=j.get("verifier_model"))
     # the reason in the reader's language, from its code: the reason text is the English diagnostic (a failed canary's
     # is every failed model's line) and stays in the list's metadata and the log. A list from before the code: its text
@@ -331,8 +333,8 @@ def models_used(j: dict[str, Any] | None) -> str:
     if not j or j.get("mode") == "none" or not j.get("judge_model"):
         return NO_MODEL
     if j["verifier_model"]:
-        return f"{j['judge_model']} + {j['verifier_model']} (both agree)"
-    return f"{j['judge_model']} (single, {j['note_block']}-exclude)"
+        return f"{j['judge_model']} + {j['verifier_model']} (both agree; notes never exclude)"
+    return f"{j['judge_model']} (single; notes never exclude)"
 
 
 def provenance(ctx: Ctx, rs: Ruleset, meta: ReportMeta, judging: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -693,7 +695,7 @@ def run_screen(
         row(pv, by_pid[p].next_appointment, by_pid[p].practitioner_id, by_pid[p].department, stamp)
         for p, pv in results.items()
     ]
-    rows.sort(key=sort_key)
+    rows = sort_rows(rows)
     return ScreenRun(
         rs, run_date, snapshot, scoped, results, rows, list(practitioners or []), depts, window, judge, judging,
         cascade, whole_hospital=practitioners is None, s2b_sources=s2b_sources, coded_values_read=values_read,
@@ -748,6 +750,30 @@ def candidate_list(run: ScreenRun) -> CandidateList:
     )
 
 
+def json_rows(doc: dict[str, Any], key: str, rows: Iterable[Any]) -> bytes:
+    """``json.dumps({**doc, key: list(rows)}, ensure_ascii=False, indent=1, sort_keys=True)`` in UTF-8, byte for byte,
+    written one row at a time: with ``indent`` the encoder holds every small piece of the whole document at once
+    (a whole-hospital run's list took gigabytes so), here only one row's. Only the bytes of the file stay."""
+    marker = f'\n "{key}": null'
+    head = json.dumps({**doc, key: None}, ensure_ascii=False, indent=1, sort_keys=True)
+    before, after = head.split(marker)  # a raw newline is never inside a JSON string: the marker is the key's line
+    out = io.BytesIO()
+    out.write(f'{before}\n "{key}": ['.encode())
+    sep = ""
+    for r in rows:
+        text = json.dumps(r, ensure_ascii=False, indent=1, sort_keys=True).replace("\n", "\n  ")
+        out.write(f"{sep}\n  {text}".encode())
+        sep = ","
+    out.write((f"\n ]{after}" if sep else f"]{after}").encode())
+    return out.getvalue()
+
+
+def candidate_list_json(cl: CandidateList) -> bytes:
+    """``candidate_list_<ruleset>_v<version>.json``: the list as its contract dumps it, a row at a time
+    (:func:`json_rows`)."""
+    return json_rows(dump(cl.model_copy(update={"rows": []})), "rows", (dump(r) for r in cl.rows))
+
+
 def values_not_read(rows: list[CandidateRow]) -> int | None:
     """How many rows of the list say the values behind their coded answers were not read (D-653): the rows of the
     list itself, so the figure can be checked against it. None for none, so a run that read everything writes its
@@ -773,7 +799,7 @@ def confirmed_facts(ctx: Ctx, pids: list[str]) -> set[str] | None:
 
 def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
     """Every patient the run excluded, with the criterion (or the scope or consent rule) that excluded them, where
-    the answer came from (the coded records, a confirmed fact, or the notes with both models agreeing) and its
+    the answer came from (the coded records or a confirmed fact; a note answer never excludes, D-1072) and its
     evidence (review 2026-11-09 P-04, D-143). Stored with the job for the console's "Excluded patients and why"
     page; never mailed.
 
@@ -815,8 +841,7 @@ def publish_excluded(ctx: Ctx, rs: Ruleset, srun: ScreenRun) -> None:
     doc = excluded_doc(ctx, srun)
     rows = doc.pop("rows")
     ctx.publish(f"excluded_{rs.id}_v{rs.version}.jsonl", excluded_lines.write_jsonl(doc, rows), "phi", [])
-    old = json.dumps({**doc, "rows": rows}, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
-    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", old, "phi", [])
+    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", json_rows(doc, "rows", rows), "phi", [])
 
 
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
@@ -825,7 +850,7 @@ def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
     ctx.orch.db.pool_upsert(
         rs.id,
         rs.version,
-        [
+        (  # one row's verdicts at a time, never the whole list's as dicts
             {
                 "pid": r.pid,
                 "tier": r.tier,
@@ -835,7 +860,7 @@ def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
                 "verdicts": [v.model_dump(mode="json", exclude_none=True) for v in r.criteria],
             }
             for r in rows
-        ],
+        ),
         ctx.job.job_id,
         ctx.orch._now().isoformat(),
     )
@@ -959,7 +984,7 @@ def run(ctx: Ctx) -> Outcome:
     if unverified:
         meta = replace(meta, notice=t(job_language(ctx), "screen.scores_unverified", snapshot=snapshot))
     stem = f"candidates_{rs.id}_v{rs.version}_{run_date.isoformat()}"
-    body = json.dumps(dump(cl), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
+    body = candidate_list_json(cl)
     deliveries, info = deliver_lists(
         ctx, rs, srun.rows, meta, stem, extra=(f"candidate_list_{rs.id}_v{rs.version}.json", body)
     )

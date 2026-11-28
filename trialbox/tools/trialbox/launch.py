@@ -159,7 +159,8 @@ def _unwritten_back_link(path: Path) -> bool:
 def box_file(deploy: Path = DEPLOY) -> dict[str, str]:
     """The box's own ``deploy/.env``, checked before it is used (as root): none there is no setting (``{}``); one that
     is there but is not a readable regular file (a folder, a dangling link, unreadable), is owned by neither root nor
-    this user, or is writable by group or others raises :class:`BoxFileError` (named, never with a value)."""
+    this user, or is readable or writable by group or others raises :class:`BoxFileError` (named, never with a
+    value)."""
     path = deploy / ".env"
     if not os.path.lexists(path) or _unwritten_back_link(path):
         return {}
@@ -175,6 +176,8 @@ def box_file(deploy: Path = DEPLOY) -> dict[str, str]:
         )
     if st.st_mode & 0o022:
         raise BoxFileError(f"{path} can be written by group or others (chmod 600 it): nothing was run")  # H-94 (5)
+    if st.st_mode & 0o044:  # H-110 (e): the services' passwords where group or others can read them
+        raise BoxFileError(f"{path} can be read by group or others (chmod 600 it): nothing was run")  # H-94 (5)
     try:
         path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:

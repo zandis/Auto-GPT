@@ -62,11 +62,13 @@ GET /api/v1/studies/{rs}/candidates/{pid} pi
 GET /api/v1/studies/{rs}/candidates/{pid} smo_in
 GET /api/v1/studies/{rs}/candidates/{pid} sub
 GET /api/v1/studies/{rs}/edc/copy crc
+GET /api/v1/studies/{rs}/edc/copy pi
 GET /api/v1/studies/{rs}/edc/copy smo_in
 GET /api/v1/studies/{rs}/edc/drafts crc
 GET /api/v1/studies/{rs}/edc/drafts pi
 GET /api/v1/studies/{rs}/edc/drafts smo_in
 GET /api/v1/studies/{rs}/edc/export/odm crc
+GET /api/v1/studies/{rs}/edc/export/odm pi
 GET /api/v1/studies/{rs}/edc/export/odm smo_in
 GET /api/v1/studies/{rs}/edc/trail/{record} crc
 GET /api/v1/studies/{rs}/edc/trail/{record} pi
@@ -232,6 +234,7 @@ POST /account/password viewer
 POST /admin/jobs/{job_id}/cancel admin
 POST /admin/jobs/{job_id}/retry admin
 POST /admin/ops/{action} admin
+POST /admin/still-needed/{item} admin
 POST /api/edc/events/v1 admin
 POST /api/edc/events/v1 crc
 POST /api/edc/events/v1 cro_in
@@ -260,6 +263,7 @@ POST /api/edc/oidc/token sub
 POST /api/edc/oidc/token viewer
 POST /api/edc/tools admin
 POST /api/edc/tools/{proposal_id}/confirm admin
+POST /api/v1/admin/still-needed/{item} admin
 POST /api/v1/audit/patients/by-chart privacy
 POST /api/v1/audit/patients/by-chart steward
 POST /api/v1/site/charts crc
@@ -296,6 +300,7 @@ POST /api/v1/studies/{rs}/edc/import/odm crc
 POST /api/v1/studies/{rs}/edc/import/odm pi
 POST /api/v1/studies/{rs}/edc/import/odm smo_in
 POST /api/v1/studies/{rs}/edc/send crc
+POST /api/v1/studies/{rs}/edc/send pi
 POST /api/v1/studies/{rs}/edc/send smo_in
 POST /api/v1/studies/{rs}/edc/sign crc
 POST /api/v1/studies/{rs}/edc/sign pi
@@ -443,14 +448,12 @@ POST /studies/{rs}/edc/copy/{record}/tick smo_in
 POST /studies/{rs}/edc/decide/{draft_id} crc
 POST /studies/{rs}/edc/decide/{draft_id} pi
 POST /studies/{rs}/edc/decide/{draft_id} smo_in
-POST /studies/{rs}/edc/dictionary pi
 POST /studies/{rs}/edc/drafts crc
 POST /studies/{rs}/edc/drafts pi
 POST /studies/{rs}/edc/drafts smo_in
 POST /studies/{rs}/edc/import crc
 POST /studies/{rs}/edc/import pi
 POST /studies/{rs}/edc/import smo_in
-POST /studies/{rs}/edc/map pi
 POST /studies/{rs}/edc/send crc
 POST /studies/{rs}/edc/send pi
 POST /studies/{rs}/edc/send smo_in
@@ -497,6 +500,10 @@ POST /studies/{rs}/sae/{record}/{event}/{what} privacy
 POST /studies/{rs}/sae/{record}/{event}/{what} smo_in
 POST /studies/{rs}/sae/{record}/{event}/{what} steward
 POST /studies/{rs}/sae/{record}/{event}/{what} sub
+POST /studies/{rs}/screen-now admin  # M8: no job can be made on the walk box (no study set up), as the request page
+POST /studies/{rs}/screen-now crc  # M8: no job can be made on the walk box (no study set up), as the request page
+POST /studies/{rs}/screen-now pi  # M8: no job can be made on the walk box (no study set up), as the request page
+POST /studies/{rs}/screen-now smo_in  # M8: no job can be made on the walk box (no study set up), as the request page
 POST /studies/{rs}/setup/consent-ages crc
 POST /studies/{rs}/setup/consent-ages smo_in
 POST /studies/{rs}/setup/contact crc

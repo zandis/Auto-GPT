@@ -148,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
     res = verify(args.audit_dir, anchor=anchor, require_head=not args.no_head, signed_heads=heads, trusted_keys=trusted)
     if trust_note:
         res.notes.append(trust_note)
+    if not args.heads:
+        res.notes.append("signed heads were not checked (give --heads ANCHOR_DIR): a chain re-made together with its "
+                         "head anchor passes this check")  # fmt: skip
     if args.json:
         print(
             json.dumps(

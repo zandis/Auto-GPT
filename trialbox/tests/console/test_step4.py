@@ -443,7 +443,7 @@ def test_models_tile_shows_the_canary_date_and_result_and_runs_it(b4: dict[str, 
         "canary": {"gate": "on", "code": "failed", "running": False, "at": "2026-11-08T03:10:00"},
     }
     page = c.get("/admin").text
-    assert "failed 2026-11-08 03:10: note answers cannot count as a criterion not matched until it passes" in page
+    assert "failed 2026-11-08 03:10: note answers are not final until it passes" in page
     r = c.post("/admin/models/canary", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/admin?notice=canary" and bk.canary_runs == 1
     assert "The model self-test is running" in c.get(r.headers["location"]).text

@@ -79,7 +79,6 @@ from tb_contracts import (
     Judging,
     ScreenRunScope,
     TierSummary,
-    dump,
 )
 
 from orchestrator import answer_store
@@ -95,12 +94,13 @@ from orchestrator.scenarios.evaluate import (
     is_note_answer,
     not_in_snapshot,
     row,
-    sort_key,
+    sort_rows,
     tier,
 )
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     Scoped,
+    candidate_list_json,
     deliver_lists,
     drop_opted_out,
     evaluate_scope,
@@ -818,7 +818,7 @@ def run(ctx: Ctx) -> Outcome:
     # ---------------------------------------------------------------- outputs
     ctx.state("reporting")
     meta = report_meta(ctx, rs, snapshot, run_date, judging)
-    everyone = sorted([*pool_rows, *version_rows, *waiting_rows, *new_rows], key=sort_key)
+    everyone = sort_rows([*pool_rows, *version_rows, *waiting_rows, *new_rows])
     listed = [r for r in everyone if r.tier in LISTED]
     cl = CandidateList(
         ruleset=rs.id,
@@ -833,7 +833,7 @@ def run(ctx: Ctx) -> Outcome:
         ),
         judging=Judging(**judging) if judging else None,
     )
-    body = json.dumps(dump(cl), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
+    body = candidate_list_json(cl)
     ctx.publish(f"candidate_list_{rs.id}_v{rs.version}.json", body, "phi", [])  # the console's week page
     cell = small_cell(ctx, rs)  # summary PDF + mail are aggregate outputs: every count suppressed (SPEC §10.1)
     found = [r for r in new_rows if r.next_appointment and r.next_appointment.date() <= horizon]
@@ -897,7 +897,7 @@ def run(ctx: Ctx) -> Outcome:
         if on_ingest
         else f"this_week_visit1_{rs.id}_{run_date.isoformat()}"
     )
-    mailed = sorted(found if on_ingest else [*week_rows, *found], key=sort_key)
+    mailed = sort_rows(found if on_ingest else [*week_rows, *found])
     deliveries, _ = deliver_lists(ctx, rs, mailed, meta, stem, changes=None if on_ingest else changes)
     agg_to = recipients(rs.manifest.routing, job.requested_by)
     summary = ctx.publish(

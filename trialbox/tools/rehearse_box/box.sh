@@ -16,6 +16,10 @@ fail() { echo "REHEARSAL FAIL: $*" >&2; exit 1; }
 ok() { echo "ok: $*"; }
 dc() { (cd "$BOX" && docker compose --project-directory deploy "$@"); }   # COMPOSE_FILE comes from deploy/.env
 envget() { sed -n "s/^$1=//p" "$BOX/deploy/.env" | tail -1; }
+# H-148 (7170464780): the site's day, as the product reads it with no settings object (tb_common.config.site_tz: TB_TZ,
+# which compose requires to be site.tz, D-315); no zone is no day, never UTC's (an ingest after the site's midnight
+# under UTC's day is older than the box's own nightly snapshot)
+site_day() { local z; z="$(envget TB_TZ)"; [ -n "$z" ] || fail "TB_TZ is not set in deploy/.env (the site's zone, D-315)"; TZ="$z" date +%F; }
 # H-142 (.k): the new file written whole beside deploy/.env (its owner and mode) and renamed over it, never in place
 envset() {
   local e="$BOX/deploy/.env" t
@@ -37,7 +41,8 @@ install_box() (
   cd "$BOX" || exit 1
   # the host's zone is the site's, as a site's IT sets it (doctor's site_tz, D-315); this host has no timedatectl
   tz="$(sed -n "s/^tz: *['\"]\{0,1\}\([A-Za-z0-9_+\/-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)"
-  [ -n "$tz" ] && printf '%s\n' "$tz" > /etc/timezone
+  # both, as timedatectl set-timezone leaves them: the active /etc/localtime link first, the text file as a fallback
+  [ -z "$tz" ] || { printf '%s\n' "$tz" > /etc/timezone; ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime; }
   if [ "${TB_RH_VARIANT:-test}" = validation ]; then
     # a site's IT makes deploy/site as root; the pin step's container must still write there (I-4, D-835)
     install -d -m 0755 deploy/site && chown -R root:root deploy/site
@@ -86,9 +91,20 @@ ONCE_FILE=/root/trialbox-admin-first-sign-in  # root's home, as the passwd entry
 # (check_host.sh/no-tpm-sealed), and doctor shows it in the install's own output; any other line of the PoC list is
 # a stop the rehearsal's own install must not have. $1: the list, $2: which install, $3: that install's output
 only_the_expected_poc_stops() {
-  local other key='"key": "check_host.sh/no-tpm-sealed"'
+  local other key='"key": "check_host.sh/no-tpm-sealed"' line
   if [ -s "$1" ]; then
     other="$(grep -v -F "$key" "$1" || true)"
+    # H-110 (M-LH-2, OCR 1455-2 (A)): a compose file in a folder that is not root's alone is a stop on every box now,
+    # never a listed warning: the work dir is root's while the box runs (rehearse.sh host_up)
+    other="$(printf '%s\n' "$other" | while IFS= read -r line; do
+      case "$line" in
+        # H-110 (M-SC-3, the integrator's ruling 7122559749): a box with no cron daemon running warns and lists it;
+        # this container runs none, so the line is expected exactly when no cron daemon runs here
+        *'"key": "install.sh/cron-daemon"'*)
+          if ! pgrep -x cron >/dev/null 2>&1 && ! pgrep -x crond >/dev/null 2>&1; then continue; fi ;;
+      esac
+      [ -z "$line" ] || printf '%s\n' "$line"
+    done)"
     [ -z "$other" ] || { printf '%s\n' "$other"; fail "the $2 warned and listed the stops above ($1)"; }
   fi
   if [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ]; then
@@ -250,6 +266,23 @@ bootstrap)
   [ -f "$opt/deploy/install.sh" ] && cmp -s "$pub" "$opt/deploy/keys/vendor_ed25519.pub" \
     || fail "the bootstrap left no host tree or no vendor key in $opt"
   echo "$out" | grep -q "^running: $opt/deploy/install.sh $BUNDLE --ctgov-check" || fail "the bootstrap did not run the tree's installer"
+  # H-110 (a): the same command on the tree it left: kept, as this release's tree, and its installer runs
+  out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
+  [ "$rc" = 0 ] && echo "$out" | grep -q "^kept: $opt already holds this release's host tree" \
+    || { echo "$out"; fail "the bootstrap did not keep and run this release's own tree (exit $rc)"; }
+  # H-110 (a; the integrator's ruling 7119913331): a kept tree is the site's data, never code. Its box-install.sh and
+  # install.sh replaced by planted ones (the harm: code the vendor key's signature does not cover, run as root): the
+  # signed release is staged (LR-18: nothing switched before the update step) and its own installer runs from there;
+  # the planted never
+  planted="$W/bootstrap/planted-installer-ran"
+  for f in box-install.sh install.sh; do printf '#!/bin/sh\ntouch "%s"\n' "$planted" > "$opt/deploy/$f"; done
+  out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
+  echo "$out" | tail -4
+  staged="$(echo "$out" | sed -n "s#^running: \($opt/releases/[^/ ]*\)/deploy/install.sh $BUNDLE --ctgov-check\$#\1#p")"
+  [ "$rc" = 0 ] && echo "$out" | grep -q "^staged: the signed release " && [ -n "$staged" ] && [ ! -e "$planted" ] \
+    && ! grep -qs "$planted" "$staged/deploy/install.sh" "$staged/deploy/box-install.sh" && [ ! -e "$opt/current" ] \
+    || fail "a kept tree with planted installers: the signed release was not staged and run, a planted installer ran, or the box was switched before its update step (exit $rc)"
+  ok "a kept tree with planted installers: the signed release staged and its installer run, the planted never run, nothing switched"
   rm -rf "$W/bootstrap"
   ok "RUNBOOK §1's first command: bootstrap signature checked, bundle verified, host tree unpacked, key placed, installer run"
   ;;
@@ -394,6 +427,21 @@ doctor)
   # D-887: the pins are the media's placeholders, and the doctor says so where it shows them
   echo "$out" | grep -q "^PASS  serving.*rehearsal placeholder" || fail "the serving line does not name the rehearsal placeholder"
   ok "trialbox doctor --live: passed"
+  # H-110 (e): the start path refuses a deploy/.env group or others can read (the services' passwords, H-94 (5)): the
+  # real host command on this box, then the file's mode put back
+  m="$(stat -c %a "$BOX/deploy/.env")"; chmod 0644 "$BOX/deploy/.env"
+  out="$(cd "$BOX" && env -i PATH=/usr/bin:/bin python3 -m tools.trialbox backup-status 2>&1)"; rc=$?
+  chmod "$m" "$BOX/deploy/.env"
+  [ "$rc" = 2 ] && echo "$out" | grep -q "deploy/.env can be read by group or others (chmod 600 it): nothing was run" \
+    || { echo "$out" | tail -3; fail "a deploy/.env others can read did not stop the host command (exit $rc)"; }
+  ok "a deploy/.env others can read: the host command refused it (exit 2), nothing run"
+  # H-110 (f): a plain site key that others can read FAILs the real host check on this PoC box (a synthetic key in a
+  # folder of the rehearsal's own, never the box's secrets volume); the install keeps that FAIL (tb_kept_fails)
+  fk="$(mktemp -d)"; head -c 32 /dev/urandom > "$fk/site_hmac.key"; chmod 0644 "$fk/site_hmac.key"
+  out="$(sh "$BOX/deploy/check_host.sh" --env "$BOX/deploy/.env" --secrets "$fk" 2>&1)"; rm -rf "$fk"
+  echo "$out" | grep -q "^FAIL  site_hmac.key mode 644: a plain site key that group or others can read" \
+    || fail "a plain site key others can read did not FAIL the host check"
+  ok "a plain site key others can read: the host check FAILs it on this PoC box"
   # H-121: the update's size check (tools/trialbox/update.py db_size, as space_needs and the backup read it) on this
   # box's own database roles, through the box's own command line. The roles are a site's: `trialbox` may not connect
   # to `hapi` (30-service-roles.sh), so a read of `hapi` as `trialbox` fails here as on a site's box
@@ -606,8 +654,10 @@ EOF
 screen)
   tag="${2:-first}"
   if [ ! -f "$W/ingested" ]; then
-    # D-887: today's snapshot, as the nightly ingest makes it (a fixed date grew older than the box accepts, D-383)
-    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot "$(date -u +%F)" \
+    # D-887: today's snapshot, as the nightly ingest makes it (a fixed date grew older than the box accepts, D-383),
+    # in the site's day (H-148: UTC's day is the day before from the site's midnight until UTC's)
+    snap="$(site_day)" || exit 1
+    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot "$snap" \
       | tail -5 || fail "ingest of synthetic hospital A failed"
     touch "$W/ingested"
   fi

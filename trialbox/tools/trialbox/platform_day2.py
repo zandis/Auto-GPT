@@ -53,6 +53,7 @@ import argparse
 import gzip
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -154,6 +155,14 @@ def _dsn_vars(env: Mapping[str, str]) -> dict[str, str]:
     return out
 
 
+_CONNINFO = re.compile(r"(?:^|\s)(?:host|hostaddr|port|dbname|user|password|passfile|sslmode|service)\s*=")
+
+
+def _looks_like_a_connection(a: str) -> bool:
+    """H-110 (GP-PL-1): a URI or a key=value connection string, wherever it stands."""
+    return a.startswith(("postgres://", "postgresql://")) or bool(_CONNINFO.search(a))
+
+
 def spool_args(tool: str, args: Sequence[str], env: Mapping[str, str]) -> list[str]:
     """The request's lines: the tool, then its arguments with each connection string replaced by ``@<variable>``.
     A connection string that is not one of the job's variables is refused (it would be written to disk)."""
@@ -165,10 +174,15 @@ def spool_args(tool: str, args: Sequence[str], env: Mapping[str, str]) -> list[s
     while i < len(args):
         a = args[i]
         value = None
-        if a == "--dbname" and i + 1 < len(args):
+        # H-110 (GP-PL-1): every way the tools take a connection: --dbname X, --dbname=X, -d X, -dX
+        if a in ("--dbname", "-d") and i + 1 < len(args):
             value, i = args[i + 1], i + 2
         elif a.startswith("--dbname="):
             value, i = a.partition("=")[2], i + 1
+        elif a.startswith("-d") and not a.startswith("--") and len(a) > 2:
+            value, i = a[2:], i + 1
+        elif a in known or _looks_like_a_connection(a):  # a positional one (a URI, a key=value string)
+            value, i = a, i + 1
         else:
             if "\n" in a or a.startswith("@"):
                 raise Day2Error("an argument with a line break or a leading @ is refused")

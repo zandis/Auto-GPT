@@ -170,16 +170,17 @@ def test_the_japanese_rules_keep_a_long_line_fast() -> None:
         "長女",
     )
     runs = tuple(label + ws * 100_000 + "見本" for label in labels for ws in (" ", "\t", "\u3000"))
+    # the work done is this process's CPU time: never the time other xdist workers held the CPU (wall time under load)
     for text in adverse + runs:
         for f in (mask_note, G.redact, scan):
-            start = time.monotonic()
+            start = time.process_time()
             f(text)
-            assert time.monotonic() - start < bound(2.0), (f, text[:6])
+            assert time.process_time() - start < bound(2.0), (f, text[:6])
     # lane J: 400 kB of one anchor repeated (様 took 7.5 s, twice master's time: each anchor looked for its line's end
     # again; the guard's v1 names ran out of memory on 山田様 repeated): linear now, about 2 s at most on this box
     for unit in ("様", "山田様", "ア様", "さん", "氏名：", "記号１"):
         text = (unit * (400_000 // len(unit) + 1))[:400_000]
         for f in (mask_note, G.redact, scan):
-            start = time.monotonic()
+            start = time.process_time()
             f(text)
-            assert time.monotonic() - start < bound(5.0), (f, unit)
+            assert time.process_time() - start < bound(5.0), (f, unit)

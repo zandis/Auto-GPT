@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -254,7 +255,21 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
         raise ConfigError("TB_LLM_MODE must be vllm, llamacpp, openai or stub")
+    _check_module_keys(env.extra)
     return env
+
+
+def _check_module_keys(extra: Mapping[str, str]) -> None:
+    """F0: the keys of the system modules; unset or empty is the default, another form stops the start."""
+    for var in ("TB_TERMINOLOGY_UPDATE_DIR", "TB_TERMINOLOGY_STICK"):
+        if any(not part.startswith("/") for part in re.split(r"[:\s]+", extra.get(var, "")) if part):
+            raise ConfigError(f"{var} must be empty or absolute folders, got {extra[var]!r}")
+    keys = extra.get("TB_VENDOR_KEYS", "")
+    if keys not in ("", DECLARED["TB_VENDOR_KEYS"].default) and not keys.startswith("/"):
+        raise ConfigError(f"TB_VENDOR_KEYS must be an absolute folder, got {keys!r}")
+    night = extra.get("TB_TERMINOLOGY_NIGHT", "")
+    if night and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d", night):
+        raise ConfigError(f"TB_TERMINOLOGY_NIGHT must be HH:MM-HH:MM or empty, got {night!r}")
 
 
 def load_settings(path: Path) -> Settings:
@@ -850,7 +865,7 @@ DECLARED: dict[str, Declared] = {
     "TB_MIG_PROFILE": Declared("str", "", "platform: GPU MIG profile"),
     "TB_MODELS_DIR": Declared("path", "", "models folder"),
     "TB_MODEL_SWAP": Declared("str", "", "one GPU for two models (sleep) or not"),
-    "TB_NOTE_BLOCK": Declared("str", "both_agree", "note-block policy"),
+    "TB_NOTE_BLOCK": Declared("str", "never", "note-block policy"),
     "TB_NOTICE_N1_AT": Declared("str", "07:00", "console: first notice time"),
     "TB_NOTICE_N2_AT": Declared("str", "07:30", "console: second notice time"),
     "TB_NOT_MATCHED_GATE": Declared(
@@ -1071,6 +1086,9 @@ DECLARED: dict[str, Declared] = {
         "int", "1000", "SCREEN: patients whose notes the note stage reads at a time (same answers; T-694, D-794)"
     ),
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
+    "TB_SCREEN_TIMING": Declared(
+        "str", "off", "SCREEN: on times each stage of a measured run (M8; the flag screen.timing does the same)"
+    ),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),
     "TB_SECRETS_DIR": Declared("path", "/run/secrets/trialbox", "folder of the services' secrets"),
     "TB_SECRETS_HOST_DIR": Declared("path", "", "support bundle: host secrets folder it must never include (T-209b)"),
@@ -1116,7 +1134,12 @@ DECLARED: dict[str, Declared] = {
         "/data/terminology",
         "compiler (D-1028, D-858): code systems loaded on the box, each with its manifest line",
     ),
+    "TB_TERMINOLOGY_NIGHT": Declared("str", "", "M2: HH:MM-HH:MM in which a found pack waits; empty: not checked"),
     "TB_TERMINOLOGY_SOURCE": Declared("str", "", "compiler: terminology source"),
+    "TB_TERMINOLOGY_STICK": Declared("str", "", "M2: the sticks' folders, where a signed code-system pack may be"),
+    "TB_TERMINOLOGY_UPDATE_DIR": Declared(
+        "path", "", "M2: folder a signed code-system pack is put in; empty: stick only"
+    ),
     "TB_TESTBENCH_E2E": Declared("str", "", "testbench: run the e2e entry point"),
     "TB_TESTBENCH_E2E_STRICT": Declared("bool", "", "testbench: a failing entry point fails the run"),
     "TB_TESTBENCH_HOST": Declared("str", "127.0.0.1", "testbench: address"),
@@ -1165,6 +1188,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_VALIDATOR_IGS": Declared("str", "tw.gov.mohw.twcore#1.0.0", "FHIR validator: guides loaded"),
     "TB_VALIDATOR_XMX": Declared("str", "4g", "FHIR validator: Java heap"),
+    "TB_VENDOR_KEYS": Declared("path", "deploy/keys", "M2: folder of the vendor's public keys a pack is checked with"),
     "TB_VAULT_DIR": Declared("path", "", "testbench: vault folder"),
     "TB_VAULT_URL": Declared("str", "", "testbench: vault URL"),
     "TB_WEIGHTS_FLAG": Declared("path", "", "doctor --verify-all: where the weights flag file goes (D-393)"),

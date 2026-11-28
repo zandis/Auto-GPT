@@ -452,7 +452,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
                 "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked,
-                "people": people}  # fmt: skip
+                "against": sum(1 for r in rows if r["fit"].against), "people": people}  # fmt: skip
 
     def deceased_now(cl: dict[str, Any] | None) -> tuple[set[str], bool]:
         """FIT-U04 (T-629, D-415): the listed patients whose record in the lake now says they died (T-616's

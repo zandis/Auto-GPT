@@ -1,0 +1,160 @@
+# V-18b: ATC only from the site's own copy, and the FHIR store restarted after a terminology change (2026-11-23)
+
+**Reader:** the people who build TrialBox: the integrator, lane M (its groupers and maps), lane DB (the vocabulary)
+and the owners of the install and the update.
+
+Lane V, card V-18b, on the integrator's rulings 7114273376 and the answer to 7114639597 on #639. Decision: D-1183.
+It closes V18-07 and V18-01 of V-18 (`docs/handover/v18-code-systems-in-the-fhir-store-2026-11-23.md`). Findings:
+`docs/handover/v18b-atc-only-from-the-site-2026-11-23/findings.json`.
+
+## ATC (V18-07)
+
+Before: the shipped `src/atc.csv` and `atc.parquet` (33 codes with WHOCC's English names; licence register row `atc`,
+permission to ask) fed the compiler's mapper and `omop.concept`, while the FHIR store left them out.
+
+Now:
+
+- Both files are removed, and `tools/build_terminology.py` no longer builds them. The register row no longer names
+  them; NOTICE says no ATC name is shipped.
+- `atc` is no longer one of the mapper's shipped tables (`TABLE_FILES`): no file in a tables folder can feed it.
+  When the site's `atc_index` is loaded, a substance whose name no other substance shares takes the shipped table's
+  place in the exact-name step (so the Japanese dictionary reaches it, as before), reported with the method
+  `loaded`; a name several codes share still answers for review (TERM-2, D-1113).
+- `Terminology.atc_source()` looks each ATC code up in order (review F1): the site's copy names it; else the NHI
+  drug lists' ATC column holds it; else TrialBox's own grouper names it. So a site copy that lacks a code (older, or
+  cut to a formulary) never takes a code from a grouper: shown with a one-substance copy, every grouper keeps the
+  codes it has with no copy. `Terminology.atc_gaps()` lists, per grouper, the codes the site's copy does not hold.
+- The five drug names H-17 lost (hydroxychloroquine, isoniazid, metformin, sulfasalazine, warfarin) answer again on
+  a box that loaded the NHI drug list: its ingredient column, for review (method `loaded`). With committed data
+  alone they stay unmapped, for review.
+- A grouper family no code fills (the site's copy, the NHI lists and the grouper's own codes all lack one) is a
+  loss against the shipped table: `Terminology.atc_losses()` names it, the compile sends that mapping for review with
+  a note, the mapping check (`tools/mapping_coverage.py`) lists it, and the load writes a line of `needed.jsonl`
+  (`atc/<grouper>`, not a fault). With the committed tables no grouper loses a code.
+- The ruled order was "site copy, NHI column, unmapped". The groupers' own exact codes stay a third source, because
+  without them the shipped rule sets lose codes (anticoagulant, JAK); they are TrialBox's identifiers (D-536).
+- Before F1, `Terminology.atc_source()` was the one source of ATC rows for the groupers:
+  - the site's `atc_index` (its level-5 substances);
+  - else codes only: the ATC column of the NHI drug lists and the exact codes of TrialBox's own groupers, named
+    with the NHI ingredient when there is one, else with the code.
+- The vocabulary loader and the resolver read their table names from a list and skip a missing file, so they needed
+  no change: `omop.concept` gets ATC only from the tables loaded at install (`terminology_load`'s code lists).
+- The FHIR store already took ATC only from `atc_index` (D-1182 point 2); without it, ATC is a line of
+  `needed.jsonl`, never a fault.
+- A grouper family the NHI lists hold no code of names its members itself: 16 exact rows in `src/synonyms.csv`
+  (anticoagulant and 抗凝固薬: B01AA03, B01AE07, B01AF01 to B01AF03; biologic DMARD or JAK inhibitor and JAK
+  inhibitor: L04AF01 to L04AF03). Without them those ValueSets lost these codes, and a patient on one of them would
+  read "unknown" (a family member not listed, SCR-01) rather than a match.
+- The grouper step now answers with a family alone (`if hits or fams`), so a family the site's copy and the NHI lists
+  both lack still reaches the ValueSet.
+
+## No ATC names ship (review F2)
+
+- Name columns copied from the index now hold the code; the columns stay, so no reader's interface changes:
+  `services/adapter/mapping/mimic/tables/drug_to_atc.csv` (`display`), `libs/tb_common/refdata_src/jp_yj_atc.csv`
+  (`name_en`), the EMPULSE fixture's ValueSet displays and the Athena test vocabulary's six ATC concept names.
+- Generic names (INNs, which are public) used as TrialBox's own matching text or synthetic labels stay, each file
+  named in NOTICE's ATC entry with its reason. Synthetic patient records and captured site set-up answers are record
+  text.
+- `tests/unit/test_v18b_no_atc_names_ship.py` fails on an ATC ValueSet or coding whose display is not its code, and
+  on any other file that puts an ATC code beside one of those generic names.
+
+## The shipped rule sets
+
+`python -m tools.build_rulesets --check` before the change of `synonyms.csv`: 7 rule sets drifted, every medication
+ValueSet empty. After: the same 15 ValueSets in 7 rule sets, each with the same codes; only the displays (the code
+instead of WHOCC's name) and the content-hash version move. Their CQL and ELM follow; no SQL file, IR or test file
+changes. `--recompile` wrote them. RA-JAK's `terminology_release` moves from `TR-7cedf1a45e79` to `TR-c5fac887e001`.
+
+## The FHIR store's validation cache (V18-01)
+
+Shown on the pinned image (`hapiproject/hapi:v8.12.0-2` on Postgres): a CodeSystem put as `v1` with code A, then as
+`v2` with only B. Twenty seconds later `$lookup` of A still answered `v1` and `$validate-code` of A answered true.
+`POST /$reindex-terminology` failed (HAPI-2072: Hibernate Search was not initialized). After `docker restart` the
+store answered in 38 s: A not found, B found as `v2`.
+
+So:
+
+- `python -m tools.terminology_load changed --report R` names the systems a load stored anew (state `loaded`).
+- `deploy/terminology-update.sh` then restarts `fhir-store` and waits, 15 s apart and up to 60 times, until compose
+  reports it healthy; `restarted --report R --answered yes|no --seconds N` records it in the report
+  (`store_restart`).
+- An update's code-system step (`tools/trialbox/update.py`) does the same through its own runner; a failed restart is
+  in the report, never a stop.
+- The doctor's terminology line warns when a changed system was not followed by a restart, or the store did not
+  answer again, and otherwise says when it restarted.
+
+## Test assertions changed (the integrator's ruling (c))
+
+- `test_licence_register.py::test_the_detector_sees_the_known_data_files`: the known data file `src/atc.csv` is
+  replaced by `src/nhi_drug.csv`.
+- `test_fhir_codesystems.py::test_a_system_its_licence_does_not_let_the_box_carry_is_skipped_with_the_reason`: the
+  licence gate is shown on a file of the `atc` row (`drug_to_atc.csv`) instead of the shipped ATC; same assertion.
+- `test_terminology_load.py::test_the_doctor_fails_when_the_terminology_changed_after_the_load`: its report records
+  the store's restart, as the update step now writes it; same assertions.
+- `test_parser_terminology_review.py::test_terminology_steps`: `allopurinol` was an exact match (WHOCC's name); it is
+  now unmapped, and the exact step is shown on `rheumatology`.
+- `test_h17_nhi_import_and_site_list.py`, three figures: with committed data only, 261 of 1,273 (was 266), medication
+  1 (was 6), methods exact 3 and synonym 50 (were 9 and 49); with the extract medication 8 (was 13); with the
+  50-line site list 391 (was 396), medication 23 (was 28). Six drug names matched WHOCC's names; methotrexate now
+  resolves through TrialBox's own grouper.
+- `test_refdata_jp.py`, two tests: the dictionary's drug names answer from a synthetic site ATC copy the test writes
+  (made-up Z99 codes); PSL's code is that copy's prednisolone code (was H02AB06), and must be one code.
+- `test_study_manifest.py::test_the_criteria_hash_of_a_shipped_study_is_its_golden`: RA-JAK's criteria hash is
+  regenerated (`e1e9eed8...`; D-1366 still quotes the earlier one).
+
+- `tests/fixtures/ir/snapshots/ATOMS.cql` (`test_cql_sql_generators.py::test_atoms_cql_snapshot_and_determinism`):
+  regenerated; only the versions of its three medication ValueSets (colchicine, methotrexate, TB preventive
+  therapy) and the library's version move.
+
+- `test_mimic_mapping.py::test_drug_names_to_atc` and `::test_normalise_bundle`: the ATC display is the code
+  (was `furosemide`, `metformin`, `valsartan and sacubitril`).
+- `test_refdata_jp.py::test_site_setup_suggests_atc_for_a_yj_code`: the display is `B01AF02` (was `apixaban`).
+
+## The OCR pass (#639 7119659794), checked on master `8ddecb8d1`
+
+- **AD-MAB's anticoagulant set lists five substances: not a fault.** AD-MAB-EXC-01 reads "anticoagulants (warfarin,
+  direct oral anticoagulants) within 90 days". The five codes are warfarin and the four direct oral anticoagulants;
+  a code under one of the families B01AA, B01AE or B01AF that is not listed answers unknown, for review (SCR-01),
+  never a silent miss. Heparins (B01AB) are outside the protocol's stated scope. V-18b keeps the codes and families
+  as they were; only the displays change.
+- **Tocilizumab as a biologic: not a fault.** It is an interleukin-6 receptor antibody, a biologic DMARD, which is
+  what RA-COH-INC-06 and RA-JAK-EXC-01 ask. Checking it showed the nearby gap V18b-04 (abatacept, sarilumab,
+  rituximab and the other interleukin inhibitors are in no grouper), pre-existing and not changed here.
+- **The restart's report was rewritten in place: fixed in this PR.** `tools.terminology_load.write_report` writes a
+  temporary file beside it and renames it; `update.py` and the `restarted` command use it. Test:
+  `test_v18b_store_restart.py::test_the_report_is_written_whole_or_not_at_all`.
+
+## The review of `5d9a7c5` (#1439, comment 7122360665)
+
+- **1439-3 (fixed in this PR):** `write_text_whole` syncs the temporary file before the rename; the update's
+  code-system step writes the load's report through it too, so a kill, a full disk or a power cut never leaves a
+  half-written or empty report. Tests: `test_the_report_is_synced_before_its_rename`,
+  `test_the_updates_load_report_is_never_left_half_written`.
+- **1439-4 (fixed in this PR):** `carry` keeps, in a new report, the systems an earlier load changed whose restart
+  never ran or did not answer (`pending_restart`); `changed` includes them. A rerun that finds every system unchanged
+  still restarts the store, and the doctor warns until a restart answers. Tests:
+  `test_a_rerun_after_a_restart_that_did_not_answer_restarts_again`,
+  `test_a_restart_that_answered_ends_the_pending_systems`.
+- **1439-1 and 1439-2 (to the integrator):** the anticoagulant grouper leaves out the heparins (B01AB) and the other
+  anticoagulants (B01AX); the RA biologic groupers leave out sarilumab, abatacept and rituximab (V18b-04). Either
+  change moves the shipped rule sets AD-MAB, RA-COH and RA-JAK (their ValueSets, SQL and expected verdicts) and needs
+  their criteria reviewed again; proposed as a card of its own, so this one moves no screening answer.
+
+## Not in this card
+
+- The ATC concepts an existing box loaded from the shipped table stay in `omop.concept` (V18b-01).
+- Review F3: a fresh box writes no "TB has ATC" relationships from the NHI drug codes into the vocabulary
+  (`omop.vocab_load.load_terminology` relates an NHI code only to an ATC concept of the shipped tables, and none
+  ships). Its ATC concepts come only from the site's `atc_index`, as a code list (`load_code_list`), which carries
+  no such relationship. No reader of those relationships was found.
+- Review F4: a shipped ValueSet names an ATC member by its code (`"display": "L04AB01"`); a view that prints members
+  shows codes, unless it names them from the site's copy or the NHI list.
+- Real ATC/DDD index releases: only the synthetic index the tests write was loaded.
+
+## Run, and not run
+
+- `tests/unit/test_v18b_atc_from_the_site.py` (6) and `tests/unit/test_v18b_store_restart.py` (6).
+- The restart was shown by hand on the pinned store image (above); the script's restart was run with a stub docker,
+  not on a box.
+- `python -m tools.build_rulesets --check` after `--recompile`: equal.

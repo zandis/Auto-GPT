@@ -68,7 +68,6 @@ DOMAIN_TABLES = {
 }
 TABLE_FILES = {
     "icd10cm": "icd10cm_tw",
-    "atc": "atc",
     "nhi_drug": "nhi_drug",
     "nhi_order": "nhi_order",
     "department": "department",
@@ -263,6 +262,8 @@ class MappingResult:
     needs_review: bool
     notes: list[str] = field(default_factory=list)
     families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
+    # INT-R2: the families from ``family`` rows only (unknown, never members): no YJ stem is added for them
+    open_families: list[tuple[str, str]] = field(default_factory=list)
 
 
 ConceptMapLLM = Callable[[str, str, list[Concept]], tuple[list[tuple[str, str, float]], bool]]
@@ -422,6 +423,61 @@ class Terminology:
             return Concept(r.get("system") or SYSTEMS["loinc"], r["code"], r["display"], r.get("component_of") or None)
         return Concept(SYSTEMS[table], r["code"], r["display"])
 
+    def atc_source(self) -> list[dict[str, Any]]:
+        """V-18b (D-1183): ATC is never shipped (WHOCC, permission to ask). Each code is looked up in order: the site's
+        own copy (``atc_index``, its substances, level 5) names it; else the NHI drug lists' ATC column (open data)
+        holds it, named by the NHI ingredient when there is one; else TrialBox's own groupers name it, as the code
+        itself (D-536). So a site copy that lacks a code (older, or cut to a formulary) never takes a code from a
+        grouper; ``atc_gaps`` lists those codes. Never a WHOCC name without the site's copy."""
+        named: dict[str, str] = {}
+        for r in self.atc_rows:  # a group is a family, never a member
+            if len(str(r["code"])) == 7:
+                named[str(r["code"])] = str(r["display"])
+        site = set(named)
+        for r in [*self.rows.get("nhi_drug", []), *self.nhi_atc]:
+            code = str(r.get("atc") or "")
+            if len(code) == 7 and code not in site:
+                ing = str(r.get("ingredient") or "")
+                if ing or code not in named:
+                    named[code] = ing or code
+        for s in self.synonyms:
+            if s["table"] == "atc" and s["match"] == "exact":
+                named.setdefault(str(s["code"]), str(s["code"]))
+        return [{"code": c, "display": d} for c, d in sorted(named.items())]
+
+    def atc_gaps(self) -> dict[str, list[str]]:
+        """V-18b review F1: each grouper's ATC codes that the site's own copy does not hold (they come from the NHI
+        lists or the grouper itself); empty when no copy is loaded or the copy holds them all."""
+        if not self.atc_rows:
+            return {}
+        site = {str(r["code"]) for r in self.atc_rows}
+        out: dict[str, list[str]] = {}
+        for s in self.synonyms:
+            if s["table"] != "atc":
+                continue
+            for c in self.expand("atc", str(s["code"]), str(s["match"])):
+                if c.code not in site and c.code not in out.get(str(s["name"]), []):
+                    out.setdefault(str(s["name"]), []).append(c.code)
+        return {k: sorted(v) for k, v in sorted(out.items())}
+
+    def atc_losses(self) -> dict[str, list[str]]:
+        """V-18b review F1: each grouper's ATC families (prefix rows) that no code of the site's copy, the NHI lists or
+        the grouper itself fills: such a grouper lost codes the shipped table gave it. The compile sends it for review,
+        and the mapping check and ``needed.jsonl`` name it."""
+        out: dict[str, list[str]] = {}
+        for s in self.synonyms:
+            if s["table"] == "atc" and s["match"] == "prefix" and not self.expand("atc", str(s["code"]), "prefix"):
+                out.setdefault(str(s["name"]), []).append(str(s["code"]))
+        return {k: sorted(set(v)) for k, v in sorted(out.items())}
+
+    def _atc_lost(self, fams: set[tuple[str, str]]) -> list[str]:
+        """The ATC families of ``fams`` with no code to list (``atc_losses``): prefix rows only, as there. A
+        ``family`` row (INT-R2) lists no code by design, so it is never a loss."""
+        pre = {str(s["code"]) for s in self.synonyms if s["table"] == "atc" and s["match"] == "prefix"}
+        return sorted(
+            code for sy, code in fams if sy == SYSTEMS["atc"] and code in pre and not self.expand("atc", code, "prefix")
+        )
+
     def concept(self, system: str, code: str) -> Concept | None:
         return self._by_code.get((system, code))
 
@@ -431,7 +487,7 @@ class Terminology:
 
     def expand(self, table: str, code: str, match: str) -> list[Concept]:
         out = []
-        for r in self.rows.get(table, []):
+        for r in self.atc_source() if table == "atc" else self.rows.get(table, []):
             c = self._concept(table, r)
             if (match == "exact" and c.code == code) or (match == "prefix" and c.code.startswith(code)):
                 out.append(c)
@@ -447,6 +503,12 @@ class Terminology:
     ) -> MappingResult:
         """The concept's codes. E-TERM-3 (D-1048): while a site list is refused, every answer says it was not read."""
         res = self._map(domain, name, synonyms, llm)
+        opened = {(SYSTEMS.get(s["table"], ""), s["code"]) for s in self.synonyms if s["match"] == "family"}
+        # V-18b (D-1183) x INT-R2 (D-1074): an ATC ``family`` row is unknown, never a member family, so it leaves
+        # ``families`` (the grouper's prefix families) for ``open_families``; the ValueSet writes both
+        atc_open = {f for f in res.families if f in opened and f[0] == SYSTEMS["atc"]}
+        res.families = [f for f in res.families if f not in atc_open]
+        res.open_families = sorted((set(res.families) & opened) | atc_open)
         for r in self.refused_site_lists():
             res.notes.append(f"site list {r['table']} was not read; the shipped tables answered")
         return res
@@ -492,12 +554,21 @@ class Terminology:
             wide = self._via(name, domain, trusted, grouped, exact, "synonym", False)
             if wide is not None and {c.code for c in hits} < {c.code for c in wide.concepts}:
                 return wide
-            return MappingResult(name, domain, _dedupe(hits), "exact", False)
+            # V-18b: a name of the site's own ATC copy keeps the method of a table loaded at install
+            site = bool(self.rows.get("atc")) and all(c.system == SYSTEMS["atc"] for c in hits)
+            # INT-R2: a drug's own name (methotrexate) keeps its curated ``family`` rows: the codes that may hold it
+            # outside its listed ones read unknown, never a silent "not on it"
+            opened = {(SYSTEMS[s["table"]], s["code"]) for s in self.synonyms
+                      if s["domain"] == domain and s["match"] == "family" and norm(s["name"]) == primary}  # fmt: skip
+            method = "loaded" if site else "exact"
+            return MappingResult(name, domain, _dedupe(hits), method, False, families=sorted(opened))
         # 2. curated synonym/grouper table on the name — a grouper such as "urate-lowering therapy" must win over
         #    exact matches of individual example drugs
         hits, fams = grouped([primary])
-        if hits:
-            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+        if hits or fams:
+            lost = self._atc_lost(fams)  # V-18b F1: a family the site's copy and the NHI lists hold no code of
+            note = [f"ATC families with no code to list ({', '.join(lost)}): load the site's ATC copy"] if lost else []
+            return MappingResult(name, domain, _dedupe(hits), "synonym", bool(lost), note, families=sorted(fams))
         # 2a. the loaded synonym dictionary (D-172), trusted entries only: TrialBox's curated rows that are not
         #     ambiguous (類風濕關節炎 -> rheumatoid arthritis, GPT -> alt), then the curated table and the exact names
         #     on their canonical names. Such a match is a curated synonym: no review.
@@ -508,8 +579,10 @@ class Terminology:
             return found
         # 2 (cont.). the curated table on the model's synonyms
         hits, fams = grouped(names)
-        if hits:
-            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+        if hits or fams:
+            lost = self._atc_lost(fams)
+            note = [f"ATC families with no code to list ({', '.join(lost)}): load the site's ATC copy"] if lost else []
+            return MappingResult(name, domain, _dedupe(hits), "synonym", bool(lost), note, families=sorted(fams))
         # 2b. exact match on the synonyms (flagged for review: the grouping came from the model)
         hits = exact(names[1:])
         if hits:
@@ -593,6 +666,13 @@ class Terminology:
         # the stamp's TERM-2 part is read again with them (the ICD blocks and index stay as __init__ read them)
         self.installed_read = {k: v for k, v in self.installed_read.items() if k in (inst.ICD_BLOCKS, inst.ICD_INDEX)}
         self.loaded_codes: set[tuple[str, str]] = set()  # every code of a loaded table (a site code is checked here)
+        # V-18b (D-1183): the site's ATC index (atc_index), the one source of ATC: groupers expand and an NHI drug's
+        # ATC code is named from it; none loaded, none (the NHI drug list's own ATC column still answers)
+        for gone in getattr(self, "atc_rows", []):
+            self._by_code.pop((SYSTEMS["atc"], str(gone["code"])), None)
+        self.rows["atc"] = []
+        self.atc_rows: list[dict[str, Any]] = []
+        self.nhi_atc: list[dict[str, Any]] = []  # the NHI drug list loaded at install (or shipped): its ATC column
         self.who_categories: dict[str, list[Concept]] = {}  # a WHO ICD-10 category -> its codes, when loaded
         have = sorted(p.stem for p in where.glob("*.parquet")) if where.is_dir() else []
         # H-17 (D-1127): the NHI open data shipped in the image answers when the box loaded none of its own
@@ -704,6 +784,18 @@ class Terminology:
 
         if table == inst.ATC_INDEX:
             uri = LOADED_SYSTEMS["atc"]
+            self.atc_rows = rows
+            # the site's copy takes the shipped table's place: a substance (level 5) whose name no other substance
+            # shares answers the exact-name step (and the dictionary through it), as the shipped rows did before
+            # V-18b; a name several codes share answers below, for review (TERM-2, D-1113)
+            subs = [r for r in rows if len(str(r["code"])) == 7]
+            seen: dict[str, int] = {}
+            for r in subs:
+                seen[norm(str(r["display"]))] = seen.get(norm(str(r["display"])), 0) + 1
+            self.rows["atc"] = [{"code": str(r["code"]), "display": str(r["display"])} for r in subs
+                                if seen[norm(str(r["display"]))] == 1]  # fmt: skip
+            for r in rows:
+                self._by_code[(uri, str(r["code"]))] = Concept(uri, str(r["code"]), str(r["display"]))
             under: dict[str, list[Concept]] = {}  # an ATC group -> its substances (level 5)
             for x in rows:
                 self.loaded_codes.add((uri, str(x["code"])))
@@ -720,6 +812,7 @@ class Terminology:
                     exact += [("medication", k, concepts, fams, table, table) for k in _name_keys(str(r["display"]))]
         elif table == inst.NHI_DRUGS:
             uri = LOADED_SYSTEMS["atc"]
+            self.nhi_atc = rows
             for r in rows:
                 self.loaded_codes.add((LOADED_SYSTEMS["nhi_drug"], str(r["nhi_code"])))
                 ing = _ingredient(str(r.get("ingredient") or ""))
@@ -912,13 +1005,16 @@ def valueset(
     status: str = "draft",
     families: list[tuple[str, str]] | None = None,
     ingredients: dict[str, dict[str, str]] | None = None,
+    open_families: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """A FHIR ValueSet of the concepts. ``ingredients`` (``stem -> {atc, ingredient}``, a Japanese site's
     ingredient-to-ATC table, :func:`tb_common.refdata_jp.ingredient_atc`) adds the YJ stems of its ATC codes and
-    families (:func:`yj_ingredients`)."""
+    families (:func:`yj_ingredients`), never of an ``open_families`` one (INT-R2: such a family is unknown, not a
+    member)."""
     by_system: dict[str, list[Concept]] = {}
     if ingredients:
-        concepts = [*concepts, *yj_ingredients(concepts, families or [], ingredients)]
+        members = [f for f in families or [] if f not in set(open_families or [])]
+        concepts = [*concepts, *yj_ingredients(concepts, members, ingredients)]
     for c in concepts:
         by_system.setdefault(c.system, []).append(c)
     rid = vs_resource_id(ruleset, vs_name)
@@ -943,8 +1039,9 @@ def valueset(
         "status": status,
         "compose": compose,
     }
-    if families:
-        vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{sy}|{pre}"} for sy, pre in sorted(set(families))]
+    if families or open_families:
+        every = set(families or []) | set(open_families or [])
+        vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{sy}|{pre}"} for sy, pre in sorted(every)]
     if needs_review:
         vs["meta"] = {"tag": [{"system": REVIEW_TAG_SYSTEM, "code": "needs_review"}]}
     return vs
