@@ -4,8 +4,12 @@ and counts model verdicts that differ; a frozen-bench note set becomes one S3 ro
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
 from typing import Any
+
+import httpx
+import pytest
 
 from bench.invest import baseline, ledger
 
@@ -56,3 +60,48 @@ def test_noteset_writes_one_s3_row_per_case_with_the_gold(tmp_path: Path) -> Non
         .fetchall()
     )
     assert got == [("c1", "S3", "T", "T", "pair"), ("c2", "S3", "F", "U", "pair")]
+
+
+def test_a_public_model_host_is_refused_before_any_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_send(*a: Any, **k: Any) -> Any:
+        raise AssertionError("a request was made")
+
+    monkeypatch.setattr(httpx.Client, "send", no_send)
+    with pytest.raises(ValueError, match="not an on-box address"):
+        baseline._client("http://127.0.0.1:1,http://8.8.8.8:8000", "m")
+
+
+def test_requests_are_counted_by_server_ordinal_never_by_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+    monkeypatch.setattr(httpx.Client, "post", lambda self, url, **kw: seen.append(str(url)))
+    c = baseline._client("http://user:pass@127.0.0.1:1,http://127.0.0.1:2", "m")
+    assert c.http.trust_env is False
+    for _ in range(3):
+        c.http.post("http://user:pass@127.0.0.1:1/chat/completions", json={})
+    shown = json.dumps(dict(c.http.posts))
+    assert json.loads(shown) == {"server 1": 2, "server 2": 1}
+    assert "user" not in shown and "pass" not in shown
+    assert seen[1].startswith("http://127.0.0.1:2/")
+
+
+def test_salt_is_created_private_once_and_an_existing_one_is_kept_and_tightened(tmp_path: Path) -> None:
+    fresh = tmp_path / "sub" / "salt"
+    value = baseline._salt(fresh)
+    assert len(value) == 32 and stat.S_IMODE(fresh.stat().st_mode) == 0o600
+    assert baseline._salt(fresh) == value  # never replaced
+    old = tmp_path / "old"
+    old.write_text("kept-salt\n", encoding="utf-8")
+    old.chmod(0o644)
+    assert baseline._salt(old) == "kept-salt"
+    assert stat.S_IMODE(old.stat().st_mode) == 0o600
+
+
+def test_aggregate_is_published_only_after_reconciliation_succeeded(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    agg = tmp_path / "agg.json"
+    baseline._publish(agg, {}, set(), set(), ["GZQO: x"])
+    assert not agg.exists() and capsys.readouterr().out.count("WARN") == 1
+    assert (tmp_path / "agg.json.DRAFT-reconcile-mismatch").exists()
+    baseline._publish(agg, {}, set(), set(), [])
+    assert agg.exists()

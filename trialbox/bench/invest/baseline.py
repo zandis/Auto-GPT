@@ -28,6 +28,7 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -40,18 +41,31 @@ class _Sampled(httpx.Client):
     frozen bench's way of calling a server directly; ``urls``: several servers of one build, taken in turn."""
 
     def __init__(self, timeout: Any, sampling: dict[str, Any], base: str, urls: list[str]) -> None:
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=timeout, trust_env=False)  # no proxy variables: the call goes where it is addressed
         self.extra, self.base = dict(sampling), base
-        self._next = itertools.cycle(urls)
+        self._urls = urls
+        self._next = itertools.cycle(range(len(urls)))
         self._lock = threading.Lock()
-        self.posts = Counter[str]()
+        self.posts = Counter[str]()  # by server ordinal ("server 1"), never by address: an address may carry a login
 
     def post(self, url: Any, **kw: Any) -> httpx.Response:
         with self._lock:
-            host = next(self._next)
-            self.posts[host] += 1
+            i = next(self._next)
+            self.posts[f"server {i + 1}"] += 1
         kw["json"] = {**(kw.get("json") or {}), **self.extra}
-        return super().post(str(url).replace(self.base, host, 1), **kw)
+        return super().post(str(url).replace(self.base, self._urls[i], 1), **kw)
+
+
+def _on_box(url: str) -> None:
+    """Refuse a model server that is not on this box (loopback or a private address) before any request is made; the
+    message names the host only, never the login or path of the address."""
+    from tb_common.http import address_class, resolve_now
+
+    p = urlparse(url)
+    host = p.hostname or ""
+    addrs = resolve_now(host, p.port or (443 if p.scheme == "https" else 80)) if host else []
+    if not addrs or any(address_class(x) not in ("loopback", "private") for x in addrs):
+        raise ValueError(f"model server host {host!r} is not an on-box address (loopback or private only)")
 
 
 def _client(urls: str, model: str) -> Any:
@@ -59,6 +73,8 @@ def _client(urls: str, model: str) -> Any:
     from tb_common.llm import LlmClient
 
     hosts = [u.rstrip("/") for u in urls.split(",") if u]
+    for h in hosts:
+        _on_box(h)
     root = Path(__file__).resolve().parents[2]
     sampling = yaml.safe_load((root / "models" / "routing.yaml").read_text(encoding="utf-8"))["sampling"]
     c = LlmClient(hosts[0], model)
@@ -164,6 +180,35 @@ def night(a: argparse.Namespace) -> int:
     return 0 if not bad else 1
 
 
+def _salt(p: Path) -> str:
+    """The pseudonymisation salt: created atomically with mode 600 (never readable by others, never replaced when a
+    parallel first run wins), an existing file's mode tightened; the value read back is the winner's."""
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        os.chmod(p, 0o600)
+    else:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(secrets.token_hex(16))
+    for _ in range(50):  # the winner of a race may not have written its value yet
+        salt = p.read_text(encoding="utf-8").strip()
+        if salt:
+            return salt
+        time.sleep(0.1)
+    raise ValueError("the salt file is empty")
+
+
+def _publish(path: Path, agg: Any, pids: Any, known: Any, bad: list[str]) -> None:
+    """The aggregate leaves only after reconciliation succeeded; a mismatch keeps the run as a draft file beside it."""
+    if not bad:
+        export.write_agg(path, agg, pids, known)  # refuses identifiers, suppresses < 10
+        return
+    draft = path.with_name(path.name + ".DRAFT-reconcile-mismatch")
+    export.write_agg(draft, agg, pids, known)
+    print(f"WARN: {len(bad)} reconcile mismatches; the aggregate is NOT published, the draft is {draft.name}")
+
+
 def coded(a: argparse.Namespace) -> int:
     """Coded stages on a lake without notes; the ledger stays under ``--out``, only ``--agg`` may leave the machine."""
     from embed_service.embedder import HashEmbedder
@@ -171,12 +216,7 @@ def coded(a: argparse.Namespace) -> int:
 
     from tools.cascade_e2e import load_trial
 
-    salt_file = Path(a.salt_file)
-    if not salt_file.exists():
-        salt_file.parent.mkdir(parents=True, exist_ok=True)
-        salt_file.write_text(secrets.token_hex(16), encoding="utf-8")
-        os.chmod(salt_file, 0o600)
-    salt = salt_file.read_text(encoding="utf-8").strip()
+    salt = _salt(Path(a.salt_file))
     snap = (Path(a.lake) / "CURRENT").read_text(encoding="utf-8").strip()
     run_date = date.fromisoformat(a.run_date) if a.run_date else date.fromisoformat(snap[:10]).fromordinal(
         date.fromisoformat(snap[:10]).toordinal() + 1)  # fmt: skip
@@ -204,7 +244,7 @@ def coded(a: argparse.Namespace) -> int:
     bad = [f"{k}: {m}" for k in ids for m in match_adapter.reconcile(con, res[k], rss[k])]
     known = set(ids) | {c.id for r in rss.values() for c in r.active()}
     agg = export.ledger_agg(con)
-    export.write_agg(Path(a.agg), agg, export.pids_of(con), known)  # refuses identifiers, suppresses < 10
+    _publish(Path(a.agg), agg, export.pids_of(con), known, bad)
     print(json.dumps({"run_id": run_id, "protocols": len(ids), "cascade_s": secs,
                       "agg_rows": {t: len(r) for t, r in agg.items()}}))  # fmt: skip
     print("reconcile:", "OK" if not bad else f"{len(bad)} mismatches")  # the messages carry no identifier, kept short
