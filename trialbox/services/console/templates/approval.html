@@ -3,7 +3,7 @@
 {% block content %}
 <div class="headrow"><h1>{{ rs }} v{{ version }} · {{ t('s20.title') }}</h1>
 <span class="hint" data-testid="s20-split">{{ t('s20.split', n=rows|length, s=split.structured, m=split.note, x=split.mixed, h=split.human) }}</span></div>
-{% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}{% if done == 'saved' %}<p class="ok" role="status" data-testid="approval-saved">{{ t('s20.saved') }}</p>{% endif %}
+{% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}{% if done == 'conflict' %}<p class="warn" role="alert" data-testid="approval-conflict">{{ t('s20.conflict') }}</p>{% endif %}{% if done == 'saved' %}<p class="ok" role="status" data-testid="approval-saved">{{ t('s20.saved') }}</p>{% endif %}
 <p>{{ t('s20.help') }}</p>
 <p class="hint" data-testid="s20-who">{{ t('s20.who') }}</p>
 {% if term_refused %}

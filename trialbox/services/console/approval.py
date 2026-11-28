@@ -285,7 +285,11 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
                 done["opened"] += 1
         for crit, (text, was) in {c: (t, w) for c, t, w in labels}.items():  # one criterion once: its last label
             words = " ".join(text.split())[:80]
-            if words and words != " ".join(was.split())[:80] and words != ctx["labels"].get(crit, ""):
+            cur, shown = ctx["labels"].get(crit, ""), " ".join(was.split())[:80]
+            if words and words not in (shown, cur):
+                if cur != shown:  # saved meanwhile by another person: not written over, the page then shows theirs
+                    done["conflicts"] = done.get("conflicts", 0) + 1
+                    continue
                 au.append("console.criterion_label", job_id=job.job_id, ruleset=job.ruleset, actor=h.actor(sess),
                           detail={"action": crit, "role": sess.user.role, "lang": sess.lang})  # fmt: skip
                 store.save_label(job.ruleset or "", crit, sess.lang, words, sess.user.username, now)
@@ -309,9 +313,10 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         if not len(ids) == len(texts) == len(was):
             raise h.problem(404, "notfound")
         labels = [(str(c), str(t), str(w)) for c, t, w in zip(ids, texts, was, strict=True)]
-        apply_save(sess, request.url.path, job_id, [str(x) for x in form.getlist("opened")],
-                   [str(x) for x in form.getlist("tick")], labels, str(form.get("label_lang") or ""))  # fmt: skip
-        return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=saved", status_code=303)
+        opened, tick = [str(x) for x in form.getlist("opened")], [str(x) for x in form.getlist("tick")]
+        done = apply_save(sess, request.url.path, job_id, opened, tick, labels, str(form.get("label_lang") or ""))
+        saved = "conflict" if done.get("conflicts") else "saved"
+        return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done={saved}", status_code=303)
 
     @app.post("/api/v1/jobs/{job_id}/approval/save")
     @page_twin("/pilot/jobs/{job_id}/approval/save")

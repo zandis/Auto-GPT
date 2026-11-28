@@ -152,6 +152,23 @@ def test_a_label_saved_in_another_tab_or_language_is_not_written_over(box: dict[
     assert r.status_code == 303
 
 
+def test_a_second_edit_from_the_same_starting_label_does_not_overwrite_the_first(box: dict[str, Any]) -> None:
+    """Review R1: two staff edit one label from the same shown value; the second save is told, not written."""
+    job = _approval_job(box, _rows())
+    box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
+    c, csrf = login(box["app"], "crc", PW)
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    _, csrf = _page_and_csrf(c, job.job_id)
+    form = {"csrf": csrf, "label_lang": "ja", "label_id": IDS[:1], "label_was": [""]}
+    c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**form, "label_text": ["最初の表示名"]})
+    r = c.post(f"/pilot/jobs/{job.job_id}/approval/save", data={**form, "label_text": ["二番目の表示名"]},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and r.headers["location"].endswith("done=conflict")
+    page, _ = _page_and_csrf(c, job.job_id)
+    assert f'data-testid="site-label-{IDS[0]}">最初の表示名' in page and 'data-testid="approval-conflict"' not in page
+    assert len(_events(box, "console.criterion_label")) == 1
+
+
 def test_the_one_form_has_an_api_twin(box: dict[str, Any]) -> None:
     """FIT-019: the page action's /api/v1 twin records the same, criterion by criterion, and refuses the same."""
     from fastapi.testclient import TestClient
