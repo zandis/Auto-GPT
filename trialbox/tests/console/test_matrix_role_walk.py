@@ -230,6 +230,8 @@ def preparer(b: dict[str, Any], job_id: str) -> rw.Prepare:
             ("POST", "/studies/{rs}/candidates/{pid}/reveal"): lambda: {"form": {"purpose": "eligibility", **reveal}},
             ("POST", "/pilot/jobs/{job_id}/reveal"): lambda: {"form": {"pid": A, **reveal}},
             ("POST", "/studies/{rs}/patients/{pid}/mark"): lambda: {"form": {"mark": "need_info"}},
+            ("POST", "/admin/support"): lambda: {"form": {"was": "on", "confirm": "1"}},  # a no-op: no session is on
+            ("POST", "/api/v1/admin/support"): lambda: {"json": {"turn": "off"}},
             ("POST", "/ops/users"): lambda: {"form": {"action": "disable", "username": throwaway()}},
             ("POST", "/api/v1/studies/{rs}/patients/{pid}/reveal"): lambda: {"json": reveal},
             ("POST", "/api/v1/studies/{rs}/patients/{pid}/mark"): lambda: {"json": {"mark": "need_info"}},
@@ -262,6 +264,7 @@ PREPARED = (  # a valid body to the columns its row allows; the refused columns 
     "POST /breakglass/{gid}/review", "POST /site/opt-outs", "POST /api/v1/site/opt-outs",
     "POST /studies/{rs}/patients/{pid}/reveal", "POST /studies/{rs}/candidates/{pid}/reveal",
     "POST /pilot/jobs/{job_id}/reveal", "POST /studies/{rs}/patients/{pid}/mark", "POST /ops/users",
+    "POST /admin/support", "POST /api/v1/admin/support",
     "POST /api/v1/studies/{rs}/patients/{pid}/reveal", "POST /api/v1/studies/{rs}/patients/{pid}/mark",
 )  # fmt: skip
 
