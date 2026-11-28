@@ -247,9 +247,9 @@ PY
   fi
   step $J "selftest (pair canary) on the box as installed: the host's real pinned pair" vm 'cd /opt/trialbox && sudo timeout 900 trialbox selftest > /var/tmp/e2e-selftest.txt 2>&1; rc=$?; tail -n 5 /var/tmp/e2e-selftest.txt | cut -c1-200; exit $rc'
   vm 'sudo cat /var/tmp/e2e-selftest.txt' > "$EV/selftest-installed.txt" 2>&1
-  step $J "the box's model endpoints serve the pinned builds (doctor --serving)" vm 'cd /opt/trialbox && sudo python3 -m tools.trialbox doctor --serving --env-file deploy/.env > /var/tmp/e2e-doctor-serving.txt 2>&1; rc=$?; grep -E "^(PASS|WARN|FAIL)" /var/tmp/e2e-doctor-serving.txt | cut -c1-200; exit $rc'
+  step $J "the box's model endpoints serve the pinned builds (doctor --serving, on the model network as the install runs it)" vm 'cd /opt/trialbox && sudo docker run --rm --network trialbox-model-net --env-file deploy/.env -v /opt/trialbox/deploy:/app/deploy:ro -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key --user 0:0 trialbox-py:1.0.0 python -m tools.trialbox doctor --serving > /var/tmp/e2e-doctor-serving.txt 2>&1; rc=$?; grep -E "^(PASS|WARN|FAIL)" /var/tmp/e2e-doctor-serving.txt | cut -c1-200; exit $rc'
   vm 'sudo cat /var/tmp/e2e-doctor-serving.txt' > "$EV/doctor-serving.txt" 2>&1
-  step $J "no answer came from a stand-in (selftest and doctor name none)" vm 'for f in /var/tmp/e2e-selftest.txt /var/tmp/e2e-doctor.txt /var/tmp/e2e-doctor-env.txt; do sudo test -s $f || { echo "$f missing"; exit 1; }; sudo grep -iE "answered by the rehearsal stand-in|REHEARSAL BOX" $f; [ $? = 1 ] || exit 1; done; echo "no stand-in named"'
+  step $J "no answer came from a stand-in (selftest and doctor name none)" vm 'for f in /var/tmp/e2e-selftest.txt /var/tmp/e2e-doctor.txt /var/tmp/e2e-doctor-env.txt; do sudo test -s $f || { echo "$f missing"; exit 1; }; sudo grep -E "answered by the rehearsal stand-in|REHEARSAL BOX:" $f; [ $? = 1 ] || exit 1; done; echo "no stand-in named"'
   J=OPS-exports
   step $J "export ledger (trialbox exports)" vm 'cd /opt/trialbox && sudo trialbox exports 2>&1 | tail -n 8'
   step $J "mail outbox status (trialbox mail status)" vm 'cd /opt/trialbox && sudo trialbox mail status 2>&1 | tail -n 8'
