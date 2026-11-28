@@ -9,7 +9,6 @@ study's log with every chart number is an exception to the person the reveal rig
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Iterator, Mapping
 from datetime import timedelta
@@ -219,12 +218,8 @@ def register(app: FastAPI, h: Helpers, _env: Mapping[str, str] | None = None) ->
         # PACKS the page says it shows the newest PACKS only (ponytail: no paging; add it if a site ever gets there)
         done = h.bk.list_jobs(limit=PACKS, state="done", type_="FEAS")
         for job in done:
-            prof = next((o for o in job.outputs or [] if o.filename.startswith("feasprofile_")), None)
-            try:
-                got = json.loads(h.bk.get_object(prof.minio_key)) if prof else {}
-            except (KeyError, ValueError, OSError):
-                got = {}  # unread: the page says so, never a default
-            got = got if isinstance(got, dict) else {}
+            # through home's one reader of a stored output (no chart number past console.reveal): None when unread
+            got = (h.load(job, "feasprofile_", ".json", "aggregate") if h.load else None) or {}  # the page says so
             packs.append({"job": job, "small_cell": got.get("small_cell"), "snapshot": got.get("snapshot")})
         rows = egress_record.by_day(events(h))
         for r in rows:

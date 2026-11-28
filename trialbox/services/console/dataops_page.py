@@ -32,7 +32,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, get_args
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, Query, Request
@@ -40,6 +40,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from tb_common.authz import permit
 from tb_common.config import site_tz
 from tb_common.db import DatabaseError
+from tb_contracts.generated.models import DqdCheckRow
 
 from console import i18n_dataops
 from console.api_first import page_twin
@@ -54,6 +55,8 @@ for _lang, _cat in (("en", i18n_dataops.EN), ("ja", i18n_dataops.JA), ("zh-TW", 
 
 VIEW = "dataops.view"
 DECIDE = "dataops.decide"
+#: the states a listed DQD row may carry, as the ingest_report contract names them (omop.dqd.failed[].status)
+DQD_STATES = frozenset(get_args(DqdCheckRow.model_fields["status"].annotation))
 MAX_REASON = 500
 PAGE = 50
 # the light of a source from its newest night: held or stopped is red, a steward's reject (the box serves the night
@@ -302,8 +305,7 @@ def dqd_of(detail: Any) -> dict[str, Any] | None:
         return None
     rows = got.get("failed")
     if not isinstance(rows, list) or not all(
-        isinstance(r, dict) and isinstance(r.get("checkName"), str) and r.get("status") in ("fail", "known")
-        for r in rows
+        isinstance(r, dict) and isinstance(r.get("checkName"), str) and r.get("status") in DQD_STATES for r in rows
     ):
         return None
     return {"checks": got["checks"], "fail": got["fail"], "known": got["known"], "failed": rows}
