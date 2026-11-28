@@ -188,7 +188,8 @@ def test_review_a_context_that_is_not_a_whole_number_above_zero_is_not_loaded(
 
 
 def test_review_the_refusal_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A champion that is neither qualified nor sized is told the first thing first; so is an unpinned build."""
+    """A champion that is neither qualified nor sized is told the first thing first; so is an unpinned build. SAFE-1
+    A1: with the release's weights, no record is a label, not a refusal, so the first thing is the context."""
     release, models, out = _box(tmp_path, monkeypatch)
     pin_model.install_pins("shared-quota", models, out, {})
     doc = yaml.safe_load(out.read_text(encoding="utf-8"))
@@ -196,6 +197,6 @@ def test_review_the_refusal_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     out.write_text(yaml.safe_dump(doc), encoding="utf-8")
     with pytest.raises(RegistryError) as e:
         Registry.load(release, out).resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
-    assert e.value.reason == "champion_unqualified"
+    assert e.value.reason == "context_unknown"
     assert REFUSAL_ORDER.index("weights_unexpected") < REFUSAL_ORDER.index("context_unknown")
     assert REFUSAL_ORDER.index("context_unknown") < REFUSAL_ORDER.index("build_unpinned")

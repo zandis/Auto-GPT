@@ -151,9 +151,9 @@ def test_install_pins_the_expected_release_as_candidate(tmp_path: Path, monkeypa
     assert {e["weights"]["trust"] for e in doc.values()} == {"expected"}
     reg = Registry.load(release, out)
     assert reg.resolve("j-workhorse", "serving", role="judge", env=Environment.TEST).build.build_id == JUDGE
-    with pytest.raises(RegistryError) as e:  # a candidate routes nothing in PRODUCTION
-        reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
-    assert e.value.reason == "no_eligible_build"
+    # SAFE-1 A1: the release's candidate pair routes in PRODUCTION, labelled unqualified until a record is promoted
+    res = reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
+    assert res.build.build_id == JUDGE and res.qualification == "unqualified"
     with pytest.raises(pin_model.PinError, match="champion only through qualify"):
         pin_model.pin(JUDGE, folders[JUDGE], served_name="x", out=out, status="champion")
     with pytest.raises(SystemExit):  # the CLI does not offer champion

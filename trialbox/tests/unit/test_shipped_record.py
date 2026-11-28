@@ -75,14 +75,23 @@ class Box:
     def promote(self) -> tuple[bool, list[str]]:
         return pin_model.promote_shipped("rtxpro6000", self.records, self.out, images_lock=self.lock)
 
-    def routes(self) -> bool:
+    def _resolve(self) -> list[str] | None:
         reg = Registry.load(self.release, self.out)
         try:
-            reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION)
-            reg.resolve("v-verifier", "verifier", role="judge", env=Environment.PRODUCTION)
+            return [
+                reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION).qualification,
+                reg.resolve("v-verifier", "verifier", role="judge", env=Environment.PRODUCTION).qualification,
+            ]
         except RegistryError:
-            return False
-        return True
+            return None
+
+    def routes(self) -> bool:
+        """Both builds route in PRODUCTION on a qualification record (SAFE-1 A1: without one they route labelled)."""
+        return self._resolve() == ["", ""]
+
+    def labelled(self) -> bool:
+        """SAFE-1 A1: both builds route in PRODUCTION with no record, labelled unqualified."""
+        return self._resolve() == ["unqualified", "unqualified"]
 
 
 @pytest.fixture
@@ -91,11 +100,11 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Box:
 
 
 # ------------------------------------------------------------------------------------------------ the promotion
-def test_before_a_record_the_pinned_pair_routes_nothing_in_production(box: Box) -> None:
-    assert not box.routes()
+def test_before_a_record_the_pinned_pair_routes_only_labelled_in_production(box: Box) -> None:
+    assert not box.routes() and box.labelled()  # SAFE-1 A1
     ok, lines = box.promote()
     assert not ok and "no shipped qualification record for profile rtxpro6000" in lines[0]
-    assert {p.get("status") for p in box.pins().values()} == {"candidate"} and not box.routes()
+    assert {p.get("status") for p in box.pins().values()} == {"candidate"} and not box.routes() and box.labelled()
 
 
 def test_a_record_for_exactly_this_box_promotes_both_builds(box: Box) -> None:
@@ -176,7 +185,7 @@ def test_demote_puts_the_pair_back_to_candidate(box: Box) -> None:
     lines = pin_model.demote_pair("rtxpro6000", box.out)
     assert len(lines) == 2 and all("back to candidate" in ln for ln in lines)
     pins = box.pins()
-    assert {p["status"] for p in pins.values()} == {"candidate"} and not box.routes()
+    assert {p["status"] for p in pins.values()} == {"candidate"} and not box.routes() and box.labelled()
     assert all("qualification" not in p for p in pins.values())
     assert pins[JUDGE]["sha256"] and pins[JUDGE]["weights"]["chat_template"]  # the pins themselves are kept
     assert pin_model.demote_pair("rtxpro6000", box.out) == []  # nothing to put back
@@ -313,12 +322,14 @@ def test_review_the_links_of_a_bundle_install_are_resolved_before_they_are_mount
 
 
 @pytest.mark.parametrize("rc", [3, 1])
-def test_without_a_matching_record_the_install_goes_on_with_a_fail_line(tmp_path: Path, rc: int) -> None:
+def test_without_a_matching_record_the_install_goes_on_labelled_unqualified(tmp_path: Path, rc: int) -> None:
+    """SAFE-1 A1: not a FAIL at the end; the pair runs labelled and the line says why."""
     r = _install_block(tmp_path, rc, 0)
     calls = r.calls  # type: ignore[attr-defined]
     assert r.returncode == 0 and "selftest" not in calls and "restart gateway" not in calls
-    assert len(r.fails) == 1 and "the model pair is not qualified on this box" in r.fails[0]  # type: ignore[attr-defined]
-    assert "deploy/qualification" in r.fails[0]  # type: ignore[attr-defined]
+    assert r.fails == []  # type: ignore[attr-defined]
+    said = next(ln for ln in r.stdout.splitlines() if "the model pair is not qualified on this box" in ln)
+    assert "deploy/qualification" in said and "runs labelled unqualified" in said
 
 
 def test_a_pair_that_was_champion_before_the_install_is_left_alone(tmp_path: Path) -> None:

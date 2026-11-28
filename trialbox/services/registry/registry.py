@@ -40,9 +40,9 @@ unless its weights are the release's (below).
 
 **An unqualified pinned pair runs, labelled** (SAFE-1 A1). In PRODUCTION a local build whose pin equals the committed
 ``expected.manifest_sha256`` routes with no record (status candidate, qualified or champion; a thinking-only build
-with no thinking-on record too). On VALIDATION and PRODUCTION a local build with no record for its weights is tried
-only after every build that holds one, and :class:`Resolved` says ``qualification="unqualified"``: the gateway
-writes it in the call record and the answer, and the page shows it. A pin with nothing expected (trust on first use,
+with no thinking-on record too), tried only after every build the rules above route. On VALIDATION and PRODUCTION
+a local build with no record for its weights resolves with ``qualification="unqualified"``: the gateway writes it
+in the call record and the answer, and the page shows it. A pin with nothing expected (trust on first use,
 a hand pin) is never routed this way in PRODUCTION, and ``weights_unexpected``, ``context_unknown`` and a rehearsal
 placeholder stay refused.
 
@@ -291,7 +291,7 @@ class Registry:
         if alias not in self.aliases:
             raise RegistryError("alias_unknown", f"alias {alias!r} is not in the registry")
         reasons: list[str] = []
-        labelled: Resolved | None = None  # SAFE-1 A1: the first build that routes only as unqualified
+        labelled: Resolved | None = None  # SAFE-1 A1: the first build that routes only by the rule below
         for b in self.builds:
             if b.alias != alias:
                 continue
@@ -309,8 +309,9 @@ class Registry:
                 and b.sha256 == b.expected_sha256
                 and not b.rehearsal_placeholder
             )
-            if releases and b.status in (Status.CANDIDATE, Status.QUALIFIED):
-                pass
+            bypassed = False  # SAFE-1 A1: routed only because these are the release's weights
+            if releases and b.status in (Status.CANDIDATE, Status.QUALIFIED) and not _status_ok(b.status, role, env):
+                bypassed = True
             elif not _status_ok(b.status, role, env):
                 reasons.append(f"{b.build_id}: status {b.status.value}")
                 continue
@@ -333,19 +334,18 @@ class Registry:
             ):
                 screening_role = "verifier"
             measuring = env == Environment.TEST or (env == Environment.VALIDATION and qualification_probe)
-            if (
-                b.thinking_control == "thinking_only"
-                and screening_role in SCREENING_ROLES
-                and not measuring
-                and not releases
-            ):
+            if b.thinking_control == "thinking_only" and screening_role in SCREENING_ROLES and not measuring:
                 q = b.qualification or {}
-                if not b.qualified_for_production or q.get("thinking_on_role") != screening_role:
+                if releases:
+                    bypassed = True
+                elif not b.qualified_for_production or q.get("thinking_on_role") != screening_role:
                     reasons.append(
                         f"{b.build_id}: thinking-on qualification required / 須有開啟推理模式的資格驗證 / "
                         "推論モードを有効にした適格性確認が必要 [thinking_unmeasured]"
                     )
                     continue
+            if env == Environment.PRODUCTION and b.status == Status.CHAMPION and not b.qualified_for_production:
+                bypassed = bypassed or releases
             if (
                 env == Environment.PRODUCTION
                 and b.status == Status.CHAMPION
@@ -369,10 +369,11 @@ class Registry:
             if not served:
                 reasons.append(f"{b.build_id}: not served on {endpoint}")
                 continue
-            if unqualified:
-                labelled = labelled or Resolved(b, served, endpoint, "unqualified")
+            label = "unqualified" if unqualified else ""
+            if bypassed:
+                labelled = labelled or Resolved(b, served, endpoint, label)
                 continue
-            return Resolved(b, served, endpoint)
+            return Resolved(b, served, endpoint, label)
         if labelled is not None:
             return labelled
         code = next((c for c in REFUSAL_ORDER if any(r.endswith(f"[{c}]") for r in reasons)), "no_eligible_build")

@@ -62,7 +62,7 @@ EN: dict[str, str] = {
     "It says nothing about how well a real model reads notes.",
     "model.unqualified": "model not qualified on this hardware",
     "model.unqualified.why": "The model pair that read the notes has no qualification record on this box yet. It is "
-    "triage only: a person decides, and a note answer never excludes a patient.",
+    "triage only: a person decides on every patient.",
     "s20.labels.missing": "Give a short label in {language} to the {n} criteria marked below before approving; "
     "the lists show the label with the study's own words.",
     "s20.label.missing": "No label in {language} yet",
@@ -128,7 +128,7 @@ JA: dict[str, str] = {
     "実際のモデルがカルテ記載をどの程度正しく読めるかは示しません。",
     "model.unqualified": "このハードウェアで適格性未確認のモデル",
     "model.unqualified.why": "カルテ記載を読んだモデルの組には、この環境での適格性確認の記録がまだありません。"
-    "候補の振り分けのみに使い、判断は人が行います。記載からの回答で患者が除外されることはありません。",
+    "候補の振り分けのみに使い、判断はすべて人が行います。",
     "s20.labels.missing": "承認の前に、下の印のある {n} 件の基準に{language}の短い表示名を付けてください。"
     "一覧では表示名と試験の原文が並べて表示されます。",
     "s20.label.missing": "{language}の表示名がまだありません",
@@ -185,7 +185,7 @@ ZH: dict[str, str] = {
     "model.test": "測試用模型",
     "model.test.why": "此回答來自測試用模型，它對示範用紀錄回傳固定答案，無法說明實際模型閱讀病歷的能力。",
     "model.unqualified": "模型尚未在此硬體完成資格驗證",
-    "model.unqualified.why": "閱讀病歷的模型組合在此系統上尚無資格驗證紀錄。僅用於初步分流，由人員判斷；病歷回答不會排除病人。",
+    "model.unqualified.why": "閱讀病歷的模型組合在此系統上尚無資格驗證紀錄。僅用於初步分流，每位病人都由人員判斷。",
     "s20.labels.missing": "核准前，請為下方標示的 {n} 項條件加上{language}簡短標籤；名單會將標籤與試驗原文並列顯示。",
     "s20.label.missing": "尚無{language}標籤",
     "s20.label.shipped": "此標籤隨試驗條件提供；可直接儲存或修改。",
