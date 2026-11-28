@@ -787,6 +787,9 @@ DECLARED: dict[str, Declared] = {
         "3",
         "orchestrator: restarts an interrupted job survives; the job may be what stops the box (D-456)",
     ),
+    "TB_KEEP_DRAFT": Declared(
+        "str", "", "console: keep a form sent after the idle end for the same account (on; off by default)"
+    ),
     "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_LANG": Declared(

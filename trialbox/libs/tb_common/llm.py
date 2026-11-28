@@ -141,6 +141,8 @@ class LlmResult:
     # lane G (G2): per ``verdict`` of the answer, in order, the three labels' probabilities (tb_common.label_p.slots)
     # when the call asked for ``logprobs``; () when it did not, None for a slot the server gave no label for
     label_p: tuple[dict[str, float] | None, ...] = ()
+    #: the reply quoted the note before an unknown's quote was cleared (``was_quoted``); read by ``not_documented``
+    quoted: bool = False
 
 
 #: H-16 (lane H's offline review, H-18): what the call in this thread is asked for, set by a caller around a model call
@@ -168,6 +170,12 @@ def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
 
 #: what a judge reply holds about the span it read; an abstention has read none
 _SPAN_FIELDS = ("quote", "quote_date", "certainty", "experiencer", "time")
+
+
+def was_quoted(data: dict[str, Any]) -> bool:
+    """Whether a model reply quoted the note, as the model gave it (whitespace alone is no quote). Read BEFORE
+    :func:`unknown_carries_nothing` clears the quote: an unsure answer that quoted the note is not a silent chart."""
+    return bool(str(data.get("quote") or "").strip())
 
 
 def unknown_carries_nothing(data: dict[str, Any]) -> dict[str, Any]:
@@ -470,11 +478,13 @@ class LlmClient:
             tokens_out += int(usage.get("completion_tokens", 0))
             content = payload["choices"][0]["message"].get("content") or ""
             truncated = payload["choices"][0].get("finish_reason") == "length"
+            quoted = False
             try:
                 data = null_absent(load_schema(schema_name), _extract_json(content))  # null == absent
                 # G8 (D-958), on every path (P2b: SCREEN's note judge failed three protocols on it): a quote date
                 # that is no real date is no date, before the schema reads it
                 data = no_sentinel_date(data) if isinstance(data, dict) else data
+                quoted = isinstance(data, dict) and was_quoted(data)
                 data = unknown_carries_nothing(data) if isinstance(data, dict) else data  # INT-S-C
                 errors = schema_errors(schema_name, data)
                 codes = schema_error_codes(schema_name, data)  # what leaves the call: no model output (T-605)
@@ -526,6 +536,7 @@ class LlmClient:
                     label_p=tuple(slots((payload["choices"][0].get("logprobs") or {}).get("content") or []))
                     if logprobs
                     else (),
+                    quoted=quoted,
                 )
             if truncated:
                 # a reasoning model (gpt-oss, nemotron) spends max_tokens on reasoning before the JSON: the answer was

@@ -1237,7 +1237,8 @@ class _Run:
                 if reply.reason in REASON_CODES and reply.reason != Reason.NOT_DOCUMENTED.value
                 else "abstained"
             )
-            if not_documented(c.kind, reply.reason, reply.quote):  # BENCH-2 §2: a label, never a tier change
+            # BENCH-2 §2: a label, never a tier change
+            if not_documented(c.kind, reply.reason, reply.quote, reply.quoted):
                 why = Reason.NOT_DOCUMENTED.value
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason=why)
         if span is None:

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
 
-from tb_common.llm import no_sentinel_date, unknown_carries_nothing
+from tb_common.llm import no_sentinel_date, unknown_carries_nothing, was_quoted
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
 from tb_common.quotes import as_in, quote_key
 from tb_llm import budget
@@ -116,6 +116,7 @@ class JudgeReply:
     pair_opinions: list[dict[str, Any]] = field(default_factory=list)
     # BENCH-2 §2: on a disagreement, the judge's own answer (never affirmed); the engine takes it only where it keeps
     kept: JudgeReply | None = None
+    quoted: bool = False  # the model quoted the note, before an unknown's quote was cleared (``not_documented``)
 
     @property
     def all_calls(self) -> tuple[str, ...]:
@@ -224,6 +225,7 @@ class GatewayJudge:
         schema = p.meta.output_schema
         data = null_absent(load_schema(schema), res.data) if isinstance(res.data, dict) else None
         data = no_sentinel_date(data) if isinstance(data, dict) else data
+        quoted = isinstance(data, dict) and was_quoted(data)  # read before an unknown's quote is cleared
         data = unknown_carries_nothing(data) if isinstance(data, dict) else data  # INT-S-C
         if not isinstance(data, dict) or schema_errors(schema, data):
             # LLM-022: a reply outside the judge schema is no answer; it never reaches the verdict (fails safe)
@@ -257,6 +259,7 @@ class GatewayJudge:
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
             affirmed=affirms(data),  # an abstention never excludes, whatever it says
+            quoted=quoted,
         )
 
 
