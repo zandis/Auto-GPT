@@ -141,6 +141,11 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "この TrialBox では代諾者による同意を記録していません",
         "此 TrialBox 不記錄法定代理人同意",
     ),
+    "consent by a representative is not recorded on this box: turned on at install (--consent-proxy on)": (
+        "この TrialBox では代諾者による同意を記録していません。病院の IT 担当がインストール時に有効にします"
+        "（install.sh --consent-proxy on）",
+        "此 TrialBox 不記錄法定代理人同意；由醫院資訊人員於安裝時開啟（install.sh --consent-proxy on）",
+    ),
     "give the retry date as YYYY-MM-DD": (
         "再連絡日は YYYY-MM-DD で入力してください",
         "請以 YYYY-MM-DD 輸入再聯絡日期",

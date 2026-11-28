@@ -198,6 +198,33 @@ def test_the_ages_are_whole_numbers_and_not_saved_while_off(lb: dict[str, Any], 
     assert not _orch(lb, "life.consent_ages")
 
 
+def test_the_install_option_is_named_only_when_the_box_said_off(lb: dict[str, Any],  # noqa: F811
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """Review R6 of #1572: "turn it on at install" only when the box answered that the setting is off; a box that gave no
+    answer is refused in the earlier words, which send nobody to reinstall."""
+    from console import s28
+    from console.backend import Unavailable
+
+    c, _, _, _ = _ready(lb, monkeypatch, on=False)
+    tok = c.post("/api/v1/session", json={"username": "crc", "password": PW}).json()["token"]
+    auth = {"Authorization": f"Bearer {tok}"}
+    ok = {"majority": 18, "assent_from": 7, "assent_to": 17}
+    off = c.post("/api/v1/studies/GZQO/setup/consent-ages", json=ok, headers=auth)
+    assert off.status_code == 409 and "--consent-proxy on" in off.text
+    real = s28.call
+
+    def no_answer(bk: object, method: str, path: str, *a: Any, **k: Any) -> Any:
+        if method == "GET" and path.endswith("/consent-ages"):
+            raise Unavailable("no answer")
+        return real(bk, method, path, *a, **k)
+
+    monkeypatch.setattr(s28, "call", no_answer)
+    unknown = c.post("/api/v1/studies/GZQO/setup/consent-ages", json=ok, headers=auth)
+    assert unknown.status_code == 409 and "not recorded on this box" in unknown.text
+    assert "--consent-proxy" not in unknown.text
+    assert not _orch(lb, "life.consent_ages")
+
+
 def test_the_ages_are_refused_without_the_right_or_the_page_token(lb: dict[str, Any],  # noqa: F811
                                                                    monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
     c, _, _, _ = _ready(lb, monkeypatch)
