@@ -88,6 +88,18 @@ def test_the_nights_page_names_each_check_that_did_not_pass_in_the_dashboards_wo
     assert api["data_quality"] == {"checks": 60, "fail": 1, "known": 1, "failed": [FAIL, KNOWN]}
 
 
+def test_the_nights_row_keeps_only_the_state_and_the_data_quality_fields(box: dict[str, Any]) -> None:
+    extra = {**FAIL, "sample": "a cell"}
+    omop = {"state": "loaded", "error": "a message", "dqd": {"checks": 60, "fail": 1, "known": 0, "failed": [extra]}}
+    bid = _night(box, omop)
+    ops = DataOps()
+    try:
+        kept = ops.batch(bid).detail["omop"]
+    finally:
+        ops.close()
+    assert kept == {"state": "loaded", "dqd": {"checks": 60, "fail": 1, "known": 0, "failed": [FAIL]}}
+
+
 def test_a_night_without_the_checks_shows_no_section_and_a_malformed_record_is_not_shown(box: dict[str, Any]) -> None:
     c, _ = _steward(box)
     api = _api(box)
