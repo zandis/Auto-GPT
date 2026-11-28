@@ -28,6 +28,7 @@ PER_ROW = re.compile(
 # what still asks that way, and why
 STILL: dict[str, tuple[int, str]] = {
     "services/matching/cascade/engine.py": (1, "NOTES_SQL: the note stage in batches, T-694 part 3 (lane A2)"),
+    "services/criteria_compiler/compile_sql/generator.py": (1, "the approved S1 SQL (D-275), asked in batches (D-748)"),
 }
 
 

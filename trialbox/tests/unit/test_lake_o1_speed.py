@@ -135,26 +135,6 @@ def test_recorded_load_makes_python_rows_a_bounded_batch_at_a_time(
         assert got.domains[pid] == want
 
 
-# the template's scope filter, before and after, over the patients of the synthetic lake
-_BASE = "SELECT p.pid FROM patient p WHERE ((SELECT pids FROM params) IS NULL OR {scope})"
-_PARAMS = "WITH params AS (SELECT CAST($1 AS VARCHAR[]) AS pids) "
-_LIST = "list_contains((SELECT pids FROM params), p.pid)"
-_JOIN = "p.pid IN (SELECT unnest(pids) FROM params)"
-
-
-def test_the_s1_scope_semi_join_keeps_the_rows_list_contains_kept(lake: duckdb.DuckDBPyConnection) -> None:
-    from criteria_compiler.compile_sql import generator
-
-    assert _JOIN in Path(generator.__file__).read_text(encoding="utf-8")  # the template says what this test checks
-    for ls in LISTS.values():
-        rows = {}
-        for name, scope in (("list", _LIST), ("join", _JOIN)):
-            rows[name] = sorted(
-                (r[0] for r in lake.execute(_PARAMS + _BASE.format(scope=scope), [ls]).fetchall()), key=repr
-            )
-        assert rows["join"] == rows["list"]  # same rows, as many times (no row doubled by the join)
-
-
 # the coded values query as it was before O1 (no ORDER BY, no k or rn column): sha256 of its text at 19bb88561
 _BEFORE_O1 = "464e6732ee9a474de081846a7b1915c355244758c325b1aaa72488e6b0760f3e"
 
