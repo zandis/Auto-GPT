@@ -36,10 +36,17 @@ def test_a_failed_list_check_does_not_hold_the_patient_being_approached(box: dic
     bk.deceased = batch_down
     page = pi.get("/studies/GZQO/week?list=all").text
     assert 'data-testid="dead-unchecked"' in page and 'data-testid="row-bbbbbbbb"' in page  # the list shows, warned
+    asked.clear()
     r = pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": _csrf(page), "mark": "approach"})
-    assert r.status_code in (200, 303) and [B] in asked  # one pid, at the moment of the mark
+    assert r.status_code in (200, 303) and asked[-1] == [B]  # one pid, at the moment of the mark
+    asked.clear()
     r = pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(page), "mark": "approach"})
-    assert r.status_code == 409 and [A] in asked  # the one patient died: refused
+    assert r.status_code == 409 and asked[-1] == [A]  # the one patient died: refused
+    crc = _user(box, "crc1", "coordinator")
+    asked.clear()
+    r = crc.post(f"/studies/GZQO/patients/{A}/outcome",
+                 data={"csrf": _csrf(crc.get("/home").text), "outcome": "reached_booked"})  # fmt: skip
+    assert r.status_code == 409 and asked[-1] == [A]  # a contact outcome is checked the same way
 
 
 def test_the_one_patient_check_not_answered_still_refuses(box: dict[str, Any]) -> None:
@@ -57,3 +64,7 @@ def test_the_one_patient_check_not_answered_still_refuses(box: dict[str, Any]) -
     assert r.status_code == 503  # never a quiet "nobody died"
     r = pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": _csrf(page), "mark": "need_info"})
     assert r.status_code in (200, 303)  # only contacts wait
+    crc = _user(box, "crc1", "coordinator")
+    r = crc.post(f"/studies/GZQO/patients/{B}/outcome",
+                 data={"csrf": _csrf(crc.get("/home").text), "outcome": "reached_booked"})  # fmt: skip
+    assert r.status_code == 503
