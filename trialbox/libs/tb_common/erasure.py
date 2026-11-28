@@ -329,6 +329,11 @@ TABLES: dict[str, Entry] = {
         ),
         _STAFF,
     ),
+    "auth.session_drafts": _owed(
+        "a form sent after the session ended (TOL-AUTH): what was typed, never a secret; it may name a patient by "
+        "pseudonym; unreadable after 15 minutes, deleted when taken or at the next session end",
+        "the drafts that name the patient (15 minutes at most)",
+    ),
     "auth.user_pref": _none(
         "a person's own look and language (10F-1, D-1387): a closed set of values per key, no free text, nothing "
         "names a patient; it goes with the account when the account is disabled"

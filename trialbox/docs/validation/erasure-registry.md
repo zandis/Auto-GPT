@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-239 entries: 89 erase, 29 keep, 121 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+240 entries: 90 erase, 29 keep, 121 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -25,6 +25,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 
 | Store | Card | What is owed | Why it holds patient data |
 | --- | --- | --- | --- |
+| `auth.session_drafts` | T-206b | the drafts that name the patient (15 minutes at most) | a form sent after the session ended (TOL-AUTH): what was typed, never a secret; it may name a patient by pseudonym; unreadable after 15 minutes, deleted when taken or at the next session end |
 | `edc.draft` | T-206b | the drafts of a patient who never consented: the EDC drafts for any numbered patient (consent is not checked), and D-1032's definition counts a draft as a trial subject's, which keeps the patient's rows; whether a draft alone makes a trial subject is the owner's question (the review of D-878) | an EDC draft, by pseudonym, with values read from the chart |
 | `lake:backfill` | T-206b | the clear | the back-fill's working copy of a year's extract |
 | `lake:db` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | the DuckDB snapshots (nightly and month-end) and their side files |
