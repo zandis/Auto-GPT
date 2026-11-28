@@ -14,6 +14,10 @@ call site asks:
 * :data:`ALLOWED` is the owner's answer (D-1072; the integrator's go, comment 7079138866): DEV, TEST and VALIDATION
   allow the table's actions. Changing it is this one line. In VALIDATION an allowed act carries :data:`LABELLED`'s
   label (``rc1: "validation"``) in the audit record its site writes, where one is written (:func:`label`).
+* SAFE-1 A2 (the owner's decision of 2026-11-28): ``live_patient_lists``, ``support_exports`` (the bundle is scrubbed
+  always) and ``key_ceremonies`` are allowed in every known environment, PRODUCTION too, and there an allowed act
+  carries the label it carries in VALIDATION. ``edc_writes_from_screening``, ``unattended_updates`` and
+  ``patient_mail_and_downloads`` keep :data:`ALLOWED`. An unknown environment name is still allowed nowhere.
 * The environment is ``TB_ENV`` by the one rule (``tb_common.config.environment_name``, D-127; :func:`environment`):
   an unset ``TB_ENV`` is PRODUCTION, and a name that is not a known environment is allowed nowhere. The check fails
   closed: a refusal name that is not in the table raises :class:`KeyError`, and no setting turns a refusal off.
@@ -35,7 +39,7 @@ KNOWN_ENVIRONMENTS = frozenset({"DEV", "TEST", "VALIDATION", "PRODUCTION"})
 #: is the one line to change: every row takes it
 ALLOWED = frozenset({"DEV", "TEST", "VALIDATION"})
 #: allowed there, an act carries this label in the audit record a site writes for it (no new event name)
-LABELLED = {"VALIDATION": {"rc1": "validation"}}
+LABELLED = {"VALIDATION": {"rc1": "validation"}, "PRODUCTION": {"rc1": "validation"}}  # PRODUCTION: SAFE-1 A2
 #: the languages of :data:`TEXTS`
 LANGS = ("en", "ja", "zh-TW")
 
@@ -78,6 +82,7 @@ REFUSALS: tuple[Refusal, ...] = (
         audit="console.denied (the console); screen.reveal_refused (a reveal); none when a list job fails at its first "
         "step (follow-up for lane H's writer)",
         test=f"{_CONSOLE_TESTS}::test_no_live_patient_list_on_a_production_box",
+        allowed=KNOWN_ENVIRONMENTS,  # SAFE-1 A2
     ),
     Refusal(
         name="edc_writes_from_screening",
@@ -110,6 +115,7 @@ REFUSALS: tuple[Refusal, ...] = (
         key="rc1.support_exports",
         audit="none (follow-up for lane H's writer)",
         test=f"{_SITE_TESTS}::test_no_support_export_on_a_production_box",
+        allowed=KNOWN_ENVIRONMENTS,  # SAFE-1 A2: tools.support_bundle scrubs every bundle
     ),
     Refusal(
         name="unattended_updates",
@@ -136,6 +142,7 @@ REFUSALS: tuple[Refusal, ...] = (
         key="rc1.key_ceremonies",
         audit="none (follow-up for lane H's writer)",
         test=f"{_SITE_TESTS}::test_no_key_ceremony_on_a_production_box",
+        allowed=KNOWN_ENVIRONMENTS,  # SAFE-1 A2 (the ceremony is audited; D-1092 stays)
     ),
 )
 
@@ -184,7 +191,8 @@ def check(name: str, env: Mapping[str, str] | None = None) -> None:
 
 
 def label(env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """The label an allowed act carries in its audit record: ``{"rc1": "validation"}`` in VALIDATION, else none."""
+    """The label an allowed act carries in its audit record: ``{"rc1": "validation"}`` in VALIDATION and PRODUCTION
+    (SAFE-1 A2: only the rows allowed there reach a site), else none."""
     return dict(LABELLED.get(environment(env), {}))
 
 
@@ -193,7 +201,8 @@ def host_env(box: Path | Mapping[str, str], env: Mapping[str, str] | None = None
     review of R22-34: ``TB_ENV=DEV trialbox support-bundle`` on a PRODUCTION box is refused). The box's is its
     ``deploy`` folder's ``.env`` (no ``TB_ENV`` in it is PRODUCTION, the one rule; a ``.env`` that is a folder or
     cannot be read is PRODUCTION too), or the settings a tool read from it (a mapping); the caller's is its own
-    ``TB_ENV`` when set. Allowed only when both are in :data:`ALLOWED`; with neither, PRODUCTION. A missing ``.env``
+    ``TB_ENV`` when set. Allowed only when both are in :data:`ALLOWED`; with neither, PRODUCTION. An unknown name is
+    stricter than PRODUCTION (SAFE-1 A2: PRODUCTION allows some rows, an unknown name none). A missing ``.env``
     gives the caller's alone (the ruling's "missing is PRODUCTION" waits: it refuses every tool run from a checkout)."""
     seen: list[str] = []
     if isinstance(box, Path):
@@ -215,7 +224,8 @@ def host_env(box: Path | Mapping[str, str], env: Mapping[str, str] | None = None
         seen.append(environment({"TB_ENV": own}))
     if not seen:
         return {}
-    return {"TB_ENV": next((e for e in seen if e not in ALLOWED), seen[0])}
+    strict = [e for e in seen if e not in KNOWN_ENVIRONMENTS] or [e for e in seen if e not in ALLOWED] or seen
+    return {"TB_ENV": strict[0]}
 
 
 _DEMO = {

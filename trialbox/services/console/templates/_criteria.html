@@ -21,9 +21,11 @@
 {% if c.date %}<span class="hint">{{ c.date }}</span>{% endif %}
 {% with cid=c.id, cv=c.coded %}{% include "_coded.html" %}{% endwith %}
 {% if c.reason and not c.quote and reason_label(c.reason, lang) %}<span class="hint" data-testid="reason-{{ c.id }}">{{ reason_label(c.reason, lang) }}</span>{% endif %}
+{% if c.needs and not c.quote %}<span class="hint" data-testid="needs-{{ c.id }}">{{ needs_text(c.needs, lang) }}</span>{% endif %}
 {% if c.disagree %}<span class="pill warn" data-testid="opinion-disagree-{{ c.id }}">{{ t('opinion.disagree') }}</span>{% endif %}
 {% for o in c.opinions %}<div class="opinion" data-testid="opinion-{{ c.id }}-{{ o.role }}"><span class="hint">{{ t('opinion.' + o.role) }} · {{ t('opinion.says.' + o.verdict) if o.verdict in ('pass', 'fail') else t('verdict.unknown') }}{% if o.quote_date %} · {{ o.quote_date }}{% endif %}{% if o.label %} · {% include "_opinion_src.html" %}{% endif %}</span><blockquote class="quote">{{ o.quote }}</blockquote></div>{% endfor %}
 </td>
 <td>{{ t('how.' + c.source) }}</td>
 </tr>{% endfor %}</tbody></table></div>
 </section>
+{% include "_for_against.html" %}

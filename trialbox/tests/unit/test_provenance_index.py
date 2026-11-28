@@ -5,7 +5,8 @@
 * "which records did build X influence" is one join: the search returns the records and how they were touched;
 * the index is rebuilt from the chain and checked against it line by line; a row missing or extra is named, and a
   line written twice is one row;
-* at an opt-out the patient's use rows go; a rebuild leaves them out and the check does not report them missing;
+* at an opt-out the patient's use rows go; a rebuild leaves them out and the check does not report them missing (both
+  ask the opt-out register, P-19);
 * the drain writes the index after the chain line, only when it is installed, and a failed index write never stops
   it; the CLI and the doctor say the same as the module.
 """
@@ -23,15 +24,26 @@ from tb_common import provenance
 from tb_common import provenance_index as idx
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import Drain, _dsn
+from tb_common.optout import SCHEMA_V1, _norm_at
 
 PID_A = "0ca5381cfa6bdf1c22961d65579f93b3"
 PID_B = "1afe78d42518132b113c5858cedcbb54"
 _N = itertools.count()
+#: the opt-out register's table as ``tb_common.optout`` makes it, in the schema the index's functions read (P-19)
+REGISTER = f"CREATE SCHEMA optout; SET search_path = optout; {SCHEMA_V1}; RESET search_path"
+
+
+def register(con: Any, pid: str, action: str, at: str, *, source: str = "paper", by: str = "console:office1") -> None:
+    """One event of the register (``opt_out`` or ``lift``), as ``OptOutRegister`` writes it."""
+    con.execute(
+        "INSERT INTO optout.optout_events (pid, action, source, note, by, at) VALUES (%s, %s, %s, NULL, %s, %s)",
+        (pid, action, source, by, _norm_at(at)),
+    )
 
 
 @pytest.fixture
 def con(pg_cluster_url: str) -> Iterator[Any]:
-    """A database of this test's own, with the index's schema and tables."""
+    """A database of this test's own, with the opt-out register and the index's schema and tables."""
     import psycopg
 
     name = f"tb_prov_{os.getpid()}_{next(_N)}"
@@ -39,6 +51,7 @@ def con(pg_cluster_url: str) -> Iterator[Any]:
     admin.execute(f'CREATE DATABASE "{name}"')
     dsn = psycopg.conninfo.make_conninfo(_dsn(pg_cluster_url), dbname=name)
     c = psycopg.connect(dsn, autocommit=True)
+    c.execute(REGISTER)
     c.execute(idx.INDEX_SQL)
     c.info_dsn = dsn  # type: ignore[attr-defined]
     try:
@@ -93,20 +106,20 @@ def test_each_event_gives_its_rows_and_others_give_none(tmp_path: Path) -> None:
 def test_which_records_a_build_touched_is_one_search(con: Any, tmp_path: Path) -> None:
     log = _chain(tmp_path)
     assert idx.rebuild(con, log.directory) == (2, 5)
-    got = idx.search(con, build_sha="b2")
+    got = idx.search(con, directory=log.directory, build_sha="b2")
     assert sorted(r["record_ref"]["pid"] for r in got) == sorted([PID_A, PID_B])
-    by_prompt = idx.search(con, prompt_id="judge", prompt_version="4", model="m-judge")
+    by_prompt = idx.search(con, directory=log.directory, prompt_id="judge", prompt_version="4", model="m-judge")
     assert {(r["record_kind"], r["event"]) for r in by_prompt} == {
         ("verdict", "used"), ("criterion", "used"), ("criterion", "confirmed")}  # fmt: skip
-    assert idx.search(con, build_sha="nobody") == []
+    assert idx.search(con, directory=log.directory, build_sha="nobody") == []
     crit = provenance.ref(ruleset="GZQO", version="1.0.0", crit="INC-01")
     idx.add(con, provenance_rec(log, crit))
-    took_back = [r for r in idx.search(con, build_sha="b1") if r["decision"] == "withdrawn"]
+    took_back = [r for r in idx.search(con, directory=log.directory, build_sha="b1") if r["decision"] == "withdrawn"]
     assert [(r["record_kind"], r["event"], r["by"]) for r in took_back] == [
         ("criterion", "confirmed", "crc1@hospa.test")
     ]
     with pytest.raises(ValueError, match="name a model"):
-        idx.search(con)
+        idx.search(con, directory=log.directory)
 
 
 def test_the_index_is_checked_against_the_chain_line_by_line(con: Any, tmp_path: Path) -> None:
@@ -127,10 +140,11 @@ def test_an_opt_out_takes_the_patients_use_rows_and_a_rebuild_keeps_them_out(con
     log = _chain(tmp_path)
     idx.rebuild(con, log.directory)
     assert idx.erase(con, [PID_A]) == 2
-    assert not idx.check(con, log.directory).ok  # the chain still names her: the check is told who is out
-    assert idx.check(con, log.directory, erased=[PID_A]).ok
-    idx.rebuild(con, log.directory, erased=[PID_A])
-    assert all(r["record_ref"].get("pid") != PID_A for r in idx.search(con, model="m-judge"))
+    assert not idx.check(con, log.directory).ok  # the chain still names her: the check asks the register
+    register(con, PID_A, "opt_out", "2026-11-27T09:00:00+08:00")
+    assert idx.check(con, log.directory).ok
+    idx.rebuild(con, log.directory)
+    assert all(r["record_ref"].get("pid") != PID_A for r in idx.search(con, directory=log.directory, model="m-judge"))
     assert idx.erase(con, []) == 0
 
 
@@ -161,7 +175,6 @@ def test_the_cli_and_the_doctor_say_what_the_module_says(
     log = _chain(tmp_path)
     url = "postgresql:///x"
     monkeypatch.setattr(cli, "_connect", lambda _u: con)
-    monkeypatch.setattr(cli, "_erased", lambda _u: frozenset())
     monkeypatch.setattr(con, "close", lambda: None)
     args = ["--db-url", url, "--audit-dir", str(log.directory)]
     assert cli.main(["--rebuild", *args]) == 0

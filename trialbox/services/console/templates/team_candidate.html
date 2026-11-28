@@ -21,6 +21,7 @@
   <dt>{{ t('patient.visit') }}</dt><dd><span class="nowrap">{{ (row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</span>{% if row.department %} · {{ given(row.department) }}{% endif %}</dd>
   <dt>{{ t('patient.why') }}</dt><dd data-testid="why">{{ fit_line(fit) }}</dd>
   <dt>{{ t('patient.open') }}</dt><dd>{{ open_items(fit, row.actions or []) }}</dd>
+  <dt>{{ t('team.cand.coded') }}</dt><dd data-testid="coded-count">{{ t('team.cand.coded.n', k=coded[0], n=coded[1]) }}</dd>
   <dt>{{ t('team.cand.doctor') }}</dt><dd data-testid="doctor">{% if doctor.known %}{{ given(doctor.name) }} <span class="hint">{{ t('team.doctor.from_data') }}</span>{% if doctor.contact %} · {{ doctor.contact }}{% endif %}{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span> <span class="hint">{{ t('team.doctor.unknown.help') }}</span>{% endif %}</dd>
 </dl>
 {% if may_reveal and mrn is none %}<section class="card" data-testid="reveal-card"><h2>{{ t('reveal.title') }}</h2>

@@ -30,6 +30,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from tb_common.rank_key import Key as RankKey
+from tb_common.rank_key import open_weight, rank_tuple, supports
 from tb_common.verdict_word import held_back
 
 from matching.note_answer import note_answer_may
@@ -193,3 +195,30 @@ def status_of(by_id: Mapping[str, Any], verdicts: Iterable[Any], policy: Policy)
     seen: set[str] = set()
     acts = [a for a in actions if not (a in seen or seen.add(a))]  # type: ignore[func-returns-value]
     return Status(tier, acts, unknown, excluded_by)
+
+
+def rank_key(
+    by_id: Mapping[str, Any],
+    verdicts: Iterable[Any],
+    policy: Policy,
+    next_appointment: str | None = None,
+    pid: str = "",
+) -> RankKey:
+    """Where a patient stands in the list "closest to eligible" (MATCH-ARCH 1(e)): :func:`status_of`'s tier, then the
+    open criteria fewest first, then how hard they are to close, then the criteria with a quote that say "fine for
+    eligibility", then the next visit and the pseudonym. Smallest first. An order, never a probability: the tier is
+    :func:`status_of`'s own (a coded ``no`` is the last block), an unknown carries nothing, no model confidence enters
+    it except through :func:`answer_of`, and nobody is dropped. Pure: the same rows give the same key (D-82).
+    The console ranks stored rows with :func:`tb_common.rank_key.stored_rank_key`, the same numbers from the words a
+    page shows."""
+    rows = list(verdicts)
+    weights: list[int] = []
+    n_for = 0
+    for v in rows:
+        c = by_id[v.id]
+        ev = v.evidence
+        if answer_of(c, v, policy) == "unknown":
+            weights.append(open_weight(c.class_, ev.reason if ev is not None else None))
+        if supports(v.verdict, ev.quote if ev is not None else None):
+            n_for += 1
+    return rank_tuple(status_of(by_id, rows, policy).tier, weights, n_for, next_appointment, pid)

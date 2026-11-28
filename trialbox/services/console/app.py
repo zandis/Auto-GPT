@@ -52,6 +52,7 @@ from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.flowledger import level_of_tag, record_export
+from tb_common.open_reasons import needs_text
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
@@ -601,6 +602,7 @@ def create_app(
     # D-146 (review J-17): a person, not the raw actor id ("console:crc" -> "crc"), on every translated page
     templates.env.filters["who"] = lambda v: str(v or "").removeprefix("console:") or "–"
     templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
+    templates.env.globals["needs_text"] = needs_text  # H-7: what the site must supply for an open answer
     templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
     # D-380 (ROLE-018): the menu asks the matrix, as the routes do (``permit(user.role, action, BEST)``)
     templates.env.globals["permit"] = permit

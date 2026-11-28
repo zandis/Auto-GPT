@@ -109,7 +109,7 @@ STEPS: tuple[Step, ...] = (
             Act("read", label="changes", within="[data-testid=changes] li"),
             Act("read", label="what is approved", within="[data-testid=s20-split]"),
             Do("label_all", T("s20.label.save")),
-            Do("open_all", T("s20.open_row")),
+            Do("open_all", T("s20.read_row")),
             See("shown", value="amend-record"),
             Do("fill", label=T("amend.irb"), value=IRB_NO),
             Do("fill", label=T("amend.irb_date"), value="{day}"),

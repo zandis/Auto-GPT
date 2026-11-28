@@ -156,8 +156,8 @@ class Said(T):
 @dataclass(frozen=True)
 class Do:
     """One thing a person does. ``kind``: signin, language, nav (top bar), more (the "More" menu), link, row_link
-    (a link in the table row that holds ``within``), fill, select, radio, button, open_all (every such link, one by
-    one), label_all (the zh-TW and ja pages: a short label for each criterion that has none), form (the form whose
+    (a link in the table row that holds ``within``), fill, select, radio, button, open_all (every amber row: open its
+    codes and tick ``text``, then save the page's one form once), label_all (the zh-TW and ja pages: a short label for each criterion that has none), form (the form whose
     button is ``text``: choose ``value`` in it, then click), see (an expectation, below)."""
 
     kind: str
@@ -413,7 +413,7 @@ STEPS: tuple[Step, ...] = (
             Do("link", T("s20.waiting", (("rs", "{rs}"), ("v", "{v}")))),
             See("gone", value="approve-needs-pi"),
             Do("label_all", T("s20.label.save")),
-            Do("open_all", T("s20.open_row")),
+            Do("open_all", T("s20.read_row")),
             Do("button", T("s20.approve_all")),
             See("h1", T("confirm.title")),
             Do("button", T("confirm.yes")),
@@ -650,7 +650,7 @@ WORDS: dict[str, dict[str, str]] = {
         "select": "Choose {value} in",
         "radio": "Choose",
         "button": "Click",
-        "open_all": "On each row that has it, click",
+        "open_all": "On each amber row, open the codes and tick",
         "label_all": "zh-TW and ja pages only: give each criterion a short label, then click",
         "form": "In the form of this button, choose {value}, then click",
     },
@@ -672,7 +672,7 @@ WORDS: dict[str, dict[str, str]] = {
         "select": "在此欄選擇 {value}",
         "radio": "選擇",
         "button": "點選",
-        "open_all": "在每一列點選",
+        "open_all": "在每一黃色列打開代碼並勾選",
         "label_all": "僅中文與日文頁面：為每條條件加上簡短標籤，然後點選",
         "form": "在此按鈕的表單中選擇 {value}，然後點選",
     },
@@ -694,7 +694,7 @@ WORDS: dict[str, dict[str, str]] = {
         "select": "次の欄で {value} を選択",
         "radio": "選択",
         "button": "クリック",
-        "open_all": "各行でクリック",
+        "open_all": "黄色の各行でコードを開いてチェック",
         "label_all": "中国語と日本語の画面のみ：各基準に短い表示名を付け、次をクリック",
         "form": "このボタンのフォームで {value} を選び、次をクリック",
     },
