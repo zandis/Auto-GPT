@@ -25,7 +25,7 @@ from tests.unit.test_gateway import H, _gw, _ir_body, _judge_body
 def _capture(sent: list[dict[str, Any]]) -> httpx.Client:
     def capture(req: httpx.Request) -> httpx.Response:
         sent.append(json.loads(req.content))
-        r = TestClient(stub).post("/v1/chat/completions", content=req.content, headers=dict(req.headers))
+        r = TestClient(stub).post(req.url.path, content=req.content, headers=dict(req.headers))  # the path it called
         return httpx.Response(r.status_code, json=r.json())
 
     return httpx.Client(transport=httpx.MockTransport(capture))
