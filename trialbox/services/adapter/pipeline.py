@@ -631,6 +631,13 @@ def _run_ingest(
                 detail={"source": source_kind, "refused": "site_key", "reason": str(exc)},
             )
         raise
+    from adapter.publish import recover_all, refuse_split
+
+    # P-03 (review R5): a FHIR put-back that is owed is done, or refuses the night by its name
+    # (FhirRestoreOutstanding), before this night reads its source or touches any store; so is a night that would
+    # move the FHIR store or the lake alone (review F1: NightRefused)
+    recover_all(cfg)
+    refuse_split(cfg, load_fhir=load_fhir, rebuild_lake=rebuild_lake)
     errors: list[str] = []
     # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
     # is scratch on the lake volume (``lake:tmp``), removed when the night ends
