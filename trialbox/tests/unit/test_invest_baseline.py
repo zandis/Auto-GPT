@@ -67,8 +67,10 @@ def test_a_public_model_host_is_refused_before_any_request(monkeypatch: pytest.M
         raise AssertionError("a request was made")
 
     monkeypatch.setattr(httpx.Client, "send", no_send)
-    with pytest.raises(ValueError, match="not an on-box address"):
-        baseline._client("http://127.0.0.1:1,http://8.8.8.8:8000", "m")
+    for other in ("http://8.8.8.8:8000", "http://10.255.255.1:8000"):  # public; private but another machine
+        with pytest.raises(ValueError, match="not an address of this machine"):
+            baseline._client(f"http://127.0.0.1:1,{other}", "m")
+    baseline._client("http://127.0.0.1:1", "m")
 
 
 def test_requests_are_counted_by_server_ordinal_never_by_address(monkeypatch: pytest.MonkeyPatch) -> None:

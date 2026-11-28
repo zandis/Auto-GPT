@@ -22,6 +22,7 @@ import itertools
 import json
 import os
 import secrets
+import socket
 import threading
 import time
 from collections import Counter
@@ -57,15 +58,26 @@ class _Sampled(httpx.Client):
 
 
 def _on_box(url: str) -> None:
-    """Refuse a model server that is not on this box (loopback or a private address) before any request is made; the
-    message names the host only, never the login or path of the address."""
-    from tb_common.http import address_class, resolve_now
+    """Refuse a model server that is not this machine (loopback or an address of its own interfaces; another machine
+    of the hospital network is refused too) before any request is made; the message names the host only, never the
+    login or path of the address."""
+    from tb_common.http import resolve_now
+
+    def mine(addr: str) -> bool:  # bind() to port 0 succeeds only for an address of this machine
+        try:
+            with socket.socket(socket.AF_INET6 if ":" in addr else socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((addr, 0))
+            return True
+        except OSError:
+            return False
 
     p = urlparse(url)
     host = p.hostname or ""
     addrs = resolve_now(host, p.port or (443 if p.scheme == "https" else 80)) if host else []
-    if not addrs or any(address_class(x) not in ("loopback", "private") for x in addrs):
-        raise ValueError(f"model server host {host!r} is not an on-box address (loopback or private only)")
+    if not addrs or not all(mine(x) for x in addrs):
+        raise ValueError(
+            f"model server host {host!r} is not an address of this machine (loopback or own interface only)"
+        )
 
 
 def _client(urls: str, model: str) -> Any:
