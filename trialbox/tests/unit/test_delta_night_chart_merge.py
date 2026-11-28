@@ -33,8 +33,10 @@ def _write(path: Path, name: str, cols: list[str], rows: list[dict[str, str]]) -
             w.writerow({k: r.get(k, "") for k in cols})
 
 
-def _patient(mrn: str) -> dict[str, str]:
-    return {"mrn": mrn, "name": f"TEST {mrn[-1]}", "id_no": f"Z{mrn}", "birth_date": "1960-01-01", "sex": "F"}
+def _patient(mrn: str, one: bool = False) -> dict[str, str]:
+    """``one``: A carries B's name and national id (one person's two charts, as a merge says); else two people."""
+    who = B if one else mrn
+    return {"mrn": mrn, "name": f"TEST {who[-1]}", "id_no": f"Z{who}", "birth_date": "1960-01-01", "sex": "F"}
 
 
 def _diag(no: str, mrn: str, icd10: str) -> dict[str, str]:
@@ -66,20 +68,26 @@ def _held(cfg: AdapterConfig, snap: str) -> dict[str, Any]:
     return {"patients": patients, "about": about, "text": text}
 
 
+@pytest.mark.parametrize("one", [True, False], ids=["one person", "two people"])
 @pytest.mark.parametrize("patients_tonight", [[B], [A, B]], ids=["B only", "both still sent"])
 def test_the_night_after_a_merge_holds_what_a_full_night_after_it_holds(
-    tmp_path: Path, patients_tonight: list[str] | None
+    tmp_path: Path, patients_tonight: list[str] | None, one: bool
 ) -> None:
+    """H34-06 review P-04-1: a merge of two people (A and B differ by name and national id) is never applied: A's
+    records are not written under B. The delta night keeps A as the night before served it; the full night holds
+    A's records (PRODUCT-2, "hold records, not nights"); both list A for the steward."""
+    from adapter.pipeline import IDENTITY_CONFLICT
+
     lakes = _Lakes(tmp_path / "lake")
     cfg = _cfg(tmp_path, lakes)
-    _write(tmp_path / "full", "patient", PATIENT, [_patient(A), _patient(B)])
+    _write(tmp_path / "full", "patient", PATIENT, [_patient(A, one), _patient(B)])
     _write(tmp_path / "full", "diagnosis", DIAG, [_diag("D1", A, "C50.9"), _diag("D2", B, "E11.9")])
     rep = run_ingest(cfg, "csv", str(tmp_path / "full"), snapshot=FULL, load_fhir=False, validate=False)
     assert rep.passed, rep.errors
     old, new = _merge(cfg)
     # the delta export of the next night: one new diagnosis of B; the patient table as the hospital sends it
     if patients_tonight is not None:
-        _write(tmp_path / "delta", "patient", PATIENT, [_patient(m) for m in patients_tonight])
+        _write(tmp_path / "delta", "patient", PATIENT, [_patient(m, one) for m in patients_tonight])
     _write(tmp_path / "delta", "diagnosis", DIAG, [_diag("D3", B, "I10")])
     rep = run_ingest(cfg, "csv", str(tmp_path / "delta"), since=FULL, snapshot=DELTA, load_fhir=False,
                      validate=False)  # fmt: skip
@@ -91,13 +99,24 @@ def test_the_night_after_a_merge_holds_what_a_full_night_after_it_holds(
     # its own and the same pid map
     (tmp_path / "w").mkdir(exist_ok=True)
     whole = _cfg(tmp_path / "w", None)
-    _write(tmp_path / "all", "patient", PATIENT, [_patient(A), _patient(B)])
+    _write(tmp_path / "all", "patient", PATIENT, [_patient(A, one), _patient(B)])
     _write(tmp_path / "all", "diagnosis", DIAG,
            [_diag("D1", A, "C50.9"), _diag("D2", B, "E11.9"), _diag("D3", B, "I10")])  # fmt: skip
     rep = run_ingest(whole, "csv", str(tmp_path / "all"), snapshot=DELTA, load_fhir=False, validate=False)
     assert rep.passed, rep.errors
     full = _held(whole, DELTA)
 
+    if not one:
+        for c in (cfg, whole):
+            said = json.loads((snapshot_dir(c.lake_dir, DELTA) / IDENTITY_CONFLICT).read_text())
+            assert said["held"] == [old]
+        assert delta["patients"] == sorted([old, new]) and full["patients"] == [new]
+        # A's diagnosis of the night before stays under A; B's, tonight's too, under B
+        refs = {json.dumps({"reference": f"Patient/{p}"}) for p in (old, new)}
+        assert set(delta["about"]["Condition"].values()) == refs
+        assert f"Patient/{old}" not in full["text"] and f'"{old}"' not in full["text"]
+        assert {r["pid"] for r in lakes.lake.query("SELECT pid FROM condition").to_pylist()} == {old, new}
+        return
     assert delta["patients"] == full["patients"] == [new]
     assert delta["about"] == full["about"]
     assert f"Patient/{old}" not in delta["text"] and f'"{old}"' not in delta["text"]
