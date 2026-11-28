@@ -1667,7 +1667,7 @@ def test_a_refused_seal_writes_no_passphrase_over_a_name_now_there(tmp_path: Pat
     """R2 (#1602 second fix round): the file is removed before the ceremony and written back after a refusal, made
     new: a name put there meanwhile (a link, say) is never written through, and the install says the file is gone."""
     elsewhere = tmp_path / "elsewhere"
-    pp, run = _shell_install(tmp_path, f"cat >/dev/null\nln -s {elsewhere} \"$KP_LINK\"\nexit 1\n")
+    pp, run = _shell_install(tmp_path, f'cat >/dev/null\nln -s {elsewhere} "$KP_LINK"\nexit 1\n')
     key_step = _between("# E2E P-01 (the integrator's ruling Q1, 2026-11-27)", "# T-117b (D-274)")
     _write_pass(pp)
     r = run(f"TB_ENV_SITE=PRODUCTION\n{key_step}", env={"KP_LINK": str(pp)})
