@@ -206,10 +206,18 @@ class SqlGenerator:
             cols = [*cols, (lit(YJ_STEM), YJ_STEM_OF.format(col="x.nhi_code"))]
         rid_sel = "rid" if rid == "rid" else f"{rid} AS rid"
 
-        def src(match: Callable[[str, str, str], str], status: str = "") -> str:
+        # inv-j5 (metamorphic ``duplicate``): "seen twice for it" counts visits, so a diagnosis row written twice in
+        # one encounter is one visit; a row with no encounter counts alone. Only a condition count changes its SQL.
+        # Review INVJ5-2: the key says what it is (an encounter's or a condition's id), so the two never collide; the
+        # CQL builds the same key from the encounter reference's last part, as the lake keeps ``eid``
+        visits = atom.domain == "condition" and (atom.quantifier or "any") == "count>="
+        visit = ", coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit" if visits else ""
+        counter = "count(DISTINCT e.visit)" if visits else "count(*)"
+
+        def src(match: Callable[[str, str, str], str], status: str = "", tag: str = "") -> str:
             cond = " OR ".join(match(vsn, sc, cc) for sc, cc in cols)
             where = f"({cond}){status}" if status else cond  # a shipped atom's SQL stays byte for byte what it was
-            return f"SELECT pid, {rid_sel}, {d} AS d FROM {table} x WHERE {where}"
+            return f"SELECT pid, {rid_sel}, {d} AS d{visit}{tag} FROM {table} x WHERE {where}"
 
         # D-917: a condition atom with ``clinical_status`` counts a row whose status is listed or not recorded; a row
         # recorded with another status (resolved, in remission) cannot settle it and makes the answer unknown, as an
@@ -220,11 +228,14 @@ class SqlGenerator:
         counted = f" AND ({st_code} IS NULL OR {st_code} IN ({listed_st}))" if statuses else ""
         other = f" AND {st_code} IS NOT NULL AND {st_code} NOT IN ({listed_st})" if statuses else ""
 
-        def cte(n: str, source: str) -> str:
+        def cte(n: str, source: str, agg: str | None = None, on: str | None = None) -> str:
+            """``agg``: what follows the count (default the evidence list; ``""`` none); ``on``: the join's condition."""
+            if agg is None:
+                agg = ",\n         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev"
+            on = on or f" ON e.pid = b.pid AND {in_window('e.d', w)}"
             return (
-                f"{n} AS (\n  SELECT b.pid, b.index_date, count(*) AS n,\n"
-                f"         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev\n"
-                f"  FROM base b JOIN ({source}) e ON e.pid = b.pid AND {in_window('e.d', w)}\n"
+                f"{n} AS (\n  SELECT b.pid, b.index_date, {counter} AS n{agg}\n"
+                f"  FROM base b JOIN ({source}) e{on}\n"
                 f"  GROUP BY b.pid, b.index_date)"
             )
 
@@ -240,7 +251,7 @@ class SqlGenerator:
             return f"({self._vs_match(v, sc, cc)}{fam})"
 
         undated = (
-            f"{nd} AS (\n  SELECT b.pid, b.index_date, count(*) AS n,\n"
+            f"{nd} AS (\n  SELECT b.pid, b.index_date, {counter} AS n,\n"
             f"         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev\n"
             f"  FROM base b JOIN ({src(listed_or_family)}) e ON e.pid = b.pid AND e.d IS NULL\n"
             f"  GROUP BY b.pid, b.index_date)"
@@ -253,6 +264,17 @@ class SqlGenerator:
             u = f"({u} + coalesce({st}.n, 0))"
         settled = f"({n} > 0)" if quant != "count>=" else f"({n} >= {atom.count})"
         reach = f"({u} > 0)" if quant != "count>=" else f"({n} + {u} >= {atom.count})"
+        if visits:  # review INVJ5-1: one visit with a counted row and an undated or other-status one is still one
+            r = f"{name}_r"
+            parts = [src(self._vs_match, counted, ", FALSE AS undated")]
+            if statuses:
+                parts.append(src(listed_or_family, other, ", FALSE"))
+            parts.append(src(listed_or_family, "", ", TRUE"))
+            on = (
+                f"\n    ON e.pid = b.pid AND ((e.undated AND e.d IS NULL) OR (NOT e.undated AND {in_window('e.d', w)}))"
+            )
+            ctes.append(cte(r, "\n    UNION ALL ".join(parts), agg="", on=on))
+            reach = f"(coalesce({r}.n, 0) >= {atom.count})"
         hit = "TRUE" if quant != "none" else "FALSE"
         miss = "FALSE" if quant != "none" else "TRUE"
 

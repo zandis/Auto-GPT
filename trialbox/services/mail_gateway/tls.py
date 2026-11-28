@@ -61,13 +61,18 @@ def unverified(env: Any, *, imap_used: bool) -> list[tuple[str, str, str, str]]:
     return [(s, h, m, SETTING[(s, m)]) for s, h, m in servers if m != "verified"]
 
 
-def audit_modes(audit: _Audit, env: Any, *, imap_used: bool) -> list[str]:
+def audit_modes(audit: _Audit, env: Any, *, imap_used: bool, relay: bool = True) -> list[str]:
     """One audit event per server the gateway speaks to without a verified certificate, naming the server, its host
     and the setting that caused it; returns the events written. Called once at each start of the gateway (the switch
-    is read then, and holds until the next start)."""
+    is read then, and holds until the next start). Review D-2 (E2E P-10): the SMTP line says whether a relay was
+    given (``relay`` false: no send is tried, so the relay is not spoken to until IT gives it and the service starts
+    again)."""
     written = []
     for server, host, mode, setting in unverified(env, imap_used=imap_used):
         event = "mail.tls_unverified" if mode == "unverified" else "mail.plaintext"
-        audit.append(event, detail={"server": server, "host": host, "setting": setting})
+        detail: dict[str, Any] = {"server": server, "host": host, "setting": setting}
+        if server == "smtp":
+            detail["relay"] = relay
+        audit.append(event, detail=detail)
         written.append(event)
     return written

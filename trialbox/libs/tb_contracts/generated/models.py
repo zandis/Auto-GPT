@@ -2269,6 +2269,19 @@ class SiteSchema(BaseModel):
     """
 
 
+class StageTimes(BaseModel):
+    """
+    OPT-1 §6: one stage of the night: seconds spent in it (a stage entered twice adds up) and the process peak resident memory in MB when it last ended (a high-water mark, so it never falls from one stage to the next; null where the platform cannot say)
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    seconds: float = Field(..., ge=0.0)
+    peak_rss_mb: float | None = Field(..., ge=0.0)
+
+
 class StudyProtocol(BaseModel):
     """
     The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. The canonical form is written in D-1366. Schema version 1.0.0.
@@ -2822,7 +2835,7 @@ class IEBlock(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.6.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.7.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector; 1.7.0: stages).
     """
 
     model_config = ConfigDict(
@@ -2864,6 +2877,10 @@ class IngestReport(BaseModel):
     connector: ConnectorReport | None = None
     """
     10E-9 (review 13-10): how long the connector took per message (a CSV or SQL row, an SS-MIX2 message, a FHIR resource), per table and for the whole source: counts and times only, never a value of a row. Absent in a report written before 1.6.0
+    """
+    stages: dict[str, StageTimes] | None = None
+    """
+    OPT-1 §6: seconds per stage of the night and the process peak resident memory at each stage end (name: seconds, peak_rss_mb): counts and times only. Absent in a report written before 1.7.0
     """
     omop: OmopLoadSummary | None = None
     """

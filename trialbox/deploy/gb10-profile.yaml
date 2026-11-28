@@ -32,6 +32,13 @@ driver_hold:
   next_retest_by: 2026-12-09
   retest_by: the operations engineer of lane 2E (deploy, release, operations), on the bench Spark
 
+# The largest hospital this profile is declared for (E2E P-02). The adapter, the lake and the orchestrator hold 1.5 times
+# their measured peak for the hospital's size (deploy/measured/site_peaks.json); at 100,000 patients those caps and the
+# limits below no longer fit the unified memory, so the declared size stays at the largest measured class that fits
+# (tests/unit/test_m9_gb10_caps.py derives it, and it moves with the table when the peaks are re-measured).
+site:
+  max_patients: 50000
+
 # Docker memory limits on the Spark (compose mem_limit), GiB. Unified memory has no separate GPU pool, and nothing
 # capped a container before: one service could starve the models (OPS-063, CR-082). vLLM sizes its KV pool as a
 # fraction of the whole device (--gpu-memory-utilization), so its limit is that fraction plus the host process.

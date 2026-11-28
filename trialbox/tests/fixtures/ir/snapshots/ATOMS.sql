@@ -759,22 +759,29 @@ c_atoms_inc_04 AS (
   LEFT JOIN a_atoms_inc_04_1 ON a_atoms_inc_04_1.pid = b.pid AND a_atoms_inc_04_1.index_date = b.index_date
   LEFT JOIN a_atoms_inc_04_1_nd ON a_atoms_inc_04_1_nd.pid = b.pid AND a_atoms_inc_04_1_nd.index_date = b.index_date),
 a_atoms_inc_05_1 AS (
-  SELECT b.pid, b.index_date, count(*) AS n,
+  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
-  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -730) AND b.index_date
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -730) AND b.index_date
   GROUP BY b.pid, b.index_date),
 a_atoms_inc_05_1_nd AS (
-  SELECT b.pid, b.index_date, count(*) AS n,
+  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n,
          string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
-  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
+a_atoms_inc_05_1_r AS (
+  SELECT b.pid, b.index_date, count(DISTINCT e.visit) AS n
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit, FALSE AS undated FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)
+    UNION ALL SELECT pid, cid AS rid, coalesce(onset, recorded) AS d, coalesce('Encounter/' || eid, 'Condition/' || cid) AS visit, TRUE FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e
+    ON e.pid = b.pid AND ((e.undated AND e.d IS NULL) OR (NOT e.undated AND e.d BETWEEN (b.index_date + -730) AND b.index_date))
   GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-05 (inclusion): >=2 gout dx in 2y
 c_atoms_inc_05 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_05_1.n, 0) >= 2) THEN TRUE WHEN (coalesce(a_atoms_inc_05_1.n, 0) + coalesce(a_atoms_inc_05_1_nd.n, 0) >= 2) THEN NULL ELSE FALSE END) AS v,
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_05_1.n, 0) >= 2) THEN TRUE WHEN (coalesce(a_atoms_inc_05_1_r.n, 0) >= 2) THEN NULL ELSE FALSE END) AS v,
          concat_ws(';', coalesce(a_atoms_inc_05_1.ev, a_atoms_inc_05_1_nd.ev)) AS ev
   FROM base b
   LEFT JOIN a_atoms_inc_05_1 ON a_atoms_inc_05_1.pid = b.pid AND a_atoms_inc_05_1.index_date = b.index_date
-  LEFT JOIN a_atoms_inc_05_1_nd ON a_atoms_inc_05_1_nd.pid = b.pid AND a_atoms_inc_05_1_nd.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_05_1_nd ON a_atoms_inc_05_1_nd.pid = b.pid AND a_atoms_inc_05_1_nd.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_05_1_r ON a_atoms_inc_05_1_r.pid = b.pid AND a_atoms_inc_05_1_r.index_date = b.index_date),
 a_atoms_inc_06_1 AS (
   SELECT pid, index_date, (CASE WHEN count(*) FILTER (WHERE NOT o.undated) = 0 THEN NULL WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END)) FILTER (WHERE NOT o.undated) THEN TRUE WHEN count(*) FILTER (WHERE NOT o.undated AND (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) IS NULL) > 0 THEN NULL WHEN count(*) FILTER (WHERE o.undated AND (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) IS NOT FALSE) > 0 THEN NULL ELSE FALSE END) AS v,
          concat_ws(';', CASE WHEN (CASE WHEN count(*) FILTER (WHERE NOT o.undated) = 0 THEN NULL WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END)) FILTER (WHERE NOT o.undated) THEN TRUE WHEN count(*) FILTER (WHERE NOT o.undated AND (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) IS NULL) > 0 THEN NULL WHEN count(*) FILTER (WHERE o.undated AND (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) IS NOT FALSE) > 0 THEN NULL ELSE FALSE END) IS NULL AND bool_or(o.unit_bad) FILTER (WHERE NOT o.undated) THEN 'unit_mismatch' END,
