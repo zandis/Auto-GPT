@@ -72,10 +72,12 @@ import errno
 import fcntl
 import functools
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import secrets
+import socket
 import stat
 import subprocess
 import sys
@@ -1487,6 +1489,26 @@ def _box_devs(pfd: int) -> set[int]:
     return {os.fstat(pfd).st_dev, os.stat("/").st_dev}
 
 
+def _share_of_the_box(source: str) -> bool:
+    """R3 (#1602 second fix round): the server of a share's source (``host:/export``, ``//host/share``) is the box
+    itself: localhost, the box's own name (its first label), a loopback address or one bound on the box. A name that
+    only resolves to the box is not seen (no lookup here)."""
+    host = (source[2:].split("/", 1)[0] if source.startswith("//") else source.rsplit(":", 1)[0]).strip("[]").lower()
+    own = socket.gethostname().split(".")[0].lower()
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return host == "localhost" or host.endswith(".localhost") or host.split(".")[0] == own
+    if addr.is_loopback or addr.is_unspecified:
+        return True
+    try:  # an address of the box's own can be bound; another host's cannot
+        with socket.socket(socket.AF_INET6 if addr.version == 6 else socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.bind((str(addr), 0))
+    except OSError:
+        return False
+    return True
+
+
 def _off_box_for_sure(ident: Mapping[str, Any], dev: int) -> bool:
     """P05 (#1602 fix round): what the installer may declare by itself: a network share, or a filesystem whose every
     whole disk the kernel calls removable or finds on USB. A second internal disk or partition cannot be told from
@@ -1559,6 +1581,8 @@ def declare_target(path: str, operator: str | None, replace: bool, env: Mapping[
             why = "a filesystem of the box itself"
         elif ident["source"].startswith("/dev/") and not ident["fsuuid"]:
             why = f"{ident['source']} has no {BY_UUID} name"
+        elif who == AUTO_OPERATOR and not ident["source"].startswith("/dev/") and _share_of_the_box(ident["source"]):
+            why = "a share served by the box itself, so not off the box (an operator may declare it: --operator <name>)"
         elif who == AUTO_OPERATOR and not _off_box_for_sure(ident, dev):
             why = "not a network share or a removable disk, so only an operator declares it (--operator <name>)"
         if why:

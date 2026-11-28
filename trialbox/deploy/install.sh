@@ -1849,16 +1849,24 @@ case "$(printf '%s' "$TB_ENV_SITE" | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:
       if [ ! -f deploy/secrets/backup-target.json ] && { [ -z "$KP_OFFBOX" ] || ! PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --declare-backup-target "$KP_OFFBOX" --operator install; }; then
         FAILS+=("no backup key: no off-box backup target is declared (TB_BACKUP_OFFBOX in deploy/.env: ${KP_OFFBOX:-not set}${KP_OFFBOX:+, refused above}); no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --declare-backup-target <folder> --operator <name>, then python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
       else
-        # P02 (#1602 fix round; H-08 removed it first): the passphrase file goes only once the key is sealed with
-        # it; a refusal, or a stop before that, leaves it (the operator's copy of the KEK passphrase)
+        # H-08 (sixth review), P02 and R2 (#1602 fix rounds): the passphrase file goes before the ceremony can make
+        # backup.pub (the passphrase is read already): an install killed right after backup.pub leaves no file beside
+        # the sealed key. A refusal writes it back (the operator's copy of the KEK passphrase): made new, 0600, never
+        # through a name found there; a kill in the ceremony before the key is sealed leaves no file (RUNBOOK §5)
+        kp_gone=0
+        if [ -n "$KP_FILE" ] && [ "$PP_KEEP" = 0 ]; then kp_remove_file "$KP_FILE"; kp_gone=1; fi
         if printf '%s\n' "$KP_VALUE" | PYTHONPATH="$PWD/libs${PYTHONPATH:+:$PYTHONPATH}" python3 -m tools.backup_key_ceremony --install --sealed-stdin; then
           if [ -n "$KP_FILE" ]; then
             if [ "$PP_KEEP" = 1 ]; then echo "    the passphrase file $KP_FILE is kept (--keep-kek-passphrase-file): remove it yourself"
-            else kp_remove_file "$KP_FILE"; echo "    the passphrase file $KP_FILE is removed"; fi
+            else echo "    the passphrase file $KP_FILE is removed"; fi
           fi
         else
           FAILS+=("no backup key (above): no backup runs and updates refuse; as root on the box: python3 -m tools.backup_key_ceremony --install (RUNBOOK §5)")
-          [ -z "$KP_FILE" ] || echo "    the passphrase file $KP_FILE stays (the backup key was not sealed): the next install needs it"
+          if [ "$kp_gone" = 1 ] && ! (umask 077; set -C; printf '%s\n' "$KP_VALUE" > "$KP_FILE") 2>/dev/null; then
+            echo "    the passphrase file $KP_FILE could not be written back (a name is there now): write the passphrase again for the next install"
+          elif [ -n "$KP_FILE" ]; then
+            echo "    the passphrase file $KP_FILE stays (the backup key was not sealed): the next install needs it"
+          fi
         fi
         KP_FILE=""
       fi
