@@ -55,6 +55,7 @@ log = logging.getLogger("console.support")
 PATH = "/admin/support"
 EVENT = "console.support_session"
 REFUSAL = "support_session"
+ACTION = "support.refused"  # what the audit and the log say of a refused request: never its path
 AUTO_END = timedelta(hours=2)
 STATE = "support-session.json"
 
@@ -184,10 +185,10 @@ class SupportGuard(Rc1Guard):
     def refuse(self, request: HTTPConnection, name: str, path: str) -> Response:
         sess = self.session(request)
         who = f"console:{sess.user.username}" if sess is not None else "console:-"
-        try:  # the path only: never a query or a body
-            self.h.au.append("console.denied", actor=who, detail={"refusal": REFUSAL, "action": path[:120]})
+        try:  # a fixed action name: a path can carry a patient identifier, and the supplier is shown this log
+            self.h.au.append("console.denied", actor=who, detail={"refusal": REFUSAL, "action": ACTION})
         except Exception:
-            log.exception("support session: the refusal of %s was not audited", path[:120])
+            log.exception("support session: a refusal was not audited")
         if request.scope["type"] == "websocket":
             return Response(status_code=403)
         if path.startswith("/api/"):
@@ -258,13 +259,16 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str] | None = None) -> 
         administrator's saying so (the form's tick)."""
         assert h.api_session is not None  # set by register() before any request
         sess = h.api_session(request)
-        turn = str(body.get("turn") or "")
-        if turn not in ("on", "off"):
-            return JSONResponse({"error": "request.refused", "detail": {"code": "turn"}}, status_code=422)
+        turn = str(body.get("turn") or "").strip().lower()
         try:
-            st = switch.start(h.actor(sess)) if turn == "on" else switch.end(h.actor(sess))
+            if turn in ("on", "off"):
+                st = switch.start(h.actor(sess)) if turn == "on" else switch.end(h.actor(sess))
+            else:  # clinical tolerance: the state stays as it is, and the answer says so
+                log.warning("support session: an unrecognised turn was ignored")
+                st = switch.state()
         except OSError as exc:
             raise h.problem(503, "ops.unavailable") from exc
-        return {"on": bool(st.get("on")), "session": st.get("id"), "until": st.get("until") if st.get("on") else None}
+        out = {"on": bool(st.get("on")), "session": st.get("id"), "until": st.get("until") if st.get("on") else None}
+        return out if turn in ("on", "off") else {**out, "warning": "turn"}
 
     return switch

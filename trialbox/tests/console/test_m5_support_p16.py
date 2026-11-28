@@ -67,7 +67,7 @@ def test_a_support_session_closes_patient_pages_to_every_role_and_audits_start_a
     assert admin.get(support_page.PATH).status_code == 200  # the page that ends it stays open
     assert 'data-testid="sp-on"' in admin.get(support_page.PATH).text
     denied = [e for e in _events(tmp_path, "console.denied") if e["detail"].get("refusal") == "support_session"]
-    assert {e["detail"]["action"] for e in denied} >= {"/home"}
+    assert {e["detail"]["action"] for e in denied} == {support_page.ACTION}
     admin.post(support_page.PATH, data={**turn, "was": "on"})
     assert crc.get("/home").status_code == 200
     said = [(e["detail"]["action"], e["detail"].get("how")) for e in _events(tmp_path, support_page.EVENT)]
@@ -121,6 +121,17 @@ def test_a_state_that_cannot_be_read_keeps_the_patient_pages_closed(tmp_path: Pa
     assert not switch.on()
 
 
+def test_a_refusal_names_no_path_in_the_audit_or_the_log(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    b = _console(tmp_path, "TEST")
+    admin, csrf = login(b["app"])
+    admin.post(support_page.PATH, data={"csrf": csrf, "confirm": "1", "was": "off"})
+    secret = "/patients/MRN-48151623"
+    with caplog.at_level("DEBUG"):
+        assert admin.get(secret).status_code == 403
+    assert "MRN-48151623" not in caplog.text
+    assert not any("MRN-48151623" in json.dumps(e) for e in _events(tmp_path, "console.denied"))
+
+
 def test_the_support_switch_has_an_api_twin(tmp_path: Path) -> None:
     b = _console(tmp_path, "TEST")
     h = b["app"].state.rc1_guard.h
@@ -128,8 +139,9 @@ def test_the_support_switch_has_an_api_twin(tmp_path: Path) -> None:
     c = TestClient(b["app"], base_url="https://testserver")
     token = c.post("/api/v1/session", json={"username": "admin", "password": ADMIN_PW}).json()["token"]
     auth = {"Authorization": f"Bearer {token}"}
-    assert c.post("/api/v1" + support_page.PATH, json={"turn": "maybe"}, headers=auth).status_code == 422
-    on = c.post("/api/v1" + support_page.PATH, json={"turn": "on"}, headers=auth).json()
+    maybe = c.post("/api/v1" + support_page.PATH, json={"turn": "maybe"}, headers=auth)  # tolerated: warned, no change
+    assert maybe.status_code == 200 and maybe.json()["warning"] == "turn" and maybe.json()["on"] is False
+    on = c.post("/api/v1" + support_page.PATH, json={"turn": " ON "}, headers=auth).json()
     assert on["on"] is True and on["until"] == (NOW + support_page.AUTO_END).isoformat()
     assert b["app"].state.support_session.on()
     assert c.post("/api/v1" + support_page.PATH, json={"turn": "off"}, headers=auth).json()["on"] is False
