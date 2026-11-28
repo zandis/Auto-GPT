@@ -753,6 +753,8 @@ def _unquote(v: str) -> str:
 
 
 PAGE_ROUTE = "health-page"
+#: backup-install's line when it wrote the health page as PRODUCTION's route (install.sh lists it as an open item)
+ROUTE_DEFAULTED = "backup-install: warning: the backup alert route cannot carry the alerts"
 ROUTE_HINT = (
     "TB_BACKUP_ALERT_CMD (a command that reads the message on stdin), or TB_BACKUP_MAILTO and a mail relay, or, on a "
     f"box with no mail, TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} (the /admin health tab), in deploy/.env (RUNBOOK §5)"
@@ -1787,12 +1789,26 @@ def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool
                  systemd_dir: Path = SYSTEMD_DIR) -> int:  # fmt: skip
     """``trialbox backup-install`` (install.sh's backup step, D-274): the schedule, WAL archiving, the first
     backup. The schedule (H-92): the systemd timers where systemd is the init and this runs as root (TB_SYSTEMD=0,
-    install.sh's, keeps the cron file), else the cron file. Exit 1 only when the schedule cannot be installed (in
-    PRODUCTION: no alert route)."""
+    install.sh's, keeps the cron file), else the cron file. Exit 1 only when the schedule cannot be installed.
+    TOL-INSTALL (the owner's ruling): a PRODUCTION alert route that cannot carry the alerts (a bad
+    TB_BACKUP_ALERT_ROUTE, a TB_BACKUP_MAILTO with no mail agent) never leaves the box without backups: the health
+    page is written to deploy/.env as the route, said (:data:`ROUTE_DEFAULTED`), and the schedule installed."""
     from tools.trialbox import update
 
     deploy = absolute(deploy)
     cfg = config(deploy, update._env_file(deploy / ".env"))
+    try:
+        _route_notes(cfg, has_mta())
+    except ValueError as e:
+        try:
+            set_env(deploy / ".env", "TB_BACKUP_ALERT_ROUTE", PAGE_ROUTE)
+        except OSError as w:
+            print(f"backup-install: {e}; TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} cannot be written to deploy/.env ({w})")
+            return 1
+        os.environ.pop("TB_BACKUP_ALERT_ROUTE", None)  # a caller's bad value would win over the one written
+        cfg = config(deploy, update._env_file(deploy / ".env"))
+        print(f"{ROUTE_DEFAULTED} ({e}): TB_BACKUP_ALERT_ROUTE={PAGE_ROUTE} is written to deploy/.env, so the "
+              f"backups run; {cfg.page_watch()}")  # fmt: skip
     for x in cfg.setting_errors:  # D-735 (review): a bad setting is said where the backup is installed
         print(f"backup-install: bad setting: {x}")
     root = deploy.resolve().parent

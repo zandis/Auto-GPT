@@ -9,6 +9,8 @@ paths keep their rule (a PRODUCTION update without a backup is LOSS: STOPS T-U06
 from __future__ import annotations
 
 import json
+import re
+import stat
 from pathlib import Path
 
 import pytest
@@ -56,12 +58,63 @@ def test_a_clean_production_install_lists_nothing(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("force", ["env-mode", "disk-full"])
 def test_on_production_a_kept_class_still_ends_1(tmp_path: Path, force: str) -> None:
-    """Done-when (b), planted: a secret's file others can read (5) or a disk too full (2) ends 1 on PRODUCTION with
-    master's FAIL lines; a point before it still warned and was listed."""
+    """Done-when (b), planted: a secret's file others can read (5) whose repair does not hold (the stand-in reports it
+    whatever the file's mode) or a disk too full (2) ends 1 on PRODUCTION with master's FAIL lines; a point before it
+    still warned and was listed."""
     r = _prod(tmp_path).install("--mode", "stub", "--yes", force=(force, "memcaps"), env={**DEFER, **PLANT})
     assert r.rc == 1, r.text[-4000:]
     assert r.err.splitlines()[-1] == "install: FAIL: the host check reported FAIL lines (above; docs/SECURITY.md)"
     assert "install.sh/memcaps" in r.listed_keys()
+
+
+def test_on_production_a_secret_s_loose_mode_is_tightened_and_the_install_goes_on(tmp_path: Path) -> None:
+    """TOL-INSTALL (the owner's ruling): the check names deploy/.env at 644; the install tightens it, says so in the
+    check's words (no value), checks again and ends running."""
+    box = _prod(tmp_path)
+    r = box.install("--mode", "stub", "--yes", force=("env-loose",), env={**DEFER, **PLANT})
+    assert r.rc == 0 and RUNNING in r.out, r.text[-4000:]
+    assert "FAIL  .env mode 644 (want 600, root-owned) [H-94 (5)]" in r.out  # planted, and found
+    said = [ln for ln in r.err.splitlines() if ln.startswith("install: repaired: .env mode 644")]
+    assert len(said) == 1 and said[0].endswith(f"chmod 600 {box.deploy / '.env'}"), r.err[-3000:]
+    assert stat.S_IMODE((box.deploy / ".env").stat().st_mode) == 0o600 and "install: FAIL: " not in r.err
+    secrets = [v for k, _, v in (ln.partition("=") for ln in (box.deploy / ".env").read_text().splitlines())
+               if re.search("PASSWORD|TOKEN", k) and len(v) >= 8]  # fmt: skip
+    assert secrets and not any(v in r.text for v in secrets)
+
+
+def test_on_production_a_backup_route_that_cannot_alert_is_an_open_item_and_a_schedule_that_cannot_be_written_stops(
+    tmp_path: Path,
+) -> None:
+    """TOL-INSTALL (the owner's ruling): backup-install writes the health page as the route and installs the schedule
+    (a warning, an open item, rc 0); a schedule that cannot be written stays a stop on PRODUCTION (no backup)."""
+    r = _prod(tmp_path / "route").install("--mode", "stub", "--yes", force=("backup-schedule",), env={**DEFER, **PLANT})
+    assert r.rc == 0 and RUNNING in r.out, r.text[-4000:]
+    assert any(ln.startswith(GOES_ON + "the backup alert route given cannot carry the alerts") for ln in
+               r.err.splitlines()) and r.listed_keys() == {"install.sh/backup-schedule"}, r.err[-3000:]  # fmt: skip
+    r = _prod(tmp_path / "none").install("--mode", "stub", "--yes", force=("backup-schedule-write",),
+                                         env={**DEFER, **PLANT})  # fmt: skip
+    assert r.rc == 1 and RUNNING not in r.out, r.text[-4000:]
+    assert r.err.splitlines()[-1].startswith("install: the backup schedule is not installed (above)"), r.err[-2000:]
+    assert "install.sh/backup-schedule" not in r.listed_keys()
+
+
+@pytest.mark.parametrize(("args", "force"), [
+    (("--gpu", "rtxpro6000"), ("gpu-driver",)),  # the driver below the pinned image's minimum
+    (("--gpu", "shared-quota"), ()), (("--gpu", "b200-no-mig"), ()), (("--gpu", "arm64-dgpu"), ()),
+    (("--gpu", "b200"), ()),  # an unknown profile
+])  # fmt: skip
+def test_on_production_a_gpu_the_box_cannot_use_installs_the_coded_only_profile(
+    tmp_path: Path, args: tuple[str, ...], force: tuple[str, ...]
+) -> None:
+    """TOL-INSTALL (the owner's ruling): the install completes with the no-GPU profile written, and says so."""
+    box = _prod(tmp_path)
+    r = box.install("--mode", "gpu", *args, "--yes", force=force, env={**DEFER, **PLANT})
+    assert r.rc == 0 and RUNNING in r.out, r.text[-4000:]
+    assert ("note reading is off on this box; coded criteria still decide; note criteria go to a person"
+            in r.out), r.out[-3000:]  # fmt: skip
+    env = (box.deploy / ".env").read_text(encoding="utf-8").splitlines()
+    assert "COMPOSE_PROFILES=stub" in env and "TB_LLM_MODE=stub" in env, env
+    assert any(ln.startswith(GOES_ON) for ln in r.err.splitlines()), r.err[-3000:]
 
 
 def test_doctor_shows_each_open_item_as_a_warn_with_its_action(tmp_path: Path) -> None:

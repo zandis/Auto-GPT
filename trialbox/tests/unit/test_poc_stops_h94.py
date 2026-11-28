@@ -304,6 +304,8 @@ def _scenarios(tmp: Path) -> list[tuple[str, Box, tuple[str, ...], tuple[str, ..
     )
     for gpu in ("shared-quota", "b200-no-mig", "arm64-dgpu"):
         add(f"gpu-{gpu}", {}, ["--environment", "DEV", "--mode", "gpu", "--gpu", gpu, "--yes"], keys=[f"gpu-{gpu}"])
+    add("gpu-driver", {}, ["--environment", "DEV", "--mode", "gpu", "--gpu", "rtxpro6000", "--yes"], ["gpu-driver"],
+        keys=["gpu-driver"])  # TOL-INSTALL: the coded-only profile  # fmt: skip
     add(
         "rehearsal-box-without-the-argument",
         {

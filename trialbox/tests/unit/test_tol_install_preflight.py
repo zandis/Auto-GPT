@@ -14,7 +14,7 @@ from tb_common import site_needs
 from tests.unit.test_poc_stops_bench_h94 import Box
 from tests.unit.test_poc_stops_h94 import PLANTED, PROD_SITE, RUNNING
 from tools import settings_wizard
-from tools.trialbox import backup_schedule
+from tools.trialbox import backup_schedule, update
 
 pytestmark = [pytest.mark.nodb]
 ROOT = Path(__file__).resolve().parents[2]
@@ -66,6 +66,52 @@ def test_a_production_install_refuses_a_bad_answer_within_a_minute_before_the_lo
     assert r.rc == 1 and r.err.splitlines()[-1].startswith("the answers are refused"), r.text[-3000:]
     assert "preflight: the answers, read before the load" in r.out and "bundle: verify" not in r.out
     assert "load " not in (box.tmp / "calls.log").read_text(encoding="utf-8")
+
+
+def test_a_refused_answers_file_leaves_the_deploy_folder_as_it_was(tmp_path: Path) -> None:
+    """Review (#1660, 5): the read-only preflight runs before the answers' own files are looked at: a refusal there
+    ends the run with nothing of the answers' written or asked."""
+    box = Box(tmp_path / "prod", env=PROD_SITE + f"TB_SOURCE_DIR={tmp_path}\n")
+    before = sorted(str(p.relative_to(box.deploy)) for p in box.deploy.rglob("*"))
+    r = box.install("--mode", "stub", "--yes", force=("preflight-answers",), env={"TB_BOX_DEFER_SEAL": "1", **PLANTED})
+    assert r.rc == 1 and r.err.splitlines()[-1].startswith("the answers are refused"), r.text[-3000:]
+    assert "tools.answers_files" not in (box.tmp / "calls.log").read_text(encoding="utf-8")
+    after = sorted(str(p.relative_to(box.deploy)) for p in box.deploy.rglob("*"))
+    assert [p for p in after if p not in before and not p.startswith("site/poc-stops")] == [], after
+
+
+def test_a_production_backup_route_that_cannot_alert_installs_the_schedule_on_the_health_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review (#1660, 1): a bad TB_BACKUP_ALERT_ROUTE on PRODUCTION never leaves the box without backups: the health
+    page is written to deploy/.env, said, and the schedule installed (backup-install exits 0)."""
+    from tools.backup_drill import DEPLOY
+
+    for k in ("TB_ENV", "TB_BACKUP_ALERT_CMD", "TB_BACKUP_MAILTO", "TB_BACKUP_ALERT_ROUTE", "TB_BACKUP_TARGETS",
+              "TB_PG_ARCHIVE_MODE"):  # fmt: skip
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TB_COMPOSE", "false")
+    monkeypatch.setenv("TB_SYSTEMD", "0")
+    deploy = tmp_path / "opt" / "tb" / "deploy"
+    (deploy / "backup").mkdir(parents=True)
+    (deploy / "backup" / "trialbox-backup.cron").write_text(
+        (DEPLOY / "backup" / "trialbox-backup.cron").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (deploy / ".env").write_text("TB_ENV=PRODUCTION\nTB_PG_ARCHIVE_MODE=off\nTB_BACKUP_ALERT_ROUTE=foo\n")
+    with pytest.raises(ValueError, match="TB_BACKUP_ALERT_ROUTE='foo'"):  # as install_cron alone decides
+        backup_schedule.install_cron(backup_schedule.config(deploy, {"TB_ENV": "PRODUCTION",
+                                                                     "TB_BACKUP_ALERT_ROUTE": "foo"}),
+                                     tmp_path / "c", deploy.parent, has_mta=False)  # fmt: skip
+    cron = tmp_path / "cron.d"
+    assert backup_schedule.main_install(deploy, cron, first=False) == 0
+    out = capsys.readouterr().out
+    assert any(ln.startswith(backup_schedule.ROUTE_DEFAULTED) and "TB_BACKUP_ALERT_ROUTE='foo'" in ln
+               for ln in out.splitlines()), out  # fmt: skip
+    assert (cron / backup_schedule.CRON_NAME).is_file()
+    env = (deploy / ".env").read_text(encoding="utf-8").splitlines()
+    assert "TB_BACKUP_ALERT_ROUTE=health-page" in env and "TB_BACKUP_ALERT_ROUTE=foo" not in env
+    nightly = backup_schedule.config(deploy, update._env_file(deploy / ".env"), process_env=False)
+    assert nightly.setting_errors == [] and nightly.alert_page  # the nightly run reads no bad setting: backups run
 
 
 def test_a_production_install_with_good_answers_goes_on(tmp_path: Path) -> None:
