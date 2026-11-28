@@ -298,7 +298,7 @@ MedTxt-CR and MedTxt-RR (NTCIR-16 Real-MedNLP)
     Institute of Science and Technology (Sociocom NAIST), CC BY 4.0. Derived fields are TrialBox's own.
 
 Chia corpus
-  Where: route shares only (eval/chia); no corpus text.
+  Where: route shares and bench scores, counts only (eval/chia); no corpus text.
   Licence: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
   Attribution: Kury F. et al., Chia, a large annotated corpus of clinical trial eligibility criteria. Sci Data
     7, 281 (2020). figshare doi:10.6084/m9.figshare.11855817.
