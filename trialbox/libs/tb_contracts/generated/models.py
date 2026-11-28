@@ -2573,6 +2573,14 @@ class ValidationSummary(BaseModel):
     """
     T-693 (D-457): the resource types the cap cut, with the number of their resources
     """
+    patients_sampled: int | None = None
+    """
+    U4: the Patients in the sample
+    """
+    no_birthdate: int | None = None
+    """
+    U4: the sampled Patients with no birthDate, a class of its own outside errors (its own limit)
+    """
 
 
 class Window(BaseModel):
