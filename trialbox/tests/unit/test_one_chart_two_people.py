@@ -11,6 +11,7 @@ a clean night is unchanged. Every row here is synthetic (site A's fixture and ma
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import itertools
 import json
@@ -58,12 +59,12 @@ class _Rebuild:
         return RebuildResult(snapshot=snap, tables={}, chunks=0, embedded_new=0, seconds=0.0)
 
 
-def _cfg(tmp: Path, db_url: str) -> tuple[AdapterConfig, _Rebuild]:
+def _cfg(tmp: Path, db_url: str, mapping: Path = MAPPING) -> tuple[AdapterConfig, _Rebuild]:
     sec = tmp / "secrets"
     sec.mkdir(exist_ok=True)
     (sec / "site_hmac.key").write_bytes(KEY)
     rb = _Rebuild(tmp / "lake")
-    cfg = AdapterConfig(lake_dir=tmp / "lake", secrets_dir=sec, mapping_path=MAPPING, site_id="T",
+    cfg = AdapterConfig(lake_dir=tmp / "lake", secrets_dir=sec, mapping_path=mapping, site_id="T",
                         audit_dir=tmp / "audit", rebuild=rb, db_url=db_url)  # fmt: skip
     return cfg, rb
 
@@ -302,3 +303,103 @@ def test_a_bulk_export_with_two_people_under_one_patient_id_is_held(tmp_path: Pa
     said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
     assert said["tonight"] == [bulk_id(KEY, "Patient", "p1")]
     assert rep.counts.get("Encounter") == 1  # the rest of the export was read
+
+
+def test_a_retry_that_stops_before_the_check_leaves_no_earlier_result(
+    good: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review P03: a held night run again is rewritten; the earlier attempt's identity result goes before it is, so
+    a retry that stops before its own check ends (here: reading the served night) is refused, never accepted on the
+    earlier attempt's result."""
+    cfg, rb = _from_good(good, tmp_path)
+    feed = _feed(tmp_path)
+    first = good[2]
+    rows = _rows(feed / "patient.csv")
+    _write(feed / "patient.csv", [_other_person(rows[0]), *rows[1:]])  # against the served night only: acceptable
+    assert _night(cfg, feed, NEXT).held
+    folder = snapshot_dir(cfg.lake_dir, NEXT)
+    assert json.loads((folder / IDENTITY_CONFLICT).read_text())["tonight"] == []
+    _write(feed / "patient.csv", [*rows, _other_person(first)])  # the retry: two people tonight
+    import adapter.pipeline as pipeline
+
+    real = pipeline.read_type
+
+    def stop(d: Path, rtype: str) -> Any:
+        if d == snapshot_dir(cfg.lake_dir, GOOD) and rtype == "Patient":
+            raise OSError("the run stops here (synthetic)")
+        return real(d, rtype)
+
+    monkeypatch.setattr(pipeline, "read_type", stop)
+    with contextlib.suppress(OSError):
+        _night(cfg, feed, NEXT)
+    monkeypatch.undo()
+    with pytest.raises(TwoPeopleOneChart, match="never ran on this night"):
+        publish_held(cfg, NEXT)
+    assert (cfg.lake_dir / "CURRENT").read_text().strip() == GOOD and rb.calls == []
+
+
+def test_a_night_served_after_the_check_needs_the_held_night_run_again(good: Any, tmp_path: Path) -> None:
+    """Review P04: the held night was compared with the night served then; once another night is served, its accept
+    is refused until the night is run again (and so compared with the newly served one)."""
+    cfg, rb = _from_good(good, tmp_path)
+    later = "2026-11-03"
+    feed = _feed(tmp_path)
+    rows = _rows(feed / "patient.csv")
+    _write(feed / "patient.csv", [_other_person(rows[0]), *rows[1:]])  # against the served night only: acceptable
+    assert _night(cfg, feed, later).held
+    _write(feed / "patient.csv", rows)
+    assert _night(cfg, feed, NEXT).passed and rb.calls == [NEXT]  # the night in between is served
+    with pytest.raises(TwoPeopleOneChart, match="run the night again"):
+        publish_held(cfg, later)
+    assert (cfg.lake_dir / "CURRENT").read_text().strip() == NEXT and rb.calls == [NEXT]
+    _write(feed / "patient.csv", [_other_person(rows[0]), *rows[1:]])
+    assert _night(cfg, feed, later).held  # compared with the night served now
+    assert publish_held(cfg, later).promoted and rb.calls == [NEXT, later]
+
+
+def test_another_identity_column_changing_is_no_second_person(tmp_path: Path, pg_cluster_url: str) -> None:
+    """Review B1: of a mapping's identity only the name and national id say who the person is; another column kept
+    there (here a phone) changing, tonight or against the served night, is one person's change and holds nothing."""
+    maps = tmp_path / "mapping"
+    shutil.copytree(MAPPING.parent, maps)
+    mapping = maps / MAPPING.name
+    text = mapping.read_text(encoding="utf-8")
+    was = "identity: {name: name, national_id: id_no}"
+    assert was in text
+    mapping.write_text(text.replace(was, "identity: {name: name, national_id: id_no, phone: phone}"), encoding="utf-8")
+    sep = "&" if "?" in pg_cluster_url else "?"
+    cfg, _rb = _cfg(tmp_path, f"{pg_cluster_url}{sep}tb_prefix=twopeople{os.getpid()}_{next(_MAP)}_", mapping)
+    assert _night(cfg, _feed(tmp_path), GOOD).passed
+    (tmp_path / "next").mkdir()
+    feed = _feed(tmp_path / "next")
+    rows = _rows(feed / "patient.csv")
+    _write(feed / "patient.csv", [{**rows[0], "phone": "0900000001"}, *rows[1:], {**rows[1], "phone": "0900000002"}])
+    rep = _night(cfg, feed, NEXT)
+    assert rep.passed and not rep.held, rep.errors
+    assert not (snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).exists()
+
+
+def test_a_bulk_export_with_two_national_ids_under_one_patient_id_is_held(tmp_path: Path) -> None:
+    """Review P02: two bulk Patients under one id with the same birth date and sex but another identifier of one
+    system are two people; the same identifier twice is one person."""
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(KEY)
+    cfg = AdapterConfig(lake_dir=tmp_path / "lake", secrets_dir=sec, site_id="T", audit_dir=tmp_path / "audit",
+                        mapping_path=MAPPING)  # fmt: skip
+    exp = tmp_path / "bulk"
+    exp.mkdir()
+
+    def patient(pid: str, born: str, national_id: str) -> dict[str, Any]:
+        return {"resourceType": "Patient", "id": pid, "gender": "female", "birthDate": born,
+                "identifier": [{"system": "urn:synthetic:national-id", "value": national_id}]}  # fmt: skip
+
+    items = [patient("p1", "1971-03-01", "Z100000001"), patient("p1", "1971-03-01", "Z200000002"),
+             patient("p2", "1980-01-01", "Z300000003"), patient("p2", "1980-01-01", "Z300000003")]  # fmt: skip
+    (exp / "Patient.ndjson").write_text("\n".join(json.dumps(r) for r in items) + "\n", encoding="utf-8")
+    rep = run_ingest(cfg, "fhir_bulk", str(exp), snapshot=NEXT, load_fhir=False, rebuild_lake=False, validate=False)
+    text = " ".join(rep.errors or [])
+    assert rep.held and "two different people" in text, text
+    assert "Z100000001" not in text and "Z200000002" not in text  # counts only
+    said = json.loads((snapshot_dir(cfg.lake_dir, NEXT) / IDENTITY_CONFLICT).read_text())
+    assert said["tonight"] == [bulk_id(KEY, "Patient", "p1")]
