@@ -621,3 +621,52 @@ def test_review_r7_an_escaped_quote_inside_a_labelled_value_does_not_end_it(line
 def test_review_r8_a_spaced_screening_number_before_a_count_is_masked() -> None:
     out = bs.scrub_text("RA 0042 2 visits")
     assert "0042" not in out, out
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'mysql --password "first"second -h db',
+        "mysql --password 'Kq7w Zx9m'Pt4r -h db",
+        "mysql --password Kq7w\\ Zx9m -h db",
+        'mysql --password Kq7w"Zx9m Pt4r"Wv2c -h db',
+        "mysql --password 'Kq7w'\"Zx9m Pt4r\"Wv2c -h db",
+    ],
+)
+def test_review_r1b_a_flag_value_is_the_whole_shell_word(line: str) -> None:
+    out = bs.scrub_text(line)
+    assert not [w for w in ("first", "second", "Kq7w", "Zx9m", "Pt4r", "Wv2c") if w in out], out
+    assert out.endswith(" -h db"), out
+
+
+def test_review_r2b_a_twice_encoded_short_email_is_masked() -> None:
+    twice = base64.b64encode(base64.b64encode(b"a@b.co")).decode()
+    assert len(twice) < 24
+    out = bs.scrub_text(f"contact {twice} ok")
+    assert twice not in out, out
+    seen = [out]
+    for _ in range(2):
+        seen += [
+            base64.b64decode(run + "=" * (-len(run) % 4), validate=False).decode("utf-8", "ignore")
+            for run in re.findall(r"[A-Za-z0-9+/]{8,}={0,2}", seen[-1])
+        ]
+    assert "a@b.co" not in "\n".join(seen), seen
+
+
+@pytest.mark.parametrize("tail", ["1234", "1234-5", "56789", "98765.4"])
+@pytest.mark.parametrize("gap", [" ", "  ", "\t"])
+def test_review_r3b_a_numeric_group_after_a_spaced_short_number_is_masked(gap: str, tail: str) -> None:
+    out = bs.scrub_text(f"RA 0042{gap}{tail} ok")
+    assert "0042" not in out and tail not in out, out
+
+
+def test_review_r3c_a_count_after_a_spaced_short_number_stays() -> None:
+    assert bs.scrub_text("RA 0042 2 visits") == "[screening-no] 2 visits"
+
+
+@pytest.mark.parametrize("at", ["before", "after"])
+def test_review_r4b_one_invalid_utf8_byte_does_not_hide_a_quoted_printable_label(at: str) -> None:
+    label = quopri.encodestring("患者氏名".encode()).decode()
+    bad = "=FF"
+    out = bs.scrub_text(f"{bad + label if at == 'before' else label + bad}: Testo Hanako\n")
+    assert "Testo" not in out and "Hanako" not in out, out
