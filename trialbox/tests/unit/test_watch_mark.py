@@ -9,6 +9,7 @@ all: a site that exports no appointment view gets no empty visit list."""
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import pytest
 from console import studies as st
@@ -22,7 +23,7 @@ CID = "GZQO-INC-03"
 TODAY = date(2026, 12, 1)
 
 
-def _cl(verdict: str, visit: str | None = None) -> dict:
+def _cl(verdict: str, visit: str | None = None) -> dict[str, Any]:
     return {"rows": [{"pid": PID, "tier": "review", "next_appointment": visit,
                       "criteria": [{"id": CID, "verdict": verdict}]}]}  # fmt: skip
 
