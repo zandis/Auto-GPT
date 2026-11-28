@@ -616,6 +616,10 @@ case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances
   dgpu48) die "dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it. Its one use is the measuring run (TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure, RUNBOOK §29)" ;;  # H-94 (2): a draft, unmeasured profile is not shown to run on any card
 esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) stop_or_warn gpu-value "$GPU_STUB" "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default"; MODE=stub; GPU=default ;; esac  # D-1091
+# SAFE-1 A1: said at the start, never at the end: with no shipped record the pair runs, labelled "unqualified"
+if [ "$MODE" = gpu ] && ! ls "$ROOT/deploy/qualification/$GPU/"*.json >/dev/null 2>&1; then
+  say "model pair: no shipped qualification record for profile $GPU: the pair will run labelled unqualified (RUNBOOK §11)"
+fi
 # REHEARSAL-REAL-SERVERS (H-89): the box may be a rehearsal box (the rule of REHEARSAL below, read before the GPU
 # check, so a site box is refused before any allowance), and the one card named carries the pair. The GPU check then
 # runs under the mark: the driver below the minimum is a WARN only with a passed probe of this card, this driver and
@@ -1860,7 +1864,7 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
   elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
     echo "    rehearsal box: the pair is the media's placeholder pins (candidate, never promoted); nothing to qualify"
   elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
-    FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
+    :  # SAFE-1 A1: not a FAIL, and said at the start of the install: the release's pinned pair runs, labelled
   fi
   set -e
 fi

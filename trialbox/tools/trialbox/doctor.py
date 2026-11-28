@@ -48,7 +48,8 @@ closed). Checks:
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``site/registry.site.yaml`` in the deploy folder of ``--env-file``, else the repository's ``deploy/``; OPS-016)
   loads; lists the site-pinned builds. WARN when no model build is pinned
-  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
+  (production routes nothing), in PRODUCTION when no pinned build is ``champion`` or the release's weights, and in
+  PRODUCTION when a pinned build holds no qualification record: it runs labelled "unqualified" (SAFE-1 A1);
 * ``site_tz`` (D-315; STD-016, OPS-056): the site's time zone is one setting. ``site.tz`` (settings.yaml), ``TB_TZ``
   (the containers' zone), the ``tz`` of the data source mapping (``data_source.mapping``) and the host's zone (cron
   runs the backup and the log jobs in it; ``TB_HOST_TZ`` when doctor runs in a container) must name the same zone.
@@ -800,9 +801,32 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
         return Check("registry_pins", "WARN", f"no model build pinned ({where}): only the DEV/TEST stub routes")
     names = ", ".join(f"{b.build_id} ({b.status.value}, {b.sha256[:12] if b.sha256 else ''})" for b in pinned)
     env = inp.env.get("TB_ENV", "DEV")
-    # D-823: a VALIDATION box runs its candidate pair; only PRODUCTION routes champions alone
-    if env == "PRODUCTION" and not any(b.status == Status.CHAMPION for b in pinned):
+    # D-823: a VALIDATION box runs its candidate pair; PRODUCTION routes a champion or the release's own weights
+    release = [
+        b
+        for b in pinned
+        if b.serving == "vllm"
+        and not b.context_unknown()
+        and b.expected_sha256
+        and b.sha256 == b.expected_sha256
+        and not b.rehearsal_placeholder
+        and not b.canary_failed
+    ]
+    if env == "PRODUCTION" and not release and not any(b.status == Status.CHAMPION for b in pinned):
         return Check("registry_pins", "WARN", f"pinned: {names}; none is champion, so {env} roles route nothing")
+    unqualified = [
+        b.build_id
+        for b in release
+        if b.serving == "vllm" and not b.qualified_for_production and not b.context_unknown()
+    ]
+    if env == "PRODUCTION" and unqualified:  # SAFE-1 A1: it runs, and says so
+        return Check(
+            "registry_pins",
+            "WARN",
+            f"pinned: {names}; {', '.join(unqualified)} hold no qualification record for their weights: they run "
+            "labelled unqualified (model not qualified on this hardware) until one is promoted "
+            "(pin_model --promote-shipped, RUNBOOK §11)",
+        )
     return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}{placeholder_note(reg)}")
 
 

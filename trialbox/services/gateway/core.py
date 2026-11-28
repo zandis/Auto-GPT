@@ -248,6 +248,7 @@ class _Call:
     build_id: str = ""
     build_sha: str = ""
     thinking_control: str | None = None
+    qualification: str = ""  # SAFE-1 A1: "unqualified" when the build that answered holds no record
     endpoint: str = ""
     zone: str = ""
     tokens_in: int = 0
@@ -759,6 +760,7 @@ class Gateway:
         ep = cand.endpoint
         call.alias, call.build_id, call.build_sha = cand.alias, res.build.build_id, res.build.model_sha
         call.thinking_control = res.build.thinking_control
+        call.qualification = res.qualification
         call.endpoint, call.zone = ep.name, ep.zone
         call.context = int(res.build.context_length) if res.build.context_length else None
         max_tokens = body.get("max_tokens")
@@ -1031,6 +1033,8 @@ class Gateway:
         }
         if call.thinking_control is not None:
             payload["tb"]["thinking_control"] = call.thinking_control
+        if call.qualification:  # SAFE-1 A1: the answer says its model is not qualified on this box
+            payload["tb"]["qualification"] = call.qualification
         if self.traces is not None:
             self.traces.write(
                 {
@@ -1068,6 +1072,7 @@ class Gateway:
                 "X-TB-Build-Sha": call.build_sha,
                 "X-TB-Fallbacks": str(call.fallbacks),
                 "X-TB-Retries": str(call.retries),
+                **({"X-TB-Qualification": call.qualification} if call.qualification else {}),
             },
         )
 
@@ -1110,6 +1115,7 @@ class Gateway:
             "context": call.context,
             "topology": self.config.topology.value,
             "environment": self.config.environment.value,
+            **({"qualification": call.qualification} if call.qualification else {}),  # SAFE-1 A1
             **extra,
         }
         self.audit.append(

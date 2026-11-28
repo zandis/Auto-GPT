@@ -129,6 +129,7 @@ def reply_of(r: NoteResult) -> JudgeReply:
         calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
         sentence=r.sentence,  # L3: both quotes' sentences, read by the one rule (never published)
         affirmed=r.affirmed,  # round 5: both models affirmed the condition (judge v6)
+        qualification=r.qualification,  # SAFE-1 A1
         pair_opinions=list(r.pair_opinions),  # D-1072: both quotes and notes of an agreed answer
         kept=None if r.kept is None else reply_of(r.kept),
     )
@@ -459,10 +460,12 @@ def _row_of(o: Outcome, pair: bool, c: Any = None, valuesets: Any = None) -> Cri
     confidence: float | None = None
     opinions: list[Opinion] = []
     prov: list[str] = []  # D-989: the model calls behind the answer; none on S1's coded answer (stated, not absent)
+    qualification: str | None = None  # SAFE-1 A1: a model behind the answer holds no record
     for e in o.evidence:
         prov.extend(str(x) for x in (e.get("calls") or ([e["call_id"]] if e.get("call_id") else [])))
         if e.get("opinions"):
             opinions = [Opinion(**x) for x in e["opinions"]]
+        qualification = str(e["qualification"]) if e.get("qualification") else qualification
         if e.get("did"):
             refs.append(f"DocumentReference/{e['did']}")
             quote = str(e.get("quote")) if e.get("quote") else quote
@@ -489,6 +492,7 @@ def _row_of(o: Outcome, pair: bool, c: Any = None, valuesets: Any = None) -> Cri
             confidence=None if status == "unknown" else confidence,  # INT-S-C: an unknown carries none
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
             opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
+            qualification="unqualified" if qualification else None,  # SAFE-1 A1
             needs=Need(view=need[0], field=need[1], concept=need[2]) if need else None,
         ),
         final=_final(o, status),

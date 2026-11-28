@@ -1062,12 +1062,16 @@ def confirm_shipped(gpu: str, out: Path = DEFAULT_OVERRIDE) -> bool:
     return True
 
 
-def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE, *, record_id: str | None = None) -> list[str]:
+def demote_pair(
+    gpu: str, out: Path = DEFAULT_OVERRIDE, *, record_id: str | None = None, canary_failed: bool = False
+) -> list[str]:
     """Put back to ``candidate`` the builds of the profile that the shipped record promoted (``record_id``; default:
     the promotion that waits for its canary), and drop their qualification reference (D-569). A build that is
     champion on another record (qualified on this box) is not touched. With neither (a demotion by hand, nothing
     waiting) every champion of the pair is put back. The weights' pins stay. One line per build
-    put back; the waiting mark is removed."""
+    put back; the waiting mark is removed. ``canary_failed``: the box's canary did not pass; each build put back is
+    marked ``weights.canary_failed`` (the record id), which the release's weights do not lift (SAFE-1 A1 review
+    B1): it routes nothing in PRODUCTION until it is pinned again or promoted."""
     from registry.registry import Registry, apply_override
 
     doc = load_override(out)
@@ -1081,6 +1085,8 @@ def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE, *, record_id: str | None
             continue
         entry["status"] = "candidate"
         entry.pop("qualification", None)
+        if canary_failed:
+            entry.setdefault("weights", {})["canary_failed"] = rid or "unknown"
         lines.append(f"{build}: back to candidate (its qualification reference is removed; the weights stay pinned)")
     if lines:
         Registry(apply_override(_committed()[0], doc))  # validates the merged registry; raises before writing
@@ -1294,7 +1300,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if confirm_shipped(args.confirm_shipped, args.out) else 1
     if args.demote_pair:
         try:
-            print("\n".join(demote_pair(args.demote_pair, args.out)))
+            # a promotion waits for its canary: the installer (or the operator its FAIL names) puts it back because
+            # the canary did not pass
+            print("\n".join(demote_pair(args.demote_pair, args.out, canary_failed=bool(_pending(args.out)))))
         except (PinError, ValueError) as exc:
             print(f"pin_model: {exc}", file=sys.stderr)
             return 2
